@@ -1,0 +1,12 @@
+import React, { useEffect, useState } from 'react';
+import { RefreshControl, ScrollView, View } from 'react-native';
+import { Icon, type IconName } from './Icon';
+import type { Session } from './core/session';
+import { routeId } from './core/client';
+import { ErrorNotice, FormSection, Header, Label, Loading, useAction, useTheme } from './ui';
+function Note({ text, icon }: { text: string; icon: IconName }) { const c = useTheme(); return <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start' }}><Icon name={icon} size={20} color={c.muted} /><Label size={13} muted style={{ flex: 1 }}>{text}</Label></View>; }
+interface OverviewData { who: { name: string; title: string; blurb: string; soulLead: string }; does: string[]; reaches: string[]; wont: string[]; recent: { at: number; summary: string }[] }
+export function Overview({ session, botId, name, onBack }: { session: Session; botId: string; name: string; onBack: () => void }) {
+ const [data, setData] = useState<OverviewData>(); const action = useAction(); const load = () => action.run(async () => setData(await session.client.request<OverviewData>(`/api/bots/${routeId(botId)}/overview`))); useEffect(() => { void load(); }, [botId]);
+ return <View style={{ flex: 1 }}><Header title={`What ${name} does`} onBack={onBack} /><ScrollView refreshControl={<RefreshControl refreshing={action.busy} onRefresh={() => void load()} />} contentContainerStyle={{ paddingVertical: 16, gap: 16 }}><ErrorNotice error={action.error} />{!data && action.busy && <Loading />}{data && <><FormSection title="Who"><Label size={16} bold>{data.who.name}</Label>{!!data.who.title && <Label size={16}>{data.who.title}</Label>}{!!data.who.blurb && <Label size={16}>{data.who.blurb}</Label>}{!!data.who.soulLead && <Label size={13} muted>{data.who.soulLead}</Label>}</FormSection><FormSection title="Does">{data.does.length ? data.does.map((s, i) => <Note key={i} text={s} icon="schedule" />) : <Label size={16} muted>Nothing scheduled or learned yet.</Label>}</FormSection><FormSection title="Can reach">{data.reaches.map((s, i) => <Note key={i} text={s} icon="hub" />)}</FormSection><FormSection title="Won't">{data.wont.map((s, i) => <Note key={i} text={s} icon="block" />)}</FormSection><FormSection title="Recent changes">{data.recent.length ? data.recent.map((s, i) => <View key={i}><Label>{s.summary}</Label><Label size={12} muted>{new Date(s.at).toLocaleString()}</Label></View>) : <Label size={16} muted>No changes recorded yet.</Label>}</FormSection></>}</ScrollView></View>;
+}

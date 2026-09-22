@@ -84,7 +84,7 @@ beforeAll(async () => {
         res.writeHead(200, { "content-type": "application/json" });
         return res.end(JSON.stringify({ items: [{ slug: "github", name: "GitHub" }] }));
       }
-      if (req.method === "POST" && url.pathname === "/broker/v1/mcp") {
+      if (req.method === "POST" && ["/broker/v1/mcp", "/broker/v1/mcp/scoped"].includes(url.pathname)) {
         res.writeHead(200, { "content-type": "application/json", "mcp-session-id": "mcp_broker" });
         return res.end(JSON.stringify({ source: "broker" }));
       }
@@ -715,6 +715,58 @@ describe.sequential("Composio Sessions", () => {
     expect(normalizeAccountAlias("  personal gmail  ")).toBe("personal gmail");
     expect(() => normalizeAccountAlias("bad\nalias")).toThrow(/printable/i);
     expect(() => normalizeAccountAlias("x".repeat(65))).toThrow(/1-64/i);
+  });
+
+  it("sends managed approvals only to the scoped broker route", async () => {
+    setManagedBrokerAccess({ url: `${origin}/broker`, token: "a".repeat(64) });
+    const before = calls.length;
+    try {
+      const payload = { jsonrpc: "2.0", id: 1, method: "tools/list" };
+      await relayMcp({}, payload, undefined, { botId: "managed-bot", accounts: { gmail: ["ca_work"] } });
+      const requests = calls.slice(before);
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toMatchObject({ path: "/broker/v1/mcp/scoped", body: { botId: "managed-bot", accounts: { gmail: ["ca_work"] }, payload } });
+    } finally { setManagedBrokerAccess(null); }
+  });
+
+  it("pins per-bot accounts and refuses revoked grants before sending MCP requests", async () => {
+    const cfg: AppConfig = { composio: { apiKey: "ak_test", userId: "openmausbot_existing", sessionId: "trs_test" } };
+    const originalFetch = globalThis.fetch;
+    const relayed: string[] = [];
+    const transportHeaders: Array<string | null> = [];
+    let creations = 0;
+    const pinned: unknown[] = [];
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (String(input) === `${base}/tool_router/session` && init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        if (body.connected_accounts) {
+          pinned.push(body);
+          creations++;
+          return Response.json({ session_id: `trs_scoped_${creations}`, mcp: { type: "http", url: `https://app.composio.dev/scoped/${creations}` } });
+        }
+      }
+      if (String(input).startsWith("https://app.composio.dev/scoped/")) {
+        relayed.push(String(input));
+        transportHeaders.push(new Headers(init?.headers).get("mcp-session-id"));
+        return Response.json({ jsonrpc: "2.0", id: 1, result: {} }, { headers: { "mcp-session-id": `transport-${creations}` } });
+      }
+      return originalFetch(input, init);
+    });
+    const payload = { jsonrpc: "2.0", id: 1, method: "tools/list" };
+    try {
+      await expect(relayMcp(cfg, payload, undefined, { botId: "a", accounts: {} })).rejects.toThrow(/No connector accounts/);
+      const first = await relayMcp(cfg, payload, undefined, { botId: "a", accounts: { gmail: ["ca_work"] } });
+      await relayMcp(cfg, payload, first.transportSessionId, { botId: "a", accounts: { gmail: ["ca_work"] } });
+      expect(creations).toBe(1);
+      await relayMcp(cfg, payload, first.transportSessionId, { botId: "a", accounts: { gmail: ["ca_personal"] } });
+      await relayMcp(cfg, payload, first.transportSessionId, { botId: "b", accounts: { gmail: ["ca_work"] } });
+      expect(creations).toBe(3);
+      expect(pinned[0]).toMatchObject({ toolkits: { enable: ["gmail"] }, connected_accounts: { gmail: ["ca_work"] }, manage_connections: { enable: false }, workbench: { enable: false } });
+      expect(pinned[1]).toMatchObject({ connected_accounts: { gmail: ["ca_personal"] } });
+      await expect(relayMcp(cfg, payload, undefined, { botId: "a", accounts: { gmail: ["ca_work"] }, stillAllowed: () => false })).rejects.toThrow(/approvals changed/);
+      expect(relayed).toHaveLength(4);
+      expect(transportHeaders).toEqual([null, "transport-1", null, null]);
+    } finally { spy.mockRestore(); }
   });
 
   it("mounts the Session MCP endpoint with the project key header", async () => {

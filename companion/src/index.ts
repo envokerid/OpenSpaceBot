@@ -42,9 +42,28 @@ import { normalizedPhoneSecretPublicKey } from "./phone-secret-key.ts";
 // Only Electron supplies this port. Standalone sidecars retain the existing
 // unguarded local-server path; Electron children fail closed until initialized.
 const parentPort = (process as NodeJS.Process & {
-  parentPort?: { on(event: "message", listener: (event: { data?: unknown }) => void): void };
+  parentPort?: { postMessage(message: unknown): void; on(event: "message", listener: (event: { data?: unknown }) => void): void };
 }).parentPort;
 let mutationToken: string | null = null;
+const desktopSettingsPending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+parentPort?.on("message", ({ data }) => {
+  if (!data || typeof data !== "object") return;
+  const message = data as { type?: string; id?: string; value?: unknown; error?: string };
+  if (message.type !== "openmausbot:desktop-settings-result" || !message.id) return;
+  const request = desktopSettingsPending.get(message.id);
+  if (!request) return;
+  desktopSettingsPending.delete(message.id); clearTimeout(request.timer);
+  if (message.error) request.reject(new Error(message.error)); else request.resolve(message.value);
+});
+const desktopSettings = parentPort ? (channel: string, args: unknown[]) => new Promise<unknown>((resolve, reject) => {
+  if (desktopSettingsPending.size >= 16) { reject(new Error("Too many settings operations are running.")); return; }
+  const id = crypto.randomUUID();
+  const timer = setTimeout(() => { desktopSettingsPending.delete(id); reject(new Error("The desktop settings operation timed out. Refresh its status before trying again.")); }, 120_000);
+  desktopSettingsPending.set(id, { resolve, reject, timer });
+  timer.unref();
+  try { parentPort.postMessage({ type: "openmausbot:desktop-settings", id, channel, args }); }
+  catch { clearTimeout(timer); desktopSettingsPending.delete(id); reject(new Error("The desktop connection closed.")); }
+}) : undefined;
 parentPort?.on("message", ({ data }) => {
   if (!data || typeof data !== "object") return;
   const message = data as Record<string, unknown>;
@@ -154,6 +173,7 @@ const service = (): ServiceInfo => ({
 const connectedDevices = createConnectedDeviceTracker();
 const proxy = createProxyHandler({
     harnessPort: HARNESS_PORT,
+    desktopSettings,
     mutationToken: parentPort ? () => mutationToken : undefined,
     // `authenticate` also stamps lastSeenAt, which is what makes the control
     // page able to say when a phone was last heard from.

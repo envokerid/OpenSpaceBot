@@ -21,13 +21,13 @@
 const WITHHELD_KEYS = new Set(["resumeCursors", "sshAlias"]);
 
 /** Recursively drop the withheld keys, wherever they appear. */
-export function scrub<T>(value: T): T {
-  if (Array.isArray(value)) return value.map(scrub) as unknown as T;
+export function scrub<T>(value: T, allowSshAlias = false): T {
+  if (Array.isArray(value)) return value.map(inner => scrub(inner, allowSshAlias)) as unknown as T;
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {
-      if (WITHHELD_KEYS.has(key)) continue;
-      out[key] = scrub(inner);
+      if (WITHHELD_KEYS.has(key) && !(key === "sshAlias" && allowSshAlias)) continue;
+      out[key] = scrub(inner, allowSshAlias);
     }
     return out as T;
   }

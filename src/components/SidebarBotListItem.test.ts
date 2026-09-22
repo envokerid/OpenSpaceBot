@@ -38,6 +38,18 @@ function renderRow(candidate: Bot) {
 }
 
 describe("BotListItem", () => {
+  it("shows the last message's calendar day even when the bot is not selected", () => {
+    const at = new Date();
+    at.setDate(at.getDate() - 1);
+    expect(renderRow(bot({ messages: [{ id: "reply", role: "bot", kind: "text", text: "Done", at: at.getTime() }] }))).toContain("Yesterday");
+  });
+
+  it("shows an unread light only until the messages have been read", () => {
+    const unread = renderRow(bot({ unread: true }));
+    expect(unread).toContain('aria-label="Unread threads"');
+    expect(renderRow(bot({ unread: false }))).not.toContain('aria-label="Unread threads"');
+  });
+
   it("offers a direct New folder button and keyboard-accessible bot menu independently of New thread", () => {
     const markup = renderRow(bot());
     expect(markup).toContain('aria-label="New folder under Atlas"');

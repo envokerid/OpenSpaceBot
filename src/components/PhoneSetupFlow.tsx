@@ -65,6 +65,7 @@ export interface PhoneDevice {
   createdAt: number;
   lastSeenAt: number;
   cloudDesktopAccess: boolean;
+  settingsAccess?: boolean;
 }
 
 export interface CompanionState {
@@ -92,6 +93,7 @@ export type CompanionBridge = {
   keepAwake: (enabled: boolean) => Promise<CompanionState>;
   refreshTailscale: () => Promise<CompanionState>;
   pairing: (open: boolean, expectedToken?: string) => Promise<CompanionState>;
+  settingsAccess?: (deviceId: string, allowed: boolean) => Promise<CompanionState>;
   cloudDesktop: (deviceId: string, allowed: boolean) => Promise<CompanionState>;
   revoke: (deviceId: string) => Promise<CompanionState>;
 };

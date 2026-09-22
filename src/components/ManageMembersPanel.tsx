@@ -4,7 +4,7 @@
 // keeps every message a departing bot already sent.
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { track } from "@/lib/analytics";
-import { useStore, type Group } from "@/state/store";
+import { api, useStore, type Group } from "@/state/store";
 import { BotPickerList } from "./BotPickerList";
 import { nextMemberIds } from "@/lib/room-members";
 
@@ -20,6 +20,8 @@ export function ManageMembersPanel({
   const { state, dispatch } = useStore();
   const [picked, setPicked] = useState<Set<string>>(() => new Set(group.memberIds));
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const pending = useRef(false);
   const openedMemberIds = useRef([...group.memberIds]);
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -41,7 +43,7 @@ export function ManageMembersPanel({
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        if (!pending.current) onClose();
         return;
       }
       if (event.key !== "Tab") return;
@@ -79,8 +81,8 @@ export function ManageMembersPanel({
   );
   const changed = memberIds.length !== group.memberIds.length || memberIds.some((id, i) => id !== group.memberIds[i]);
 
-  const save = () => {
-    if (!memberIds.length) return;
+  const save = async () => {
+    if (!memberIds.length || pending.current) return;
     const opened = openedMemberIds.current;
     const rosterChanged =
       opened.length !== group.memberIds.length || opened.some((id, index) => id !== group.memberIds[index]);
@@ -89,7 +91,22 @@ export function ManageMembersPanel({
       return;
     }
     if (changed) {
-      dispatch({ type: "patchGroup", groupId: group.id, patch: { memberIds } });
+      pending.current = true;
+      setSaving(true);
+      setSaveError(null);
+      try {
+        const result = await api<{ group: Group }>(`/api/groups/${group.id}/members`, {
+          method: "PATCH",
+          body: JSON.stringify({ memberIds, expectedMemberIds: opened }),
+        });
+        dispatch({ type: "groupPatched", group: result.group });
+      } catch (error) {
+        setSaveError(error instanceof Error ? error.message : "Could not save members. Try again.");
+        return;
+      } finally {
+        pending.current = false;
+        setSaving(false);
+      }
       track("room_members_changed", {
         members: memberIds.length,
         added: memberIds.filter((id) => !group.memberIds.includes(id)).length,
@@ -102,7 +119,7 @@ export function ManageMembersPanel({
   return (
     <div
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/40"
-      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+      onMouseDown={(e) => e.target === e.currentTarget && !pending.current && onClose()}
     >
       <div
         ref={dialogRef}
@@ -113,7 +130,7 @@ export function ManageMembersPanel({
       >
         <div className="mb-1 text-[15px] font-semibold text-ink">Manage Members</div>
         <div className="mb-3 truncate text-[13px] text-ink-secondary">{group.name}</div>
-        <BotPickerList bots={bots} picked={picked} onToggle={toggle} emptyHint="Create a bot first — groups are made of bots." />
+        <BotPickerList bots={bots} picked={picked} onToggle={toggle} disabled={saving} emptyHint="Create a bot first — groups are made of bots." />
         {!memberIds.length && <div className="mt-2 text-[12px] text-ink-secondary">A group needs at least one bot.</div>}
         {saveError && (
           <div role="alert" className="mt-2 text-[12px] text-danger">
@@ -123,16 +140,17 @@ export function ManageMembersPanel({
         <div className="mt-3 flex gap-2">
           <button
             onClick={onClose}
+            disabled={saving}
             className="flex-1 rounded-lg bg-raised py-2 text-[14px] font-medium text-ink hover:brightness-110"
           >
             Cancel
           </button>
           <button
-            onClick={save}
-            disabled={!memberIds.length}
+            onClick={() => void save()}
+            disabled={!memberIds.length || saving}
             className="flex-1 rounded-lg bg-accent py-2 text-[14px] font-medium text-white hover:brightness-110 disabled:opacity-40"
           >
-            Save{memberIds.length ? ` · ${memberIds.length} ${memberIds.length === 1 ? "bot" : "bots"}` : ""}
+            {saving ? "Saving…" : "Save"}{memberIds.length ? ` · ${memberIds.length} ${memberIds.length === 1 ? "bot" : "bots"}` : ""}
           </button>
         </div>
       </div>

@@ -10,6 +10,7 @@ import worker, {
   ensureSession,
   normalizeAccountAlias,
   parseSession,
+  proxyMcp,
   requestAlias,
   sha256,
 } from "./index";
@@ -55,6 +56,36 @@ function testEnv(fetchCalls: Array<{ url: string; init?: RequestInit }>) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("connected-apps broker boundaries", () => {
+  it("keeps approved account sessions separate by bot and approval set", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const { env, ctx } = testEnv(calls);
+    let created = 0;
+    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, init });
+      if (url.endsWith("/tool_router/session")) return Response.json(session(`trs_approved_${++created}`, "omb_approved"));
+      return Response.json({ jsonrpc: "2.0", id: 1, result: {} });
+    });
+    const installation = { id: "approved-installation", composio_user_id: "omb_approved", session_id: "trs_workspace", disabled_at: null };
+    const send = (botId: string, accounts: Record<string, string[]>) => proxyMcp(new Request("https://broker.test/v1/mcp/scoped", {
+      method: "POST", body: JSON.stringify({ botId, accounts, payload: { jsonrpc: "2.0", id: 1, method: "tools/list" } }),
+    }), installation, env as never, ctx as never, true);
+    expect((await send("a", {})).status).toBe(400);
+    expect(calls).toHaveLength(0);
+    expect((await send("a", { gmail: ["ca_work"] })).status).toBe(200);
+    await send("a", { gmail: ["ca_work"] });
+    expect(created).toBe(1);
+    await send("b", { gmail: ["ca_work"] });
+    await send("a", { gmail: ["ca_personal"] });
+    expect(created).toBe(3);
+    const policies = calls.filter((call) => call.url.endsWith("/tool_router/session")).map((call) => JSON.parse(String(call.init?.body)));
+    expect(policies[0]).toMatchObject({ user_id: "omb_approved", connected_accounts: { gmail: ["ca_work"] }, toolkits: { enable: ["gmail"] }, manage_connections: { enable: false }, workbench: { enable: false } });
+    expect(policies[2].connected_accounts).toEqual({ gmail: ["ca_personal"] });
+    const forwarded = calls.filter((call) => call.url.startsWith("https://mcp.composio.dev/"));
+    expect(forwarded.map((call) => call.url)).toEqual([1, 1, 2, 3].map((id) => `https://mcp.composio.dev/trs_approved_${id}`));
+    expect(JSON.parse(new TextDecoder().decode(forwarded[0].init?.body as ArrayBuffer))).toEqual({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+  });
+
   it("accepts an empty authorize body as a first-account request", async () => {
     await expect(requestAlias(new Request("https://broker.test/v1/connectors/gmail/authorize", {
       method: "POST",

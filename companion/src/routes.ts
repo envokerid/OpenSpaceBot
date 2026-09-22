@@ -1,3 +1,4 @@
+import { isSettingsRoute } from "./settings-routes.ts";
 // What a paired device is allowed to ask for.
 //
 // The default is deny, and that direction is the whole point: the sidecar
@@ -30,6 +31,7 @@ export interface RouteRequest {
   method: string;
   /** Whether the bearer token on the request matched a paired device. */
   authenticated: boolean;
+  settingsAccess?: boolean;
 }
 
 /** The one companion route that crosses into full interactive desktop
@@ -82,10 +84,13 @@ const ALLOWED: ReadonlyArray<{ method: string; path: RegExp }> = [
   // Sidecar-owned, authenticated endpoint metadata. The proxy terminates it
   // locally; it never becomes a newly exposed harness route.
   { method: "GET", path: /^\/api\/companion\/endpoints$/ },
+  { method: "GET", path: /^\/api\/companion\/settings-access$/ },
 
   // the fleet, and making a bot
   { method: "GET", path: /^\/api\/bots$/ },
   { method: "POST", path: /^\/api\/bots$/ },
+  // Explicitly confirmed bot deletion from the mobile roster.
+  { method: "DELETE", path: /^\/api\/bots\/[\w-]+$/ },
   // One narrow, atomic organizer write. This can only file visible bots;
   // unlike the desktop's broad PATCH it cannot alter execution policy.
   { method: "POST", path: /^\/api\/sidebar-sections$/ },
@@ -115,10 +120,16 @@ const ALLOWED: ReadonlyArray<{ method: string; path: RegExp }> = [
   // outside identity, standing instructions (soul, byte-capped), avatar,
   // notifications, and voice preferences.
   { method: "PATCH", path: /^\/api\/bots\/[\w-]+\/profile$/ },
+  // Strict permission subset; Full/Custom still require desktop confirmation.
+  { method: "PATCH", path: /^\/api\/bots\/[\w-]+\/permissions$/ },
   // Full model selection, but no other bot settings. The harness validates
   // the live catalog and refuses changes while the bot is working.
   { method: "PATCH", path: /^\/api\/bots\/[\w-]+\/model$/ },
   { method: "POST", path: /^\/api\/bots\/[\w-]+\/avatar\/generate$/ },
+  // Passive previews of an existing bot desktop, including an idle Local VM.
+  // No VM lifecycle, host-desktop capture, or input routes are exposed.
+  { method: "GET", path: /^\/api\/bots\/[\w-]+\/computer$/ },
+  { method: "POST", path: /^\/api\/bots\/[\w-]+\/local-computer\/screenshot$/ },
   // Full cloud desktop access. The route is narrow and the proxy applies a
   // second, per-device capability check before it reaches the harness.
   CLOUD_DESKTOP_JOIN_ROUTE,
@@ -126,6 +137,10 @@ const ALLOWED: ReadonlyArray<{ method: string; path: RegExp }> = [
   CLOUD_DESKTOP_CONTROL_ROUTE,
   // rooms — making one, and talking in one
   { method: "POST", path: /^\/api\/groups$/ },
+  // Finish the server's first-message setup gate from the phone.
+  { method: "PATCH", path: /^\/api\/groups\/[\w-]+\/setup$/ },
+  // Roster only; the handler rejects other fields and stale member lists.
+  { method: "PATCH", path: /^\/api\/groups\/[\w-]+\/members$/ },
   { method: "POST", path: /^\/api\/groups\/[\w-]+\/messages$/ },
   { method: "POST", path: /^\/api\/groups\/[\w-]+\/interrupt$/ },
   { method: "DELETE", path: /^\/api\/groups\/[\w-]+\/queue\/[\w-]+$/ },
@@ -226,7 +241,7 @@ const EXPLAINED: ReadonlyArray<{ path: RegExp; error: string }> = [
  * is what keeps a stolen token from mapping the API. An allowlist rather than
  * a blocklist is the property this whole module exists for, and the one that
  * quietly stopped being true once before. */
-export function denyReason({ path, method, authenticated }: RouteRequest): Denial | null {
+export function denyReason({ path, method, authenticated, settingsAccess = false }: RouteRequest): Denial | null {
   // Pairing is the one thing a device does before it has a credential.
   if (method === "POST" && path === "/api/pair") return null;
   // Liveness is the other: it exists to be the first thing anyone curls when
@@ -238,6 +253,8 @@ export function denyReason({ path, method, authenticated }: RouteRequest): Denia
   if (!authenticated) {
     return { status: 401, error: "pair this device from Remote access settings on the host computer" };
   }
+
+  if (isSettingsRoute(method, path)) return settingsAccess ? null : { status: 403, error: "Workspace settings access is off for this device. Enable Manage workspace settings for this phone in the desktop Remote access settings." };
 
   if (ALLOWED.some((route) => route.method === method && route.path.test(path))) return null;
 

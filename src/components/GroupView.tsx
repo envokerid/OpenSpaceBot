@@ -1136,8 +1136,8 @@ export function GroupView({ group }: { group: Group }) {
   return (
     <main className="relative flex h-full min-w-0 flex-1 flex-col bg-app">
       <GroupCallOverlay group={group} members={members} />
-      {membersOpen && !remoteClient && !group.dm && (
-        <ManageMembersPanel group={group} onClose={closeMembers} triggerRef={membersTriggerRef} />
+      {membersOpen && !group.dm && (
+        <ManageMembersPanel key={group.id} group={group} onClose={closeMembers} triggerRef={membersTriggerRef} />
       )}
       {/* Header: static member avatars; a ring + dot marks the working bot. */}
       <div
@@ -1179,7 +1179,7 @@ export function GroupView({ group }: { group: Group }) {
           <GroupCallButton group={group} members={members} />
           {!remoteClient && !setupPending && !group.dm && <RoomWorkingFolderChip group={group} onToggle={() => setFolderOpen((open) => !open)} />}
           {!remoteClient && !setupPending && !group.dm && <DefaultResponderSelect group={group} members={members} />}
-          {group.dm || remoteClient ? (
+          {group.dm ? (
             memberMauses
           ) : (
             // The roster lives where you already look to see who is in the
@@ -1197,6 +1197,7 @@ export function GroupView({ group }: { group: Group }) {
               className="flex items-center gap-1.5 rounded-full py-0.5 pl-1 pr-1.5 hover:bg-raised/60"
             >
               {memberMauses}
+              <span className="text-[12px] text-ink-secondary">{t("room.members.manage")}</span>
               <span className="flex size-[18px] items-center justify-center rounded-full border border-dashed border-hairline/70 text-ink-secondary">
                 <Plus size={11} />
               </span>

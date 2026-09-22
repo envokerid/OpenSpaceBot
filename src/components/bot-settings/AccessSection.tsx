@@ -4,7 +4,7 @@
 // Browser are moved verbatim from SettingsPanel.tsx; the connected-service
 // list, webhooks list, and always-allowed list (the first read-only view of
 // standing grants) are new.
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { browserUnavailableReason } from "@/lib/feature-flags";
 import { FolderOpen, Plus } from "lucide-react";
 
@@ -17,7 +17,7 @@ import { useDesktopCapabilities } from "../DesktopCapabilities";
 import { CloudBackendPicker } from "../CloudBackendPicker";
 import { LocalComputerAutoWarning } from "../LocalComputerAutoWarning";
 import { Switch } from "../SettingsPrimitives";
-import { preloadConnectedApps, type ConnectorInventory } from "../PluginsPanel";
+import { BotConnectorAccounts } from "../ConnectorAccountAccess";
 import { inputCls } from "./field";
 import type { useBotSettingsDerived } from "./useBotSettingsDerived";
 
@@ -202,25 +202,8 @@ export function AccessSection({
   } = derived;
   const browserInstallable = state.config?.browserEngine?.installable === true;
   const [localAutoWarning, setLocalAutoWarning] = useState<string | null>(null);
-  const [inventory, setInventory] = useState<ConnectorInventory | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void preloadConnectedApps().then((result) => {
-      if (!cancelled) setInventory(result);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const webhooks = state.webhooks.filter((webhook) => webhook.botId === bot.id);
   const alwaysAllow = bot.alwaysAllow ?? [];
-  const connectedSlugs = inventory?.authoritative
-    ? Object.entries(inventory.services)
-        .filter(([, status]) => status.connected)
-        .map(([slug]) => slug)
-    : [];
 
   return (
     <div className="flex flex-col gap-4">
@@ -322,7 +305,7 @@ export function AccessSection({
                 : !canUseConnectedApps
                   ? "This bot's current engine cannot use connected apps."
                   : connectedAppsEnabled
-                    ? "Let this bot use your connected Gmail, Calendar, Slack, and other apps."
+                    ? "Let this bot use only the accounts approved below."
                     : "Keep your connected apps unavailable to this bot."}
             </div>
           </div>
@@ -343,19 +326,7 @@ export function AccessSection({
             className="disabled:cursor-not-allowed"
           />
         </div>
-        {connectedAppsEnabled && inventory?.authoritative && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {connectedSlugs.length === 0 ? (
-              <span className="text-[11.5px] text-ink-secondary">No apps connected yet.</span>
-            ) : (
-              connectedSlugs.map((slug) => (
-                <span key={slug} className="rounded-full bg-inset px-2 py-0.5 text-[11px] text-ink-secondary">
-                  {slug}
-                </span>
-              ))
-            )}
-          </div>
-        )}
+        <BotConnectorAccounts key={bot.id} bot={bot} />
         {connectedAppsEnabled && connectedAppsConfigured && (
           <button
             type="button"

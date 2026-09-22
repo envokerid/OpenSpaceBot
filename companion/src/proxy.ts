@@ -1,3 +1,4 @@
+import { isSettingsRoute } from "./settings-routes.ts";
 // The forwarding half of the sidecar.
 //
 // A device's request arrives here, is checked against the allowlist, and is
@@ -33,7 +34,8 @@ export interface ProxyOptions {
    * Undefined keeps standalone sidecars compatible with a plain Node harness. */
   mutationToken?: () => string | null;
   /** Does this bearer token belong to a paired device? */
-  authenticate: (token: string | undefined) => { id?: string; cloudDesktopAccess: boolean } | null;
+  desktopSettings?: (channel: string, args: unknown[]) => Promise<unknown>;
+  authenticate: (token: string | undefined) => { id?: string; cloudDesktopAccess: boolean; settingsAccess?: boolean } | null;
   /** Redeem a pairing code. Handled here and never forwarded: the harness
    * has no such route and no idea devices exist — pairing is the sidecar's
    * own concern, and the one thing a device does before it has a token. */
@@ -81,8 +83,11 @@ const PHONE_SECRET_HEADERS_TIMEOUT_MS = 105_000;
 const PHONE_SECRET_PROVIDE_PATH = /^\/api\/bots\/[\w-]+\/secret-cards\/[\w-]+\/provide(?:\?|$)/;
 
 export function proxyHeadersTimeoutMs(url: string, override?: number): number {
-  return override
-    ?? (PHONE_SECRET_PROVIDE_PATH.test(url) ? PHONE_SECRET_HEADERS_TIMEOUT_MS : HEADERS_TIMEOUT_MS);
+  if (override !== undefined) return override;
+  const path = url.split('?')[0];
+  if (/^\/api\/local-computer\/(?:pull|run|start|recreate)$/.test(path)) return 600_000;
+  if (/^\/api\/(?:workspace-backup\/(?:export|preview|restore)|instances\/[\w.-]+\/(?:install|claude-update)|fleet\/(?:workspaces|upgrade))$/.test(path)) return 180_000;
+  return PHONE_SECRET_PROVIDE_PATH.test(url) ? PHONE_SECRET_HEADERS_TIMEOUT_MS : HEADERS_TIMEOUT_MS;
 }
 
 /** A JSON response has to be buffered whole before it can be scrubbed, so the
@@ -280,6 +285,7 @@ export function createProxyHandler(options: ProxyOptions) {
       // that disagree about what a credential looks like means the header a
       // phone sends authenticates on one code path and not the other.
       authenticated: Boolean(device),
+      settingsAccess: device?.settingsAccess === true,
     });
     if (denial) return sendJson(res, denial.status, { error: denial.error });
 
@@ -290,6 +296,33 @@ export function createProxyHandler(options: ProxyOptions) {
       return sendJson(res, 403, {
         error: "cloud desktop access is off for this device — enable it in OpenMausBot → Settings → Remote access",
       });
+    }
+
+    if (isSettingsRoute(method, path) && !device?.settingsAccess) {
+      return sendJson(res, 403, { error: "Workspace settings access is off for this device. Enable Manage workspace settings for this phone in the desktop Remote access settings." });
+    }
+    // Revoking administration closes downloads/uploads as well as the event
+    // stream. The existing response-close handler also cancels forwarding.
+    if (isSettingsRoute(method, path) && device?.id && options.connected) {
+      const release = options.connected(device.id, () => res.destroy());
+      res.once("close", release);
+    }
+    if (method === "GET" && path === "/api/companion/settings-access") {
+      return sendJson(res, 200, { allowed: device?.settingsAccess === true, desktop: !!options.desktopSettings });
+    }
+
+    if (method === "POST" && path === "/api/companion/desktop-settings") {
+      if (!options.desktopSettings) return sendJson(res, 404, { error: "Desktop settings are unavailable on this server." });
+      void readJson(req).then(async body => {
+        const current = options.authenticate(token);
+        if (!current?.settingsAccess) return sendJson(res, 403, { error: "Workspace settings access was revoked." });
+        if (typeof body.channel !== "string" || !Array.isArray(body.args) || body.args.length > 3) return sendJson(res, 400, { error: "Invalid settings request." });
+        const value = await options.desktopSettings!(body.channel, body.args);
+        // Recheck before returning account state or newly minted pairing codes.
+        if (!options.authenticate(token)?.settingsAccess) return sendJson(res, 403, { error: "Workspace settings access was revoked." });
+        sendJson(res, 200, { result: value ?? null });
+      }).catch((error: Error) => sendJson(res, 400, { error: error.message }));
+      return;
     }
 
     const viewerClose = /^\/api\/bots\/([\w-]+)\/computer\/viewer-close$/.exec(path);
@@ -562,7 +595,7 @@ export function createProxyHandler(options: ProxyOptions) {
           let text: string;
           try {
             parsed = viewers.rewriteJoinResponse(path, parsed, device?.id);
-            text = JSON.stringify(scrub(parsed));
+            text = JSON.stringify(scrub(parsed, path === "/api/config" && options.authenticate(token)?.settingsAccess === true));
           } catch {
             sendJson(res, 502, { error: "the response could not be prepared for this device" });
             return;

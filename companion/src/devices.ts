@@ -26,6 +26,8 @@ export interface DeviceRecord {
   /** Full interactive access to a bot's cloud desktop. Deliberately off on
    * every new and migrated device until the computer owner enables it. */
   cloudDesktopAccess: boolean;
+  /** Workspace administration is a separate, explicit grant from the host. */
+  settingsAccess?: boolean;
 }
 
 /** What the UI is allowed to see: a device without its secret. */
@@ -119,6 +121,7 @@ function normalizeDevice(record: Partial<DeviceRecord> & { id: string; tokenHash
     createdAt,
     lastSeenAt: timestamp(record.lastSeenAt, createdAt),
     cloudDesktopAccess: record.cloudDesktopAccess === true,
+    settingsAccess: record.settingsAccess === true,
   };
 }
 
@@ -272,6 +275,7 @@ export class DeviceRegistry {
       createdAt: Date.now(),
       lastSeenAt: Date.now(),
       cloudDesktopAccess: false,
+      settingsAccess: false,
     };
     this.devices.push(device);
     // Unlike the lastSeenAt write below, this one must not be swallowed. A
@@ -352,6 +356,20 @@ export class DeviceRegistry {
       this.persist();
     } catch (error) {
       device.cloudDesktopAccess = previous;
+      throw error;
+    }
+    return true;
+  }
+
+  setSettingsAccess(id: string, allowed: boolean): boolean {
+    const device = this.devices.find((candidate) => candidate.id === id);
+    if (!device) return false;
+    const previous = device.settingsAccess;
+    device.settingsAccess = allowed;
+    try {
+      this.persist();
+    } catch (error) {
+      device.settingsAccess = previous;
       throw error;
     }
     return true;

@@ -1,3 +1,4 @@
+import { createMobileSettingsRegistry } from "./mobile-settings.mjs";
 import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, WebContentsView, clipboard, desktopCapturer, dialog, ipcMain, Menu, nativeImage, powerMonitor, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, utilityProcess } from "electron";
 import { createRequire } from "node:module";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -95,7 +96,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // resolve to ::1 and paint a black window
 const DEV_URL = process.env.ELECTRON_START_URL ?? "http://127.0.0.1:5199";
 const DEFAULT_COMPOSIO_BROKER_URL = "https://openmausbot-composio.milindsoni201.workers.dev";
-let SERVER_PORT = 8799;
+// Development main-process requests must follow the separately launched
+// harness, including when an installed copy is using the default port.
+let SERVER_PORT = app.isPackaged ? 8799 : Number(process.env.OMB_PORT || process.env.OGB_PORT || 8799);
 const APP_ICON = path.join(__dirname, "resources/app-icon.png");
 let desktopViewerWindow = null;
 let desktopViewerOwner = null;
@@ -484,6 +487,8 @@ import {
   companionPairing,
   companionRefreshTailscale,
   companionCloudDesktopAccess,
+  companionSettingsAccess,
+  setCompanionSettingsHandler,
   companionRevoke,
   companionRunning,
   companionState,
@@ -503,7 +508,13 @@ import { createRoutineWakeHold, rememberRoutineWake, routineWakeSettings } from 
  * android-device.mjs. Declared before any handler registration below: a
  * const declared later would be in its temporal dead zone at module load.
  */
-const { isLocalSender: senderIsLocal, localOnly, localOnlySync, setLocalOrigin } = localOriginModule;
+const { isLocalSender: senderIsLocal, localOnly: localSenderOnly, localOnlySync, setLocalOrigin } = localOriginModule;
+const mobileSettings = createMobileSettingsRegistry();
+const localOnly = (channel, handler) => {
+  mobileSettings.register(channel, handler);
+  return localSenderOnly(channel, handler);
+};
+setCompanionSettingsHandler((channel, args) => mobileSettings.invoke(channel, args));
 
 let companionPowerBlocker = null;
 
@@ -2423,6 +2434,11 @@ ipcMain.handle("speech:finish", localOnly("speech:finish", () => {
 ipcMain.handle("companion:state", localOnly("companion:state", () => desktopCompanionState()));
 ipcMain.handle("companion:start", localOnly("companion:start", () => startDesktopCompanion()));
 ipcMain.handle("companion:stop", localOnly("companion:stop", () => stopDesktopCompanion()));
+// A phone needs its acknowledgement before stopping its own transport.
+mobileSettings.register("companion:stop", () => {
+  setTimeout(() => { void stopDesktopCompanion().catch(error => slog(`remote access stop failed: ${error?.message ?? error}`)); }, 500);
+  return { stopping: true };
+});
 ipcMain.handle("companion:keep-awake", localOnly("companion:keep-awake", async (_event, enabled) => {
   rememberCompanionKeepAwake(Boolean(enabled));
   return desktopCompanionState();
@@ -2441,6 +2457,9 @@ ipcMain.handle("companion:pairing", localOnly("companion:pairing", (_event, open
 ));
 ipcMain.handle("companion:cloud-desktop", localOnly("companion:cloud-desktop", (_event, deviceId, allowed) =>
   companionCloudDesktopAccess(deviceId, Boolean(allowed)).then(() => desktopCompanionState()),
+));
+ipcMain.handle("companion:settings-access", localOnly("companion:settings-access", (_event, deviceId, allowed) =>
+  companionSettingsAccess(deviceId, Boolean(allowed)).then(() => desktopCompanionState()),
 ));
 ipcMain.handle("companion:revoke", localOnly("companion:revoke", (_event, deviceId) =>
   companionRevoke(deviceId).then(() => desktopCompanionState()),
@@ -2848,7 +2867,7 @@ app.whenReady().then(async () => {
   }
   registerCuaIpc();
   androidDevice.registerIpc(ipcMain);
-  registerUpdaterIpc();
+  registerUpdaterIpc(mobileSettings);
   // Start the CUA daemon before the window so the harness can pick up the
   // connection descriptor on first render. Never blocks window creation on
   // failure — computer use degrades to "unavailable", the rest still works.

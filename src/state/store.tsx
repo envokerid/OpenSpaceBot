@@ -402,6 +402,8 @@ export interface Bot {
   /** Whether this bot may use the workspace's connected apps. Unset means
    * allowed for existing bots; imported bots start with this disabled. */
   composio?: boolean;
+  /** Explicit per-service account approvals; missing means none. */
+  connectorAccounts?: Record<string, string[]>;
   /** Whether this bot gets the app's built-in browser (Browser tab). On unless switched off. */
   browser?: boolean;
   /** Which app-wide MCP servers (Plugins → MCP servers) this bot mounts, by

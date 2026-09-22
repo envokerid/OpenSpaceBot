@@ -10,6 +10,7 @@ import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
 import { readCachedInventory, writeCachedInventory } from "@/lib/connected-apps-cache";
 import { managedConnectorUnavailableReason } from "../../shared/connector-availability";
+import { AccountBots } from "./ConnectorAccountAccess";
 import { McpServersPanel } from "./McpServersPanel";
 
 export interface ToolkitCard {
@@ -87,19 +88,14 @@ export function disconnectAccountConfirmation(
   return t("connectors.disconnectConfirm", { identity, service });
 }
 
-/** Bots that cannot see the workspace's connected apps because their own
- * per-bot grant is off. Connecting an app is only half of it: a bot a Chief
- * of Staff created, a package brought in, or a backup restored starts with
- * that grant off, and until it is on the bot is never told the tools exist
- * and reaches for a browser instead — with nothing on screen saying why.
- * Bots whose engine cannot mount the tools at all are left out, because
- * their switch is disabled: naming them would move the dead end, not end it.
- * Hidden bots are left out for the same reason — the person cannot act on
- * one from here. */
+/** Bots with approved accounts whose master switch is off. Enabling this
+ * switch restores only those approvals. Bots without approvals use the
+ * per-account plus button; hidden and unsupported bots are omitted here. */
 export function botsMissingConnectedApps(bots: Bot[], instances: InstanceInfo[]): Bot[] {
   return bots.filter((bot) =>
     !bot.hidden &&
     bot.composio === false &&
+    Object.values(bot.connectorAccounts ?? {}).some((ids) => ids.length > 0) &&
     instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId)
       ?.capabilities?.composioMcp === true);
 }
@@ -644,8 +640,8 @@ export function PluginsPanel() {
         )}
         {botsWithoutApps.length > 0 && (
           <div className="mx-6 mb-1 rounded-xl bg-inset px-4 py-3 text-[12.5px] leading-relaxed text-ink-secondary sm:mx-8">
-            <span className="font-medium text-ink">{t("connectors.perBot.title")}</span>{" "}
-            {t("connectors.perBot.body")}
+            <span className="font-medium text-ink">Connected apps are disabled for these bots.</span>{" "}
+            Enable access to their approved accounts.
             <div className="mt-2 flex flex-wrap gap-1.5">
               {botsWithoutApps.map((candidate) => (
                 <button
@@ -654,7 +650,7 @@ export function PluginsPanel() {
                   onClick={() => dispatch({ type: "updateBot", botId: candidate.id, patch: { composio: true } })}
                   className="rounded-full bg-control px-2.5 py-1 text-[11.5px] font-medium text-ink hover:bg-raised-hover"
                 >
-                  {t("connectors.perBot.allow", { name: candidate.name })}
+                  Enable for {candidate.name}
                 </button>
               ))}
             </div>
@@ -774,7 +770,7 @@ export function PluginsPanel() {
                       {accounts.map((account) => {
                         const active = /^active$/i.test(account.status);
                         return (
-                          <div key={account.id} className="flex items-center gap-2 rounded-lg bg-raised/45 px-3 py-2">
+                          <div key={account.id} className="flex items-start gap-2 rounded-lg bg-raised/45 px-3 py-2">
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-1.5 text-[12.5px] font-medium text-ink">
                                 {active && <Check size={13} className="shrink-0 text-success" />}
@@ -783,6 +779,7 @@ export function PluginsPanel() {
                               <div className="mt-0.5 truncate text-[10.5px] text-ink-secondary">
                                 {account.alias ? `${account.id} · ` : ""}{account.status.toLowerCase()}
                               </div>
+                              <AccountBots slug={card.slug} account={account} />
                             </div>
                             <button
                               type="button"

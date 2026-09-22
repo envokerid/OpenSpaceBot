@@ -6,6 +6,8 @@ import { z } from "zod";
 import { SPAWNED_PROXIES } from "./proxy-paths.ts";
 import { managedConnectorUnavailableReason } from "../shared/connector-availability.ts";
 
+import { connectorAccountKey, connectorSessionPolicy, type ConnectorAccounts } from "../shared/connector-grants.ts";
+
 const DEFAULT_BACKEND_ORIGIN = "https://backend.composio.dev";
 
 function apiBase() {
@@ -559,11 +561,40 @@ export async function mcpIntegration(
   };
 }
 
+const scopedProjectSessions = new Map<string, Promise<SessionResponse>>();
+
+async function approvedProjectSession(cfg: AppConfig, scope: { botId: string; accounts: ConnectorAccounts }) {
+  const policy = connectorSessionPolicy(scope.accounts);
+  const base = await ensureProjectSession(cfg);
+  const apiKey = projectApiKey(cfg)!;
+  const userId = base.config?.user_id ?? cfg.composio?.userId;
+  if (!userId) throw new Error("Connected-app user identity is unavailable");
+  const key = backendFingerprint("approved-mcp", JSON.stringify([apiBase(), userId, scope.botId, connectorAccountKey(scope.accounts)]), apiKey);
+  let pending = scopedProjectSessions.get(key);
+  if (!pending) {
+    pending = (async () => {
+      const response = await fetch(`${apiBase()}/tool_router/session`, {
+        method: "POST", headers: projectHeaders(apiKey, true),
+        body: JSON.stringify({ user_id: userId, ...policy, ...(base.config?.auth_configs ? { auth_configs: base.config.auth_configs } : {}) }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!response.ok) throw new Error(await responseError(response, "Could not create approved connector session"));
+      return parseSessionResponse(sessionResponseSchema.parse(await response.json()));
+    })();
+    if (scopedProjectSessions.size >= 128) scopedProjectSessions.delete(scopedProjectSessions.keys().next().value!);
+    scopedProjectSessions.set(key, pending);
+    void pending.catch(() => { if (scopedProjectSessions.get(key) === pending) scopedProjectSessions.delete(key); });
+  }
+  return pending;
+}
+
 export async function relayMcp(
   cfg: AppConfig,
   payload: JsonValue,
   transportSessionId?: string,
+  scope?: { botId: string; accounts: ConnectorAccounts; stillAllowed?: () => boolean },
 ): Promise<{ status: number; bytes: Uint8Array; contentType: string; transportSessionId?: string }> {
+  if (scope) connectorSessionPolicy(scope.accounts);
   const apiKey = projectApiKey(cfg);
   let url: string;
   let identity: string;
@@ -572,16 +603,16 @@ export async function relayMcp(
     accept: "application/json, text/event-stream",
   });
   if (apiKey) {
-    const session = await ensureProjectSession(cfg);
+    const session = scope ? await approvedProjectSession(cfg, scope) : await ensureProjectSession(cfg);
     url = session.mcp.url;
     headers.set("x-api-key", apiKey);
     identity = backendFingerprint("project-mcp", url, apiKey);
   } else {
     const broker = brokerAccess();
     if (!broker) throw new Error("Connected apps are unavailable");
-    url = `${broker.url}/v1/mcp`;
+    url = `${broker.url}/v1/mcp${scope ? "/scoped" : ""}`;
     headers.set("authorization", `Bearer ${broker.token}`);
-    identity = backendFingerprint("managed-mcp", url, broker.token);
+    identity = backendFingerprint("managed-mcp", JSON.stringify([url, scope?.botId, scope && connectorAccountKey(scope.accounts)]), broker.token);
   }
   const knownIdentity = transportSessionId
     ? transportSessionBackends.get(transportSessionId)
@@ -593,10 +624,11 @@ export async function relayMcp(
   if (forwardedTransportSessionId) {
     headers.set("mcp-session-id", forwardedTransportSessionId);
   }
+  if (scope?.stillAllowed && !scope.stillAllowed()) throw inputError("Connector account approvals changed; retry the request", 403);
   const response = await fetch(url, {
     method: "POST",
     headers,
-    body: JSON.stringify(payload),
+    body: JSON.stringify(!apiKey && scope ? { botId: scope.botId, accounts: scope.accounts, payload } : payload),
     signal: AbortSignal.timeout(10 * 60_000),
   });
   const declared = Number(response.headers.get("content-length") ?? "0");

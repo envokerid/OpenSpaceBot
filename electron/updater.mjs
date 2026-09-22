@@ -75,7 +75,11 @@ function setState(patch) {
 // The updater changes THIS app: only the local server's UI may drive it.
 const { localOnly } = localOriginModule;
 
-export function registerUpdaterIpc() {
+export function registerUpdaterIpc(mobileRegistry) {
+  mobileRegistry?.register("update:get-state", () => ({ ...state, supported: !!updaterCoordinator, currentVersion: app.getVersion() }));
+  mobileRegistry?.register("update:check", () => updaterCoordinator?.check(true));
+  mobileRegistry?.register("update:download", () => updaterCoordinator?.download());
+  mobileRegistry?.register("update:install", () => updaterCoordinator?.install());
   ipcMain.handle("update:get-state", localOnly("update:get-state", () => state));
   ipcMain.handle("update:check", localOnly("update:check", () => updaterCoordinator?.check(true)));
   ipcMain.handle("update:download", localOnly("update:download", () => updaterCoordinator?.download()));

@@ -32,6 +32,7 @@ import {
   X,
 } from "lucide-react";
 import { api, useStore, formatTime, visibleMessages, currentTaskBot, type AppState, type Bot, type Group } from "@/state/store";
+import { MessageDay, UnreadLight } from "./BotMessageStatus";
 import { peerLine } from "@/lib/peer-message";
 
 import { BotAvatar, InitialsAvatar } from "./Avatar";
@@ -1151,12 +1152,12 @@ export function BotListItem({
               inputClassName="w-full rounded bg-inset px-1 py-0.5 text-[14px] font-semibold"
             />
           </span>
-          {selected && last && !renaming && !expanded && (
+          {last && !renaming && !expanded && (
             <span className="shrink-0 text-xs text-ink-secondary transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
-              {formatTime(last.at)}
+              <MessageDay at={last.at} />
             </span>
           )}
-          {expanded && unread && <span className="size-1.5 shrink-0 rounded-full bg-accent" aria-label={t("task.unreadMany")} />}
+          {expanded && unread && <UnreadLight />}
         </div>
         {bot.chiefOfStaff && !renaming && (
           // Chief of Staff gets its own line under the name so a long name
@@ -1186,7 +1187,7 @@ export function BotListItem({
             </span>
           )}
           {unread && (
-            <span className="size-2 shrink-0 rounded-full bg-accent" aria-label={t("task.unreadMany")} />
+            <UnreadLight />
           )}
         </div>}
       </div>
@@ -1244,7 +1245,7 @@ export function BotListItem({
         className="absolute left-0.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-ink-secondary outline-none hover:text-ink focus-visible:ring-1 focus-visible:ring-accent/60"
       ><ChevronRight aria-hidden="true" size={13} className={cn("transition-transform", threadsOpen && "rotate-90")} /></button>}
       {!renaming && iconOnly && unread && (
-        <span className="pointer-events-none absolute bottom-1.5 right-1.5 size-2 rounded-full border border-panel bg-accent" />
+        <UnreadLight className="pointer-events-none absolute bottom-1.5 right-1.5" />
       )}
       {!renaming && !deleting && !iconOnly && <>
         {showThreads && <button type="button" aria-label={t("folder.newNamed", { name: bot.name })} title={t("folder.new")} onClick={() => { setThreadsOpen(true); setCreatingProject(true); }}

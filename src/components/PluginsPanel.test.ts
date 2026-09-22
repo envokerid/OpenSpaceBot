@@ -38,8 +38,9 @@ describe("connected apps a bot cannot see", () => {
   it("names the bots whose own grant is off, and only those", () => {
     const bots = [
       bot("allowed"),
-      bot("off", { composio: false }),
-      bot("also-off", { composio: false }),
+      bot("off", { composio: false, connectorAccounts: { gmail: ["ca_work"] } }),
+      bot("also-off", { composio: false, connectorAccounts: { gmail: ["ca_work"] } }),
+      bot("no-accounts", { composio: false }),
     ];
     expect(botsMissingConnectedApps(bots, instances).map((b) => b.id)).toEqual(["off", "also-off"]);
   });

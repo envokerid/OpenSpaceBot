@@ -11,12 +11,14 @@ export function BotPickerList({
   picked,
   onToggle,
   emptyHint,
+  disabled = false,
 }: {
   bots: Bot[];
   picked: Set<string>;
   onToggle: (id: string) => void;
   /** shown in place of the list when there is nothing to pick from */
   emptyHint: string;
+  disabled?: boolean;
 }) {
   return (
     <div className="flex max-h-64 flex-col gap-0.5 overflow-y-auto">
@@ -24,6 +26,7 @@ export function BotPickerList({
       {bots.map((b) => (
         <button
           key={b.id}
+          disabled={disabled}
           onClick={() => onToggle(b.id)}
           role="checkbox"
           aria-label={b.name}

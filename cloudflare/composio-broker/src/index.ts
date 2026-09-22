@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { connectorAccountKey, connectorSessionPolicy } from "../../../shared/connector-grants";
 
 interface InstallationRow {
   id: string;
@@ -266,12 +267,43 @@ async function register(request: Request, env: Env) {
   return json({ installationId, token }, 201);
 }
 
-async function proxyMcp(request: Request, installation: InstallationRow, env: Env, ctx: ExecutionContext) {
+const scopedSessions = new Map<string, Promise<ComposioSession>>();
+const scopedRequestSchema = z.object({
+  botId: z.string().min(1).max(128),
+  accounts: z.record(z.string().regex(/^[a-z0-9_][a-z0-9_-]{0,80}$/), z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/)).max(5)),
+  payload: z.unknown(),
+});
+
+async function proxyMcp(request: Request, installation: InstallationRow, env: Env, ctx: ExecutionContext, scoped = false) {
   const declared = Number(request.headers.get("content-length") ?? "0");
   if (declared > MAX_MCP_BODY) return json({ error: "MCP request is too large" }, 413);
-  const body = await request.arrayBuffer();
+  let body = await request.arrayBuffer();
   if (body.byteLength > MAX_MCP_BODY) return json({ error: "MCP request is too large" }, 413);
-  const session = await ensureSession(installation, env, ctx);
+  let session: ComposioSession;
+  if (scoped) {
+    const parsed = scopedRequestSchema.safeParse(JSON.parse(new TextDecoder().decode(body)));
+    if (!parsed.success || !Object.values(parsed.data.accounts).some((ids) => ids.length)) return json({ error: "Account approvals are required" }, 400);
+    const { botId, accounts, payload } = parsed.data;
+    if (!(await env.SESSION_LIMITER.limit({ key: installation.id })).success) return json({ error: "too many connected-app requests" }, 429);
+    const key = JSON.stringify([env.COMPOSIO_API_BASE, env.COMPOSIO_API_KEY, installation.id, botId, connectorAccountKey(accounts)]);
+    let pending = scopedSessions.get(key);
+    if (!pending) {
+      pending = (async () => {
+        const response = await composioRequest(env, "/tool_router/session", {
+          method: "POST", body: JSON.stringify({ user_id: installation.composio_user_id, ...connectorSessionPolicy(accounts) }),
+        });
+        if (!response.ok) throw new Error(await upstreamError(response, "Could not create approved connector session"));
+        return parseSession(sessionWireSchema.parse(await response.json()));
+      })();
+      if (scopedSessions.size >= 128) scopedSessions.delete(scopedSessions.keys().next().value!);
+      scopedSessions.set(key, pending);
+      void pending.catch(() => { if (scopedSessions.get(key) === pending) scopedSessions.delete(key); });
+    }
+    session = await pending;
+    body = new TextEncoder().encode(JSON.stringify(payload)).buffer;
+  } else {
+    session = await ensureSession(installation, env, ctx);
+  }
   const upstreamHeaders = new Headers(session.headers);
   upstreamHeaders.set("x-api-key", env.COMPOSIO_API_KEY);
   upstreamHeaders.set("content-type", request.headers.get("content-type") ?? "application/json");
@@ -583,6 +615,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext) {
   const installation = await authenticate(request, env);
   if (!installation) return json({ error: "unauthorized" }, 401);
   if (request.method === "GET" && url.pathname === "/v1/me") return json({ installationId: installation.id });
+  if (request.method === "POST" && url.pathname === "/v1/mcp/scoped") return proxyMcp(request, installation, env, ctx, true);
   if (request.method === "POST" && url.pathname === "/v1/mcp") return proxyMcp(request, installation, env, ctx);
   if (request.method === "GET" && url.pathname === "/v1/catalog") return catalog(env, url);
   if (request.method === "GET" && url.pathname === "/v1/connectors/connected") return connectedServices(installation, env, ctx);
@@ -622,6 +655,7 @@ export {
   ensureSession,
   normalizeAccountAlias,
   parseSession,
+  proxyMcp,
   requestAlias,
   sha256,
 };

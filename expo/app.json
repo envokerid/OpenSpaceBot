@@ -1,0 +1,90 @@
+{
+  "expo": {
+    "name": "OpenMausBot Expo",
+    "slug": "openmausbot-companion",
+    "version": "0.1.0",
+    "scheme": "openmausbot",
+    "orientation": "default",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "com.openmausbot.companion.expo",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Connect to your OpenMausBot computer on your local network.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true,
+          "NSAllowsArbitraryLoads": true
+        },
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.openmausbot.companion.expo"
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan the pairing QR code on your OpenMausBot computer."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Attach photos to your OpenMausBot conversations.",
+          "microphonePermission": "Dictate a message to your OpenMausBot team."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          },
+          "ios": {
+            "enableSceneSupport": true
+          }
+        }
+      ],
+      [
+        "expo-sharing",
+        {
+          "ios": {
+            "enabled": true,
+            "activationRule": {
+              "supportsText": true,
+              "supportsWebUrlWithMaxCount": 1,
+              "supportsImageWithMaxCount": 10,
+              "supportsFileWithMaxCount": 10
+            }
+          },
+          "android": {
+            "enabled": true,
+            "singleShareMimeTypes": [
+              "text/*",
+              "image/*",
+              "application/*"
+            ],
+            "multipleShareMimeTypes": [
+              "image/*",
+              "application/*"
+            ]
+          }
+        }
+      ],
+      "expo-web-browser",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Dictate a message to your OpenMausBot team.",
+          "speechRecognitionPermission": "Turn your speech into an editable message."
+        }
+      ],
+      "@react-native-community/datetimepicker",
+      "./plugins/withMaterialTheme.cjs",
+      "expo-audio"
+    ],
+    "icon": "./assets/icon.png"
+  }
+}

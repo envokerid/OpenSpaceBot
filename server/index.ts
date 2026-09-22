@@ -21,6 +21,7 @@ import { RoomHandoffs, type RoomHandoff } from "./room-handoffs.ts";
 import { assertRequestTarget, guardedRequestPath, requestConflict, requestNeedsInput, requestSourceForCard } from "./guarded-requests.ts";
 import { botAvatarUrlFromStoredPath } from "../shared/bot-avatar.ts";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
+import { botPermissionsPatchSchema } from "../shared/bot-permissions.ts";
 import { CLOUD_COMPUTER_BUSY_ERROR } from "../shared/computer-contention.ts";
 import {
   approvalModeFor,
@@ -103,6 +104,7 @@ import {
   vpsAliasResourceChangeError,
 } from "./cloud-backend.ts";
 import * as composio from "./composio.ts";
+import { connectorAccountKey } from "../shared/connector-grants.ts";
 import { chiefOfStaffSystemPrompt } from "./chief-of-staff.ts";
 import { canAccessTeam, canReachPeer, peerAllowed, peerName, peerRosterSystemPrompt, peerStatus, peerStatusWords, reachablePeers, resolveTeammate, roomPeerRosterSystemPrompt, roomRosterLine, PEER_ACCESS_HELP } from "./peer-roster.ts";
 import { openMausStatusSystemPrompt } from "./openmaus-status-capsule.ts";
@@ -1904,7 +1906,8 @@ async function botOverview(bot: BotRecord): Promise<BotOverview> {
   const connectedApps = await connectedAppsFacts(
     composio.configured(cfg),
     composio.connectorAvailability(cfg),
-    () => composio.connectedServices(cfg),
+    async () => Object.fromEntries(Object.entries(await composio.connectedServices(cfg)).filter(([slug, service]) =>
+      service.accounts.some((account) => bot.connectorAccounts?.[slug]?.includes(account.id) && /^active$/i.test(account.status)))),
   );
   const engine = registry.get(bot.modelSelection.instanceId)?.adapter.capabilities ?? null;
   const sectionPeers = reachablePeers(store.bots, bot).length;
@@ -13306,12 +13309,21 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!currentSender || currentSender.composio === false || !composio.configured(cfg)) {
           return json(res, 403, { error: "connected apps are not enabled for this bot" });
         }
+        const accounts = currentSender.connectorAccounts ?? {};
+        if (connectorAccountKey(accounts) === "[]") {
+          return json(res, 403, { error: "No connector accounts approved for this bot. Add an account in the bot's Access sidebar." });
+        }
+        const approvalKey = connectorAccountKey(accounts);
         const upstream = await composio.relayMcp(
           cfg,
           body,
           Array.isArray(req.headers["mcp-session-id"])
             ? req.headers["mcp-session-id"][0]
             : req.headers["mcp-session-id"],
+          { botId: currentSender.id, accounts, stillAllowed: () => {
+            const live = store.bot(currentSender.id);
+            return Boolean(live && live.composio !== false && internalCapabilityIsActive(internalCapability) && connectorAccountKey(live.connectorAccounts) === approvalKey);
+          } },
         );
         const headers: Record<string, string> = {
           "content-type": upstream.contentType,
@@ -13435,7 +13447,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!composio.configured(cfg) || owner.bot.composio === false) {
           return json(res, 409, { error: "connected apps are not enabled for this bot" });
         }
-        const connectionState: Record<string, { connected?: boolean }> = await composio.connectionStatus(cfg, slugs).catch(() => ({}));
+        const connectionState = await composio.connectionStatus(cfg, slugs).catch((): Awaited<ReturnType<typeof composio.connectionStatus>> => ({}));
         requireActiveInternalCapability();
         const messageIds: string[] = [];
         for (const item of items) {
@@ -13449,7 +13461,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           }
           const toolkit = await composio.toolkitCard(cfg, item.slug);
           requireActiveInternalCapability();
-          const connected = connectionState[item.slug]?.connected === true;
+          const connected = connectionState[item.slug]?.accounts?.some((account) => store.bot(botId)?.connectorAccounts?.[item.slug]?.includes(account.id) && /^active$/i.test(account.status)) === true;
           const status = item.alias ? "required" : connected ? "connected" : "required";
           const description = item.alias
             ? `Connect ${toolkit.label} as “${item.alias}” so the bot can continue`
@@ -14639,6 +14651,25 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, 200, { group: fresh });
     }
 
+    // Roster-only companion surface. Compare the opened roster atomically so
+    // saving on one device cannot silently undo another device's changes.
+    m = path.match(/^\/api\/groups\/([\w-]+)\/members$/);
+    if (m && method === "PATCH") {
+      const parsed = z.object({
+        memberIds: z.array(z.string()).min(1),
+        expectedMemberIds: z.array(z.string()),
+      }).strict().safeParse(await readBody(req));
+      if (!parsed.success) return json(res, 400, { error: "provide memberIds and expectedMemberIds only" });
+      const existing = store.group(m[1]);
+      if (!existing) return json(res, 404, { error: "no such room" });
+      const expected = parsed.data.expectedMemberIds;
+      if (expected.length !== existing.memberIds.length || expected.some((id, i) => id !== existing.memberIds[i])) {
+        return json(res, 409, { error: "This group's members changed. Close the member picker and try again." });
+      }
+      const group = updateChannel(m[1], { memberIds: parsed.data.memberIds });
+      return json(res, 200, { group: publicGroupState(group) });
+    }
+
     m = path.match(/^\/api\/groups\/([\w-]+)$/);
     if (m && method === "PATCH") {
       const body = await readBody(req);
@@ -15185,11 +15216,24 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       broadcast({ kind: "bot", bot: visible });
       return json(res, 200, { bot: visible });
     }
-    m = path.match(/^\/api\/bots\/([\w-]+)$/);
+    m = path.match(/^\/api\/bots\/([\w-]+)(\/permissions)?$/);
     if (m && method === "PATCH") {
-      const body = await readBody(req);
+      let body = await readBody(req);
       if (!body || typeof body !== "object" || Array.isArray(body)) {
         return json(res, 400, { error: "body must be a JSON object" });
+      }
+      // Reuse the desktop's validation, persistence, role handover and
+      // broadcasts without exposing its broad settings route to phones.
+      if (m[2]) {
+        const parsed = botPermissionsPatchSchema.safeParse(body);
+        if (!parsed.success) return json(res, 400, { error: "Unsupported or invalid bot permission setting" });
+        body = parsed.data;
+        const target = store.bot(m[1]);
+        if (!target) return json(res, 404, { error: "no such bot" });
+        const driver = registry.cliTarget(target.modelSelection.instanceId)?.driverKind;
+        if (body.approvalMode && !supportsApprovalMode(driver, body.approvalMode)) {
+          return json(res, 400, { error: "This provider does not support the selected approval level" });
+        }
       }
       if (auth.kind === "session" && !auth.scopes.includes("admin")) {
         const field = clientBotPatchViolation(body);
@@ -18266,6 +18310,33 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
     }
 
+    // Owner-only routes: internal bot capabilities cannot assign their own access.
+    m = path.match(/^\/api\/bots\/([\w-]+)\/connector-accounts\/([a-z0-9_][a-z0-9_-]{0,80})\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/);
+    if (m && (method === "POST" || method === "DELETE")) {
+      // A bot capability is never an owner credential, even on a standalone
+      // server where ordinary same-origin loopback requests are trusted.
+      if (req.headers.authorization && !(auth.kind === "session" && auth.via === "bearer")) {
+        return json(res, 403, { error: "Connector account approvals require the owner, not a bot token" });
+      }
+      const [, botId, slug, accountId] = m;
+      if (!store.bot(botId)) return json(res, 404, { error: "no such bot" });
+      if (method === "POST") {
+        const service = (await composio.connectionStatus(cfg, [slug]))[slug];
+        if (!service?.accounts?.some((account) => account.id === accountId && /^active$/i.test(account.status))) {
+          return json(res, 400, { error: "Choose an active account connected to this service" });
+        }
+      }
+      // Re-read after the inventory request so concurrent additions are retained.
+      const bot = store.bot(botId);
+      if (!bot) return json(res, 404, { error: "no such bot" });
+      const accounts = { ...bot.connectorAccounts };
+      const ids = accounts[slug] ?? [];
+      accounts[slug] = method === "POST" ? [...new Set([...ids, accountId])] : ids.filter((id) => id !== accountId);
+      if (!accounts[slug].length) delete accounts[slug];
+      const updated = store.patchBot(botId, { connectorAccounts: accounts, ...(method === "POST" ? { composio: true } : {}) });
+      return json(res, 200, { bot: wireBot(updated!) });
+    }
+
     // ── connectors (Composio) ──
     if (method === "GET" && path === "/api/connectors/catalog") {
       const { cards, source } = await composio.listToolkits(cfg);
@@ -18304,9 +18375,27 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, 200, await composio.authorizeService(cfg, m[1], body.alias));
     }
     m = path.match(/^\/api\/connectors\/([\w-]+)\/accounts\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/);
-    if (m && method === "DELETE") return json(res, 200, await composio.removeAccount(cfg, m[1], m[2]));
+    if (m && method === "DELETE") {
+      const result = await composio.removeAccount(cfg, m[1], m[2]);
+      for (const bot of store.bots) {
+        if (!bot.connectorAccounts?.[m[1]]?.includes(m[2])) continue;
+        const accounts = { ...bot.connectorAccounts, [m[1]]: bot.connectorAccounts[m[1]].filter((id) => id !== m![2]) };
+        if (!accounts[m[1]].length) delete accounts[m[1]];
+        store.patchBot(bot.id, { connectorAccounts: accounts });
+      }
+      return json(res, 200, result);
+    }
     m = path.match(/^\/api\/connectors\/([\w-]+)$/);
-    if (m && method === "DELETE") return json(res, 200, await composio.removeService(cfg, m[1]));
+    if (m && method === "DELETE") {
+      const result = await composio.removeService(cfg, m[1]);
+      for (const bot of store.bots) {
+        if (!bot.connectorAccounts?.[m[1]]) continue;
+        const accounts = { ...bot.connectorAccounts };
+        delete accounts[m[1]];
+        store.patchBot(bot.id, { connectorAccounts: accounts });
+      }
+      return json(res, 200, result);
+    }
 
     // Phone credential entry arrives as an HPKE envelope bound to the exact
     // paired device, bot, task, card and allowlisted target. The companion
@@ -18419,11 +18508,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const account = connector.alias
           ? service?.accounts?.find((item) => item.alias?.trim().toLowerCase() === connector.alias!.toLowerCase())
           : undefined;
+        const approved = service?.accounts?.filter((item) => store.bot(m![1])?.connectorAccounts?.[connector.slug]?.includes(item.id));
         const state = connector.alias ? {
-          connected: /^active$/i.test(account?.status ?? ""),
+          connected: Boolean(account && approved?.some((item) => item.id === account.id) && /^active$/i.test(account.status)),
           pending: /^(initiated|initializing|pending)$/i.test(account?.status ?? ""),
           status: account?.status ?? "not_connected",
-        } : service;
+        } : { ...service, connected: approved?.some((item) => /^active$/i.test(item.status)) === true };
         const failed = /failed|expired|revoked|error/i.test(state?.status ?? "");
         const next = {
           ...connector,

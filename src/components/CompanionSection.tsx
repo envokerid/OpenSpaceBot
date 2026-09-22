@@ -290,6 +290,14 @@ export function CompanionSection({ profileEmail = "" }: { profileEmail?: string 
                     }
                   />
                 </div>
+                <div className="mt-3 flex items-center justify-between gap-3 border-t border-hairline/30 pt-3">
+                  <div><div className="text-[12px] text-ink">Manage workspace settings</div><div className="mt-0.5 text-[11px] text-ink-secondary">Allow this device to manage provider keys, engines, computers, people and backups.</div></div>
+                  <Switch checked={device.settingsAccess === true} aria-label={`Allow ${device.name} to manage workspace settings`} disabled={c.busy}
+                    onClick={() => void c.act(companion => {
+                      if (!companion.settingsAccess) throw new Error("Update the desktop app to manage this permission.");
+                      return companion.settingsAccess(device.id, !device.settingsAccess);
+                    })} />
+                </div>
               </li>
             ))}
           </ul>

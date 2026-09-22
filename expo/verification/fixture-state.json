@@ -1,0 +1,205 @@
+{
+  "capturedAt": "2026-09-21T16:49:10.943167+00:00",
+  "scope": "Owned isolated fake-engine fixture; no live user data",
+  "bots": [
+    {
+      "id": "25fea5c6-07a1-4541-9705-307b246c94b2",
+      "name": "Expo Probe",
+      "section": null,
+      "threadId": "2d0e7622-8b51-4417-b9f5-68fec47ebc0e",
+      "unread": true,
+      "activity": "idle",
+      "tasks": [
+        {
+          "threadId": "2d0e7622-8b51-4417-b9f5-68fec47ebc0e",
+          "title": "Question comparison",
+          "unread": false,
+          "activity": "idle",
+          "archivedAt": null
+        },
+        {
+          "threadId": "faf9d236-2130-4470-881f-64eb0b1ca69c",
+          "title": "Approval comparison",
+          "unread": false,
+          "activity": "idle",
+          "archivedAt": null
+        },
+        {
+          "threadId": "51d87d8a-3efd-4888-aca1-25d6c7b68b60",
+          "title": "UI comparison routine",
+          "unread": false,
+          "activity": "idle",
+          "archivedAt": null
+        },
+        {
+          "threadId": "ccf861aa-1cc7-4b81-a22f-5e3375b9ece0",
+          "title": "UI comparison routine \u00b7 Results",
+          "unread": false,
+          "activity": "idle",
+          "archivedAt": null
+        },
+        {
+          "threadId": "0e34a701-2f82-46dc-99ba-1d8d155544b2",
+          "title": "Attachment preview",
+          "unread": false,
+          "activity": "idle",
+          "archivedAt": null
+        },
+        {
+          "threadId": "dbc59443-bcf3-4a3d-a5c3-7cc8ab7c0cb2",
+          "title": "Renamed by Expo",
+          "unread": true,
+          "activity": "idle",
+          "archivedAt": null
+        },
+        {
+          "threadId": "a1f12bee-0d57-4b9e-a482-d43850592a6d",
+          "title": "UI parity message",
+          "unread": false,
+          "activity": "idle",
+          "archivedAt": null
+        }
+      ]
+    },
+    {
+      "id": "959506d0-9a6d-4dfe-b875-6b032bcb9df3",
+      "name": "Sprout",
+      "section": "UI checks",
+      "threadId": "3b1868ff-1900-41fb-a51f-44b7f007cf13",
+      "unread": false,
+      "activity": "idle",
+      "tasks": [
+        {
+          "threadId": "3b1868ff-1900-41fb-a51f-44b7f007cf13",
+          "title": "Expo Go connection check",
+          "unread": false,
+          "activity": "idle",
+          "archivedAt": null
+        }
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "id": "3e7d9bb4-6e4a-4731-ad99-752ea503d09f",
+      "name": "UI comparison group",
+      "memberIds": [
+        "25fea5c6-07a1-4541-9705-307b246c94b2",
+        "959506d0-9a6d-4dfe-b875-6b032bcb9df3"
+      ]
+    }
+  ],
+  "routines": [
+    {
+      "id": "5117956b-968f-4a3a-a024-23330f437160",
+      "name": "UI comparison routine",
+      "enabled": true,
+      "schedule": {
+        "type": "daily",
+        "time": "09:00",
+        "weekdays": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    }
+  ],
+  "runs": [
+    {
+      "id": "a59d6df3-abc2-4ede-b44e-f1e0f625a59d",
+      "routineName": "UI comparison routine",
+      "status": "completed",
+      "resultsThreadId": "ccf861aa-1cc7-4b81-a22f-5e3375b9ece0",
+      "executionThreadId": null
+    }
+  ],
+  "transcripts": [
+    {
+      "bot": "Expo Probe",
+      "threadId": "2d0e7622-8b51-4417-b9f5-68fec47ebc0e",
+      "messages": [
+        {
+          "role": "user",
+          "kind": "text",
+          "text": "Question comparison",
+          "questionAnswers": null
+        },
+        {
+          "role": "bot",
+          "kind": "text",
+          "text": "hello from fake claude",
+          "questionAnswers": null
+        },
+        {
+          "role": "bot",
+          "kind": "activity",
+          "text": null,
+          "questionAnswers": null
+        },
+        {
+          "role": "bot",
+          "kind": "options",
+          "text": null,
+          "questionAnswers": "The user answered your questions.\n\nQ: Which appearance should the fixture use?\nA: Light\n\nQ: Which checks should run?\nA: Android, Connection"
+        },
+        {
+          "role": "bot",
+          "kind": "text",
+          "text": "reply to: Question comparison",
+          "questionAnswers": null
+        },
+        {
+          "role": "bot",
+          "kind": "digest",
+          "text": "[digest] \u00b7 tools: Bash \u00d71 (from tool previews) \u00b7 reply: reply to: Question comparison",
+          "questionAnswers": null
+        }
+      ]
+    },
+    {
+      "bot": "Sprout",
+      "threadId": "3b1868ff-1900-41fb-a51f-44b7f007cf13",
+      "messages": [
+        {
+          "role": "bot",
+          "kind": "text",
+          "text": "Hi, I'm Sprout. What would you like me to do?",
+          "questionAnswers": null
+        },
+        {
+          "role": "user",
+          "kind": "text",
+          "text": "Expo Go connection check",
+          "questionAnswers": null
+        },
+        {
+          "role": "bot",
+          "kind": "text",
+          "text": "hello from fake claude",
+          "questionAnswers": null
+        },
+        {
+          "role": "bot",
+          "kind": "activity",
+          "text": null,
+          "questionAnswers": null
+        },
+        {
+          "role": "bot",
+          "kind": "text",
+          "text": "reply to: Expo Go connection check",
+          "questionAnswers": null
+        },
+        {
+          "role": "bot",
+          "kind": "digest",
+          "text": "[digest] \u00b7 tools: Bash \u00d71 (from tool previews) \u00b7 reply: reply to: Expo Go connection check",
+          "questionAnswers": null
+        }
+      ]
+    }
+  ]
+}

@@ -71,6 +71,7 @@ export function computerPrompt(kind: ComputerPromptKind | null): string {
 }
 
 export const COMPOSIO_PROMPT =
+  " You may only use connector accounts explicitly approved for this bot. If an account is missing, ask the user to add it in your Access sidebar or the connected account’s Approved bots list. Connecting or signing in alone does not grant access. " +
   " The user's connected apps (Gmail, Calendar, Slack, Notion, and the rest) are reachable through the composio tools — find the right one with COMPOSIO_SEARCH_TOOLS, read its arguments with COMPOSIO_GET_TOOL_SCHEMAS, then run it with COMPOSIO_MULTI_EXECUTE_TOOL. Reach for them before telling the user you have no access to a service.";
 /** Names the user-added MCP servers a turn actually mounted, so the bot
  * reaches for them instead of saying it has no such tool. Empty when none. */

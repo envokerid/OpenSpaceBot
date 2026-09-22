@@ -78,6 +78,9 @@ entry only after the shared control surface can really drive it.
 The [desktop server connection smoke](desktop-server-connection.md) mounts the
 real Settings connection component in disposable Electron windows.
 
+The [companion port smoke](companion-ports.md) starts the real Electron-owned
+companion on isolated ports and checks its pairing lifecycle.
+
 The [optional organisation connection smoke](organization-settings.md) checks
 the real Settings panel and production desktop client against a synthetic
 Admin server, including cancellation, revocation and unchanged normal startup.
@@ -103,6 +106,9 @@ watching, takeover, input, and profile switching.
 The [local computer launch regression](local-computer-launch.md) starts the
 host CUA gate through real Electron in a disposable home, without opening the
 desktop app or controlling the user's computer.
+
+The [connector account fixture](connector-accounts.md) checks per-bot account
+approvals from both settings views, persistence, and gateway restrictions.
 
 The [bot settings fixture](bot-settings.md) checks profile saves, standing
 instructions, history restore, skill/memory refresh, and stale-response isolation.
@@ -141,6 +147,14 @@ stream closure and fallback through disposable HTTP endpoints.
 
 The [Android thread checks](android-threads.md) cover the Compose thread tree,
 local selection, draft isolation and installable preview APK.
+
+The [Expo companion checks](expo-companion.md) exercise the shared Android/iOS
+protocol client against an isolated desktop companion, including streaming,
+local thread selection, retry receipts, and live approval responses.
+
+The [Expo workspace settings checks](../../expo/verification/settings.md) cover
+administration grants, settings persistence, encrypted backups, the restricted
+Electron bridge and native Android settings screens using disposable fixtures.
 
 The [right-to-left fixture](bidi.md) checks per-block direction in bot replies
 and per-line direction in sent turns, with code pinned left-to-right.

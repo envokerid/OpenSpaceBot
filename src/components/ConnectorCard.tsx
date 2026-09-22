@@ -119,7 +119,7 @@ export function ConnectorCard({ botId, threadId, message }: { botId: string; thr
             </p>
             {!connected && (
               <p className="mt-1 text-[11.5px] text-ink-secondary/80">
-                {t("connectors.card.signInHint")}
+                {t("connectors.card.signInHint")} After connecting, approve the account in this bot's Access sidebar.
               </p>
             )}
             {error && <p className="mt-2 text-[12px] text-danger">{typeof error === "string" ? error : t(error.key)}</p>}

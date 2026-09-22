@@ -4263,6 +4263,11 @@ describe("harness HTTP API", () => {
       // by changing another idle bot to Ask/Auto. Leaving Custom is a trusted
       // desktop transition just like entering it.
       const custom = trustedBots.find((candidate) => candidate.approvalMode === "custom")!;
+      for (const approvalMode of ["ask", "auto"]) {
+        const rejected = await isolatedApi("PATCH", `/api/bots/${custom.id}/permissions`, { approvalMode });
+        expect(rejected.status).toBe(403);
+        expect(rejected.body.error).toMatch(/packaged desktop app/i);
+      }
       for (const body of [
         { approvalMode: "ask" },
         { approvalMode: "auto" },
@@ -5706,6 +5711,25 @@ describe("harness HTTP API", () => {
     const cleared = await api("PATCH", `/api/bots/${bot.id}`, { modelSelection: selection });
     expect(cleared.status).toBe(200);
     expect(cleared.body.bot.modelSelection).toEqual(selection);
+  });
+
+  it("keeps mobile permissions narrow and requires the local Auto warning", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    try {
+      const path = `/api/bots/${bot.id}/permissions`;
+      for (const body of [{ computer: "local" }, { approvalMode: "full", confirmFullAccess: true }, { approvalMode: "custom" }, { alwaysAllow: ["Bash"] }, { chiefOfStaff: "yes" }]) {
+        expect((await api("PATCH", path, body)).status).toBe(400);
+      }
+      expect((await api("PATCH", `/api/bots/${bot.id}`, { computer: "local" })).status).toBe(200);
+      expect((await api("PATCH", path, { approvalMode: "auto" })).status).toBe(400);
+      const granted = await api("PATCH", path, { approvalMode: "auto", acknowledgeLocalAuto: true });
+      expect(granted.status).toBe(200);
+      expect(granted.body.bot).toMatchObject({ approvalMode: "auto", autoApprove: true });
+      expect(granted.body.bot.acknowledgeLocalAuto).toBeUndefined();
+      expect((await api("PATCH", path, { approvalMode: "ask" })).status).toBe(200);
+      expect((await api("PATCH", path, { approvalMode: "auto" })).status).toBe(400);
+      expect((await api("PATCH", "/api/bots/missing/permissions", { chiefOfStaff: true })).status).toBe(404);
+    } finally { await api("DELETE", `/api/bots/${bot.id}`); }
   });
 
   it("grants Auto on this computer only through the warning acknowledgement", async () => {
@@ -8816,6 +8840,8 @@ describe("harness HTTP API", () => {
       pending.status = "FAILED";
       expect((await poll()).body).toMatchObject({ connected: false, status: "FAILED" });
       pending.status = "ACTIVE";
+      expect((await poll()).body.connected).toBe(false);
+      expect((await api("POST", `/api/bots/${bot.id}/connector-accounts/gmail/ca_work`)).status).toBe(200);
       expect((await poll()).body.connected).toBe(true);
       // The other requested alias is still missing, so no continuation yet.
       expect((await api("POST", card(work, "resume"), { threadId: bot.threadId })).status).toBe(409);
@@ -8823,6 +8849,54 @@ describe("harness HTTP API", () => {
     } finally {
       connectorAccounts = [];
       await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
+  it("assigns individual connector accounts, rejects missing accounts, and revokes in-flight access", async () => {
+    expect((await api("PUT", "/api/config", { composio: { apiKey: "ak_good" } })).status).toBe(200);
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    const other = (await api("POST", "/api/bots")).body.bot;
+    connectorAccounts = [
+      { id: "ca_work", alias: "work", status: "ACTIVE", toolkit: { slug: "gmail" } },
+      { id: "ca_personal", alias: "personal", status: "ACTIVE", toolkit: { slug: "gmail" } },
+      { id: "ca_pending", alias: "pending", status: "INITIATED", toolkit: { slug: "gmail" } },
+    ];
+    let held: Awaited<ReturnType<typeof delayedJsonBody>> | undefined;
+    try {
+      const route = (id: string) => `/api/bots/${bot.id}/connector-accounts/gmail/${id}`;
+      expect((await api("POST", route("ca_missing"))).status).toBe(400);
+      expect((await api("POST", route("ca_pending"))).status).toBe(400);
+      expect((await api("POST", `/api/bots/${bot.id}/connector-accounts/github/ca_work`)).status).toBe(400);
+      await api("PATCH", `/api/bots/${bot.id}`, { composio: false });
+      expect((await api("POST", route("ca_work"))).body.bot).toMatchObject({ composio: true, connectorAccounts: { gmail: ["ca_work"] } });
+      expect((await api("POST", route("ca_work"))).body.bot.connectorAccounts.gmail).toEqual(["ca_work"]);
+      await Promise.all([api("POST", route("ca_personal")), api("POST", route("ca_work"))]);
+      expect((await api("GET", "/api/bots")).body.bots.find((item: any) => item.id === bot.id).connectorAccounts.gmail.sort()).toEqual(["ca_personal", "ca_work"]);
+      expect((await api("GET", "/api/bots")).body.bots.find((item: any) => item.id === other.id).connectorAccounts).toBeUndefined();
+      await api("DELETE", route("ca_personal"));
+      const token = await mintTestCapability(BASE, bot.id, bot.threadId, { kind: "connectors" });
+      const selfGrant = await fetch(`${BASE}${route("ca_personal")}`, { method: "POST", headers: { authorization: `Bearer ${token}` } });
+      expect(selfGrant.status).toBe(403);
+      held = await delayedJsonBody("POST", "/api/internal/connectors/mcp",
+        { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "COMPOSIO_MULTI_EXECUTE_TOOL" } },
+        { authorization: `Bearer ${token}` });
+      expect((await api("DELETE", route("ca_work"))).body.bot.connectorAccounts).toEqual({});
+      const refused = await held.finish();
+      expect(refused.status).toBe(403);
+      expect(refused.body.error).toMatch(/No connector accounts approved/);
+      held = undefined;
+      await api("POST", route("ca_work"));
+      await api("POST", route("ca_personal"));
+      await api("POST", `/api/bots/${other.id}/connector-accounts/gmail/ca_work`);
+      expect((await api("DELETE", "/api/connectors/gmail/accounts/ca_work")).status).toBe(200);
+      const saved = (await api("GET", "/api/bots")).body.bots;
+      expect(saved.find((item: any) => item.id === bot.id).connectorAccounts).toEqual({ gmail: ["ca_personal"] });
+      expect(saved.find((item: any) => item.id === other.id).connectorAccounts).toEqual({});
+    } finally {
+      held?.close();
+      connectorAccounts = [];
+      await api("DELETE", `/api/bots/${bot.id}`);
+      await api("DELETE", `/api/bots/${other.id}`);
     }
   });
 

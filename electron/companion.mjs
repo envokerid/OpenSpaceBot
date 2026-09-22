@@ -25,8 +25,14 @@ import {
 // sidecar opened. They must stay clear of the harness, which takes 8799 for
 // itself and 8800 for its webhook receiver — the sidecar refuses to start on
 // either and says which, rather than racing it for the socket.
-const CONTROL_PORT = 8811;
-const COMPANION_PORT = 8810;
+// Honor the same overrides as the standalone companion. The desktop must
+// use these values both when forking and when calling its control API.
+const portFromEnv = (value, fallback) => {
+  const port = Number(value);
+  return Number.isInteger(port) && port > 0 && port < 65536 ? port : fallback;
+};
+const CONTROL_PORT = portFromEnv(process.env.OMB_CONTROL_PORT, 8811);
+const COMPANION_PORT = portFromEnv(process.env.OMB_COMPANION_PORT, 8810);
 
 let proc = null;
 let lastError = null;
@@ -258,6 +264,16 @@ async function start({ resourcesPath, harnessPort, mutationToken, hostedUrl = nu
       child.kill();
     }
   });
+  child.on("message", async message => {
+    if (message?.type !== "openmausbot:desktop-settings" || typeof message.id !== "string" || !/^[a-f0-9-]{36}$/.test(message.id) || !settingsHandler) return;
+    const reply = payload => { try { child.postMessage(payload); } catch { /* The sidecar exited while the operation completed. */ } };
+    try {
+      const value = await settingsHandler(message.channel, message.args);
+      reply({ type: "openmausbot:desktop-settings-result", id: message.id, value });
+    } catch (error) {
+      reply({ type: "openmausbot:desktop-settings-result", id: message.id, error: error instanceof Error ? error.message : "Could not update desktop settings." });
+    }
+  });
   child.stdout?.on("data", (d) => log?.(`[companion] ${String(d).trimEnd()}`));
   child.stderr?.on("data", (d) => log?.(`[companion err] ${String(d).trimEnd()}`));
 
@@ -471,3 +487,13 @@ export async function companionCloudDesktopAccess(deviceId, allowed) {
   await control(allowed ? "POST" : "DELETE", `/devices/${deviceId}/cloud-desktop`).catch(() => {});
   return companionState();
 }
+
+export async function companionSettingsAccess(deviceId, allowed) {
+  if (!proc) return companionState();
+  if (!/^[\w-]{1,64}$/.test(String(deviceId ?? ""))) return companionState();
+  await control(allowed ? "POST" : "DELETE", `/devices/${deviceId}/settings-access`);
+  return companionState();
+}
+
+let settingsHandler;
+export function setCompanionSettingsHandler(handler) { settingsHandler = handler; }

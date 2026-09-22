@@ -96,6 +96,7 @@ const bridge = {
     keepAwake: (enabled) => ipcRenderer.invoke("companion:keep-awake", enabled),
     refreshTailscale: () => ipcRenderer.invoke("companion:refresh-tailscale"),
     pairing: (open, expectedToken) => ipcRenderer.invoke("companion:pairing", open, expectedToken),
+    settingsAccess: (deviceId, allowed) => ipcRenderer.invoke("companion:settings-access", deviceId, allowed),
     cloudDesktop: (deviceId, allowed) => ipcRenderer.invoke("companion:cloud-desktop", deviceId, allowed),
     revoke: (deviceId) => ipcRenderer.invoke("companion:revoke", deviceId),
   },

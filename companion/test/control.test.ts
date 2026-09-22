@@ -83,6 +83,20 @@ describe("origins the control server will change state for", () => {
     expect((await ask("POST", "/devices/missing/cloud-desktop")).status).toBe(404);
   });
 
+  it("grants workspace settings separately, persists it, and revokes it", async () => {
+    const { code } = devices.openPairing();
+    const paired = devices.redeem(code, "Settings phone");
+    if ("error" in paired) throw new Error(paired.error);
+    expect(paired.device.settingsAccess).toBe(false);
+    expect((await ask("POST", `/devices/${paired.device.id}/settings-access`)).status).toBe(200);
+    expect(devices.authenticate(paired.token)?.settingsAccess).toBe(true);
+    expect(devices.authenticate(paired.token)?.cloudDesktopAccess).toBe(false);
+    expect(new DeviceRegistry().authenticate(paired.token)?.settingsAccess).toBe(true);
+    expect((await ask("DELETE", `/devices/${paired.device.id}/settings-access`)).status).toBe(200);
+    expect(devices.authenticate(paired.token)?.settingsAccess).toBe(false);
+    expect((await ask("POST", "/devices/missing/settings-access")).status).toBe(404);
+  });
+
   it("reports a permission write failure without dropping the control server", async () => {
     const [device] = devices.list();
     const writable = devices as unknown as { persist: () => void };

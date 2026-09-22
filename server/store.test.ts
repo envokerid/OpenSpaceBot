@@ -403,9 +403,10 @@ describe("Store", () => {
   it("persists the per-bot composio gate", () => {
     const store = new Store(selection);
     const bot = store.createBot();
-    store.patchBot(bot.id, { composio: false });
+    store.patchBot(bot.id, { composio: false, connectorAccounts: { gmail: ["ca_work", "ca_personal"] } });
     const reloaded = new Store(selection);
     expect(reloaded.bot(bot.id)?.composio).toBe(false);
+    expect(reloaded.bot(bot.id)?.connectorAccounts).toEqual({ gmail: ["ca_work", "ca_personal"] });
   });
 
   it("rotates colors across created bots", () => {

@@ -386,7 +386,13 @@ export async function launchVerificationServer(
   extraProviders: Array<"codex"> = [],
   /** Programmatic tests only: an owned loopback Box provider, never a live account. */
   boxFixtureApi?: string,
+  /** Programmatic tests only: synthetic connector inventory on loopback. */
+  connectorFixtureApi?: string,
 ): Promise<VerificationServer> {
+  if (connectorFixtureApi) {
+    if (!/^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/.test(connectorFixtureApi)) throw new ControlOmbError("Connector verification requires an explicit loopback HTTP provider");
+    try { new URL(connectorFixtureApi); } catch { throw new ControlOmbError("Connector verification requires a valid loopback port"); }
+  }
   if (boxFixtureApi) {
     if (!/^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/.test(boxFixtureApi)) {
       throw new ControlOmbError("Box verification requires an explicit loopback HTTP provider");
@@ -413,6 +419,7 @@ export async function launchVerificationServer(
   mkdirSync(evidenceDir, { recursive: true });
   const logPath = join(evidenceDir, `server-${Date.now()}-${process.pid}.log`);
   writeFileSync(join(dataDir, "config.json"), JSON.stringify({
+    ...(connectorFixtureApi ? { composio: { apiKey: "ak_connector_fixture", userId: "fixture_user", sessionId: "trs_fixture" } } : {}),
     ...(boxFixtureApi ? { box: { token: "box_verification_fixture" } } : {}),
     instances: {
       // The synthetic map omits the default computer engine. Register it
@@ -446,6 +453,7 @@ export async function launchVerificationServer(
     AGENT_BROWSER_EXECUTABLE_PATH: browser.executablePath,
   });
   if (boxFixtureApi) childEnv.OMB_BOX_API = boxFixtureApi;
+  if (connectorFixtureApi) Object.assign(childEnv, { OMB_COMPOSIO_API: `${connectorFixtureApi}/api/v3.1`, OMB_COMPOSIO_TOOLKITS_API: `${connectorFixtureApi}/api/v3` });
   const child = spawn(process.execPath, ["--experimental-strip-types", join(ROOT, "server", "index.ts")], {
     cwd: ROOT,
     env: childEnv,

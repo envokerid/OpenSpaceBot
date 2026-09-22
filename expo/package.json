@@ -1,0 +1,59 @@
+{
+  "name": "@openmausbot/expo",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start --dev-client",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "export": "expo export --platform all",
+    "verify:server": "cd .. && node --experimental-strip-types expo/scripts/verify-server.ts",
+    "go": "expo start --go"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/datetimepicker": "9.1.0",
+    "expo": "~57.0.24",
+    "expo-audio": "~57.0.5",
+    "expo-build-properties": "~57.0.21",
+    "expo-camera": "~57.0.5",
+    "expo-clipboard": "~57.0.2",
+    "expo-crypto": "~57.0.3",
+    "expo-dev-client": "~57.0.19",
+    "expo-document-picker": "~57.0.2",
+    "expo-file-system": "~57.0.7",
+    "expo-haptics": "~57.0.3",
+    "expo-image-picker": "~57.0.19",
+    "expo-intent-launcher": "~57.0.1",
+    "expo-notifications": "~57.0.20",
+    "expo-secure-store": "~57.0.4",
+    "expo-sharing": "~57.0.21",
+    "expo-speech-recognition": "^57.1.0",
+    "expo-system-ui": "~57.0.4",
+    "expo-web-browser": "~57.0.3",
+    "punycode": "^2.3.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-markdown-display": "^7.0.2",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-svg": "15.15.4",
+    "react-native-web": "^0.21.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "type": "module",
+  "overrides": {
+    "markdown-it": "15.0.2"
+  }
+}

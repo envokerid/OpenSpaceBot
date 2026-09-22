@@ -14,7 +14,7 @@ const PASSWORD = "fixture-backup-password-only";
 
 /** Same temporary home and exact port, but a new process. The launcher's
  * close() still owns cleanup; stop this replacement before calling it. */
-async function restartFixture(fixture: VerificationServer): Promise<ChildProcess> {
+export async function restartFixture(fixture: VerificationServer): Promise<ChildProcess> {
   await waitForExit(fixture.child, { signal: "SIGTERM" });
   const dataDir = fixture.info.dataDir;
   const config = JSON.parse(readFileSync(join(dataDir, "config.json"), "utf8"));

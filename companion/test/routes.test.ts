@@ -50,6 +50,7 @@ describe("what the app may do", () => {
     ["POST", "/api/bots/bot_123/respond"],
     ["POST", "/api/bots/bot_123/interrupt"],
     ["DELETE", "/api/bots/bot_123/queue/queue_1"],
+    ["DELETE", "/api/bots/bot_123"],
     ["POST", "/api/bots/bot_123/read"],
     ["POST", "/api/bots/bot_123/always-allow"],
     ["POST", "/api/bots/bot_123/messages/msg_2/edit"],
@@ -61,14 +62,19 @@ describe("what the app may do", () => {
     ["PATCH", "/api/bots/bot_123/tasks/th_1"],
     ["DELETE", "/api/bots/bot_123/tasks/th_1"],
     ["PATCH", "/api/bots/bot_123/profile"],
+    ["PATCH", "/api/bots/bot_123/permissions"],
     ["PATCH", "/api/bots/bot_123/model"],
     ["POST", "/api/bots/bot_123/avatar/generate"],
     ["POST", "/api/bots/bot_123/computer/join"],
     ["POST", "/api/bots/bot_123/secret-cards/message_1/provide"],
     ["POST", "/api/bots/bot_123/computer/control"],
     ["POST", "/api/bots/bot_123/computer/screenshot"],
+    ["GET", "/api/bots/bot_123/computer"],
+    ["POST", "/api/bots/bot_123/local-computer/screenshot"],
     ["POST", "/api/bots/bot_123/computer/viewer-close"],
     ["POST", "/api/groups/room-1/messages"],
+    ["PATCH", "/api/groups/room-1/members"],
+    ["PATCH", "/api/groups/room-1/setup"],
     ["POST", "/api/groups/room-1/interrupt"],
     ["DELETE", "/api/groups/room-1/queue/queue_1"],
     ["POST", "/api/groups/room-1/read"],
@@ -115,6 +121,10 @@ describe("what the app may do", () => {
 });
 
 describe("what it may not", () => {
+  it("keeps VM input and lifecycle private", () => {
+    for (const action of ["run", "stop", "remove", "input"]) expect(allowed("POST", `/api/bots/bot_123/local-computer/${action}`)).toBe(false);
+    expect(allowed("GET", "/api/bots/bot_123/local-computer/screenshot")).toBe(false);
+  });
   it("refuses host configuration, and says where it happens", () => {
     for (const [method, path] of [
       ["PUT", "/api/config"],
@@ -122,6 +132,7 @@ describe("what it may not", () => {
       ["GET", "/api/devices"],
       ["GET", "/api/companion"],
       ["POST", "/api/local-computer/start"],
+      ["POST", "/api/local-computer/screenshot"],
       ["POST", "/api/webhooks"],
       ["POST", "/api/webhooks/wh_1/rotate"],
       ["DELETE", "/api/connectors/gmail"],
@@ -129,7 +140,7 @@ describe("what it may not", () => {
     ] as Array<[string, string]>) {
       const denial = ask(method, path);
       expect(denial?.status, `${method} ${path}`).toBe(403);
-      expect(denial?.error, `${method} ${path}`).toMatch(/on (?:your|the host) computer/);
+      expect(denial?.error, `${method} ${path}`).toMatch(/on (?:your|the host) computer|Workspace settings access/);
     }
     expect(ask("GET", "/api/devices")).toEqual({
       status: 403,
@@ -179,7 +190,7 @@ describe("what it may not", () => {
     expect(allowed("POST", "/api/bots/bot_123/computer/control")).toBe(true);
     expect(allowed("POST", "/api/bots/bot_123/computer/screenshot")).toBe(true);
     expect(allowed("POST", "/api/bots/bot_123/computer/viewer-close")).toBe(true);
-    expect(allowed("GET", "/api/bots/bot_123/computer")).toBe(false);
+    expect(allowed("GET", "/api/bots/bot_123/computer")).toBe(true);
     expect(allowed("GET", "/api/bots/bot_123/computer/control")).toBe(false);
     expect(allowed("GET", "/api/bots/bot_123/computer/viewer-close")).toBe(false);
     expect(allowed("POST", "/api/bots/bot_123/computer/provision")).toBe(false);
@@ -194,11 +205,12 @@ describe("what it may not", () => {
     expect(allowed("POST", "/api/bots/bot_123/secret-cards/message_1/provide/extra")).toBe(false);
   });
 
-  // The method is part of the allowance, not decoration: reading the fleet
-  // and deleting a bot are the same path.
+  // The method and exact path are both part of the allowance.
   it("allows a path only for the methods it was allowed for", () => {
     expect(allowed("GET", "/api/bots")).toBe(true);
-    expect(allowed("DELETE", "/api/bots/bot_123")).toBe(false);
+    expect(allowed("DELETE", "/api/bots")).toBe(false);
+    expect(allowed("DELETE", "/api/bots/bot_123/extra")).toBe(false);
+    expect(ask("DELETE", "/api/bots/bot_123", false)?.status).toBe(401);
     expect(allowed("POST", "/api/threads/th_1/messages")).toBe(false);
     expect(allowed("GET", "/api/threads/th_1/messages/msg_2/file")).toBe(false);
     expect(allowed("POST", "/api/threads/th_1/messages/msg_2/file/extra")).toBe(false);
@@ -227,12 +239,18 @@ describe("what it may not", () => {
     expect(allowed("DELETE", "/api/connectors/slack/accounts/../gmail")).toBe(false);
     expect(allowed("POST", "/api/bots/bot_123/secret-cards/msg_2/provided")).toBe(false);
     expect(allowed("PATCH", "/api/groups/room-1")).toBe(false);
+    expect(allowed("POST", "/api/groups/room-1/members")).toBe(false);
+    expect(allowed("PATCH", "/api/groups/room-1/members/extra")).toBe(false);
+    expect(ask("PATCH", "/api/groups/room-1/members", false)?.status).toBe(401);
+    expect(allowed("POST", "/api/groups/room-1/setup")).toBe(false);
+    expect(allowed("PATCH", "/api/groups/room-1/setup/extra")).toBe(false);
+    expect(ask("PATCH", "/api/groups/room-1/setup", false)?.status).toBe(401);
   });
 
   // Patterns are anchored, so a path that merely starts right is still a
   // path nobody allowed.
   it("is not fooled by a prefix", () => {
-    expect(allowed("GET", "/api/bots/bot_123/computer")).toBe(false);
+    expect(allowed("GET", "/api/bots/bot_123/computer-extra")).toBe(false);
     expect(allowed("GET", "/api/botsandthensome")).toBe(false);
     expect(allowed("GET", "/api/events/all")).toBe(false);
     expect(allowed("GET", "/api/threads/th_1/messages/msg_2/image/../../../config")).toBe(false);
