@@ -94,7 +94,7 @@ import { groupTurnCwd } from "./room-cwd.ts";
 import { RoomTurnDeadline, RoomTurnStallRegistry, roomTurnTimeoutMessage } from "./room-turn-timeout.ts";
 import * as box from "./box.ts";
 import { TeamComputers, teamComputerAssignment, teamComputerCreate, teamComputerOwner, type TeamComputerRecord } from "./team-computers.ts";
-import { isEffortLevel, type WireBot, type WireGroup, type WireTask } from "../shared/wire.ts";
+import { isEffortLevel, type ResolvedSender, type WireBot, type WireGroup, type WireTask } from "../shared/wire.ts";
 import type { TeamComputersPayload } from "../shared/team-computer.ts";
 import { boxCreateRecoverySnapshot, retireDeletedBoxCreate } from "./box-create-idempotency.ts";
 import { boxDeletionSnapshot } from "./box-delete-journal.ts";
@@ -457,6 +457,11 @@ import {
   phoneSecretOperationId,
   type PhoneSecretContext,
 } from "./phone-secret.ts";
+// Keep these two last: a route module may import any server module, and
+// loading the table after everything above leaves module start-up order as is.
+import { json, readBody } from "./harness/http.ts";
+import { ROUTES, dispatchRoutes } from "./routes/table.ts";
+import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
 
 const PORT = Number(process.env.OMB_PORT || process.env.OGB_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.OMB_WEBHOOK_PORT || PORT + 1);
@@ -581,7 +586,7 @@ const turnTriggers = new Map<string, UsageTrigger>();
  * the profile name; a paired or signed-in session names the person, by
  * account email where there is one and otherwise by the device label they
  * chose while pairing. */
-function messageSender(auth: RequestAuth): { name: string } | undefined {
+function messageSender(auth: RequestAuth): ResolvedSender | undefined {
   if (auth.kind !== "session") return undefined;
   const name = (auth.session.email ?? auth.session.label ?? "").trim();
   return name ? { name } : undefined;
@@ -5968,7 +5973,7 @@ function drainQueuedSends() {
 
 /** Keep a person's words off the transcript until a direct-thread slot is
  * available. Reuse the existing cancellable, idempotent composer queue. */
-async function startOrQueueDirectMessage(botId: string, threadId: string, text: string, replyTo?: Message, sendId?: string, sender?: { name: string }) {
+async function startOrQueueDirectMessage(botId: string, threadId: string, text: string, replyTo?: Message, sendId?: string, sender?: ResolvedSender) {
   const capacity = botAtThreadCapacity(botId);
   if (capacity || threadBusy(botId, threadId) || parksBehindCoordination(botId, threadId)) {
     const reason = capacity ? "capacity" as const : undefined;
@@ -5977,6 +5982,7 @@ async function startOrQueueDirectMessage(botId: string, threadId: string, text: 
       sendId,
       reason,
       prompt: promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"),
+      sender,
     });
     return { ok: true as const, queued: true as const, queueId: queued.id, threadId, reason };
   }
@@ -6215,7 +6221,7 @@ async function startTurn(
     /** Admission must succeed before editing the active transcript branch. */
     editedMessageId?: string;
     /** The person who sent this, when not the desktop owner. */
-    sender?: { name: string };
+    sender?: ResolvedSender;
     /** Extra transcript ids to omit (every drained queued line, not just the last). */
     excludeMessageIds?: string[];
     /** Routines run in detached tasks; pin the destination for the whole turn. */
@@ -9637,7 +9643,7 @@ type StartGroupTurnOptions = {
    * sent it (see Message.via). */
   via?: "api";
   /** The person who sent it, when not the desktop owner (see Message.sender). */
-  sender?: { name: string };
+  sender?: ResolvedSender;
 };
 
 function startGroupTurn(
@@ -9847,17 +9853,17 @@ function drainQueuedChannelSends(): void {
       const group = store.group(groupId);
       return group ? groupIsWorking(group) : false;
     },
-    ({ groupId, threadId, text, replyToId, sendId, mode, id, via }) => {
+    ({ groupId, threadId, text, replyToId, sendId, mode, id, via, sender }) => {
       const group = store.group(groupId);
       const ownsThread = group?.dm
         ? group.threadId === threadId
         : Boolean(group && store.groupTaskByThread(group.id, threadId));
       if (!group || !ownsThread) return;
       try {
-        startGroupTurn(groupId, text, resolveReplyTarget(threadId, replyToId), sendId, mode, id, { via, threadId });
+        startGroupTurn(groupId, text, resolveReplyTarget(threadId, replyToId), sendId, mode, id, { via, threadId, sender });
       } catch (error) {
         if (!store.messagesFor(threadId).some((message) => message.queueId === id && message.role === "user")) {
-          store.appendMessage(threadId, { role: "user", kind: "text", text, replyToId, sendId, channelMode: mode, queueId: id, via });
+          store.appendMessage(threadId, { role: "user", kind: "text", text, replyToId, sendId, channelMode: mode, queueId: id, via, sender });
         }
         store.appendMessage(threadId, {
           role: "bot",
@@ -10878,6 +10884,10 @@ async function perBotLocalVmCountForModeChange(): Promise<number | null> {
 }
 
 function configStatus() {
+  // off-by-default thread cleanup knobs stay absent so clients can tell
+  // "unset" apart from any in-range value
+  const eventLogMaxBytes = threadEventLogMaxBytes(cfg);
+  const eventLogRetentionDays = threadEventLogRetentionDays(cfg);
   return {
     xai: { configured: Boolean(cfg.xai?.key) },
     anthropic: { configured: Boolean(cfg.anthropic?.key) },
@@ -10909,7 +10919,11 @@ function configStatus() {
     // not a secret — the settings picker shows it; "" = follow the system
     language: cfg.language ?? "",
     rooms: { turnTimeoutMinutes: roomTurnTimeoutMinutes(cfg) },
-    threads: { maxConcurrentPerBot: maxConcurrentBotThreads(cfg) },
+    threads: {
+      maxConcurrentPerBot: maxConcurrentBotThreads(cfg),
+      ...(eventLogMaxBytes !== null ? { eventLogMaxBytes } : {}),
+      ...(eventLogRetentionDays !== null ? { eventLogRetentionDays } : {}),
+    },
     localVm: {
       mode: localVmMode(cfg),
       maxInstances: localVmMaxInstances(cfg),
@@ -11193,12 +11207,6 @@ function serveStatic(res: ServerResponse, path: string): boolean {
   }
 }
 
-function json(res: ServerResponse, status: number, body: unknown) {
-  const data = JSON.stringify(body);
-  res.writeHead(status, { "content-type": "application/json" });
-  res.end(data);
-}
-
 /** A store refusal is a client error with a status of its own (400 path,
  * 409 conflict, 413 too large); a 409 also carries what is on disk now so
  * the editor can show the bot's version instead of guessing. Anything else
@@ -11218,43 +11226,6 @@ function journalEntryForClient(botId: string, entry: MemoryJournalEntry) {
   const { before: _before, ...visible } = entry;
   const threadTitle = entry.threadId ? store.taskByThread(botId, entry.threadId)?.title : undefined;
   return threadTitle ? { ...visible, threadTitle } : visible;
-}
-
-function readBody(req: IncomingMessage, limit = 1_000_000): Promise<any> {
-  return new Promise((resolve, reject) => {
-    let data = "";
-    let bytes = 0;
-    let done = false;
-    const fail = (status: number, msg: string) => {
-      if (done) return;
-      done = true;
-      const err = Object.assign(new Error(msg), { status });
-      reject(err);
-    };
-    req.on("data", (c) => {
-      if (done) return;
-      bytes += typeof c === "string" ? Buffer.byteLength(c) : c.length;
-      if (bytes > limit) {
-        // Keep draining the socket, but stop retaining attacker-controlled
-        // bytes. Destroying the request here prevents the caller from
-        // receiving the useful 413 response.
-        return fail(413, "body too large");
-      }
-      data += c;
-    });
-    req.on("end", () => {
-      if (done) return;
-      let body: any;
-      try {
-        body = data ? JSON.parse(data) : {};
-      } catch {
-        return fail(400, "invalid JSON body");
-      }
-      done = true;
-      resolve(body);
-    });
-    req.on("error", (e) => fail(400, e instanceof Error ? e.message : String(e)));
-  });
 }
 
 // Loopback-only enforcement: the harness runs on 127.0.0.1 but accepts
@@ -11303,6 +11274,10 @@ const workspaceBackupRoutes = createWorkspaceBackupRoutes({
     },
   }, keepLocked),
 });
+
+// Route modules (server/routes/README.md). `workspaceAccess` is assigned at
+// boot, after this line, so the dependency reads it per request.
+ROUTES.push(createHostedSlackRoutes({ bot: (id) => store.bot(id), hostedReady: () => Boolean(workspaceAccess) && entitled("admin") }));
 
 const toolResults = new ToolResults();
 const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
@@ -11506,6 +11481,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (path.startsWith("/api/") && path !== "/api/events" && path !== "/api/health" && !path.startsWith("/api/shared-computers/") && !isWorkspaceBackupSessionControl(method, path)) {
       releaseWorkspaceRequest = workspaceMaintenance.request();
     }
+
+    // New routes live in modules registered in server/routes/table.ts and
+    // are tried here, behind the gate above; do not add route `if`s below.
+    if (await dispatchRoutes(ROUTES, { req, res, url, path, method, auth, json, readBody })) return;
 
     // ── sessions: who am I, tickets, pairing and revocation ─────────────
     if (method === "GET" && path === "/api/auth/session") {
@@ -13554,6 +13533,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         ? json(res, 200, { ok: true })
         : json(res, 404, { error: "no such routine" });
     }
+    if (path === "/api/routine-runs/seen-all" && method === "POST") {
+      return json(res, 200, { runs: routines!.markAllSeen() });
+    }
     const runMatch = path.match(/^\/api\/routine-runs\/([\w-]+)\/(cancel|seen)$/);
     if (runMatch && method === "POST") {
       const run = runMatch[2] === "cancel"
@@ -14798,6 +14780,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               sendId,
               mode: channelMode,
               via,
+              sender: messageSender(auth),
             });
             return { ok: true as const, queued: true as const, queueId: queued.id, threadId };
           }
@@ -14898,6 +14881,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           queueId: head.id,
           via: head.via,
           steered: true,
+          sender: head.sender,
         });
         settleHeldChannelQueueHead(held);
         return json(res, 200, {
@@ -16342,6 +16326,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               replyToId: replyTo?.id,
               sendId,
               prompt: promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"),
+              sender: messageSender(auth),
             });
             return { ok: true as const, queued: true as const, queueId: queued.id, threadId };
           }
@@ -16414,6 +16399,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           queueId: item.messageId,
           peerAsk: item.peerAsk,
           steered: true,
+          sender: item.sender,
         }));
         // Offered to the next turn again unless the person stops this one.
         for (const message of messages) handoffs.steered(bot.threadId, steerTarget, instance?.instanceId, message.id);
@@ -18339,8 +18325,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
     // ── connectors (Composio) ──
     if (method === "GET" && path === "/api/connectors/catalog") {
-      const { cards, source } = await composio.listToolkits(cfg);
-      return json(res, 200, { configured: composio.configured(cfg), mode: composio.connectionMode(cfg), source, cards });
+      const { cards, source, pagination } = await composio.listToolkits(cfg);
+      return json(res, 200, {
+        configured: composio.configured(cfg),
+        mode: composio.connectionMode(cfg),
+        source,
+        cards,
+        ...(pagination ? { pagination } : {}),
+      });
     }
     if (method === "GET" && path === "/api/connectors/connected") {
       const availability = composio.connectorAvailability(cfg);
@@ -18820,7 +18812,7 @@ for (const row of chatFollowups()) {
   const messages = store.messagesFor(row.threadId);
   const recovered = messages.find((message) => message.queueId === row.id && message.role === "user") ?? store.appendMessage(row.threadId, {
     role: "user", kind: "text", text: row.payload.text, replyToId: row.payload.replyToId,
-    sendId: row.payload.sendId, queueId: row.id,
+    sendId: row.payload.sendId, queueId: row.id, sender: row.payload.sender,
     ...(row.kind === "channel" ? { channelMode: row.payload.mode, via: row.payload.via } : {}),
   });
   // Nor as a message a resumed session has not seen: count it as handed.
