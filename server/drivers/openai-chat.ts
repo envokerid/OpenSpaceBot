@@ -5,6 +5,7 @@ import type {
   RuntimeEvent,
   RuntimeEventListener,
   SendTurnInput,
+  ChatHistoryMessage,
 } from "../contracts.ts";
 import { newEventId, newId } from "../contracts.ts";
 import { redactSecretsInText } from "../redact.ts";
@@ -15,14 +16,7 @@ import { ChatProtocolError, ChatReasoningDetails, ChatToolCalls, MAX_CHAT_TOOL_C
 import { appendNative } from "./native.ts";
 import { classifyError, computeBackoff, interruptibleDelay, RETRY_MAX_ATTEMPTS } from "./retry.ts";
 
-export interface OpenAIChatMessage {
-  role: "system" | "user" | "assistant" | "tool";
-  content: string | null;
-  tool_calls?: ChatToolCall[];
-  tool_call_id?: string;
-  reasoning_content?: string;
-  reasoning_details?: Record<string, unknown>[];
-}
+export type OpenAIChatMessage = ChatHistoryMessage;
 
 interface Usage {
   input: number;
@@ -291,10 +285,10 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
 
   const messagesFor = (turn: SendTurnInput): OpenAIChatMessage[] => [
     ...(turn.system ? [{ role: "system" as const, content: turn.system }] : []),
-    ...(turn.transcript ?? []).map((message) => ({
+    ...(turn.providerHistory?.format === "openai-chat" ? structuredClone(turn.providerHistory.messages) : (turn.transcript ?? []).map((message) => ({
       role: message.role,
       content: message.text,
-    })),
+    }))),
     { role: "user", content: turn.text },
   ];
 
@@ -331,7 +325,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
       signal: abort.signal,
       open: (ask) => emit({
         ...base(turn.threadId, turnId), type: "request.opened", requestType: "permission",
-        requestId: ask.id, tool: ask.tool, summary: ask.summary, allowSession: false,
+        requestId: ask.id, tool: ask.tool, summary: ask.summary, mcpTool: true, allowSession: false,
       }),
       resolved: (ask, allowed, source) => emit({
         ...base(turn.threadId, turnId), type: "request.resolved", requestId: ask.id,
@@ -421,6 +415,11 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
               stopReason = "tool_error";
               throw new ChatProtocolError("One or more tool operations failed or were denied. See the tool results; the final response is not an execution receipt.");
             }
+            messages.push({ role: "assistant", content: completion.text || completion.reasoning,
+              ...(completion.protocolReasoning ? { reasoning_content: completion.protocolReasoning } : {}),
+              ...(completion.protocolReasoningDetails.length ? { reasoning_details: completion.protocolReasoningDetails } : {}),
+            });
+            turn.saveProviderHistory?.({ format: "openai-chat", messages: messages.filter(message => message.role !== "system") });
             ok = true;
             break;
           }
@@ -524,7 +523,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
       : { state: "unavailable", reason: options.unavailableReason },
     adapter: {
       provider: options.driverKind,
-      capabilities: { sessionModelSwitch: "in-session", customMcp: options.tools !== false, agentsMcp: options.tools !== false, composioMcp: options.tools !== false },
+      capabilities: { sessionModelSwitch: "in-session", structuredHistory: true, customMcp: options.tools !== false, agentsMcp: options.tools !== false, composioMcp: options.tools !== false },
       sendTurn,
       interruptTurn: async (threadId, turnId) => {
         const turn = active.get(threadId);

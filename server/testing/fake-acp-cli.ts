@@ -514,9 +514,7 @@ function handle(msg: any) {
         });
         break;
       }
-      if (mode === "safe-agent-reads") {
-        agentsMcp = (msg.params?.mcpServers ?? []).find((server: any) => server.name === "agents") ?? null;
-      }
+      agentsMcp = (msg.params?.mcpServers ?? []).find((server: any) => server.name === "agents") ?? null;
       if (process.env.FAKE_ACP_DUMP) {
         writeFileSync(`${process.env.FAKE_ACP_DUMP}.mcp.json`, JSON.stringify(msg.params?.mcpServers ?? []));
       }
@@ -527,6 +525,7 @@ function handle(msg: any) {
       break;
     }
     case "session/resume": {
+      agentsMcp = (msg.params?.mcpServers ?? []).find((server: any) => server.name === "agents") ?? null;
       if (rejectLiveLoadFile && existsSync(rejectLiveLoadFile) && liveSession === msg.params?.sessionId) {
         out({
           jsonrpc: "2.0",
@@ -619,6 +618,19 @@ function handle(msg: any) {
       break;
     }
     case "session/prompt": {
+      const electionEnv = Object.fromEntries((agentsMcp?.env ?? []).map(item => [item.name, item.value]));
+      if (agentsMcp && electionEnv.OMB_ELECTION_PHASE) {
+        const integration = { command: agentsMcp.command, args: agentsMcp.args ?? [], env: electionEnv };
+        const text = (msg.params?.prompt ?? []).filter((item: any) => item.type === "text").map((item: any) => item.text).join("\n");
+        void import("./election-agent.ts").then(({ runElectionAgent }) => runElectionAgent(integration, text, process.argv.slice(2)))
+          .then(() => {
+            out({ jsonrpc: "2.0", method: "session/update", params: { sessionId: msg.params.sessionId,
+              update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Private submission finished." } } } });
+            result(msg.id, { stopReason: "end_turn" });
+          })
+          .catch(error => out({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: String(error) } }));
+        break;
+      }
       emitConfigUpdates("session/prompt", msg.params.sessionId);
       if (process.env.FAKE_ACP_DUMP && process.env.FAKE_ACP_VARIANTS) {
         writeFileSync(`${process.env.FAKE_ACP_DUMP}.selection.json`, JSON.stringify({

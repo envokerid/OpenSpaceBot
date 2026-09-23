@@ -872,6 +872,11 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             });
           }
           const kind = String(toolCall.kind ?? "");
+          const title = String(toolCall.title ?? "").slice(0, 200);
+          const mcpTool = !isQuestion && kind === "other" &&
+            /^[A-Za-z0-9_-]+__[A-Za-z0-9_.-]+$/.test(title)
+            ? title
+            : null;
           // an earlier "Always allow this session" on this exact operation
           const operationKey = isQuestion || current.controlsHost ? null : sessionOperationKey(toolCall);
           if (operationKey && sessionAllows.get(threadId)?.has(operationKey)) {
@@ -880,8 +885,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               return send({ jsonrpc: "2.0", id: msg.id, result: { outcome: { outcome: "selected", optionId: allow } } });
             }
           }
-          const tool = kind === "execute" ? "shell" : kind === "edit" ? "edit" : kind || "tool";
-          const summary = String(toolCall.rawInput?.command ?? toolCall.title ?? tool).slice(0, 200);
+          const tool = mcpTool ?? (kind === "execute" ? "shell" : kind === "edit" ? "edit" : kind || "tool");
+          const summary = String((toolCall.rawInput?.command ?? title) || tool).slice(0, 200);
           const requestId = newId();
           const finish = (
             behavior: string,
@@ -938,6 +943,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             requestType: isQuestion ? "question" : "permission",
             tool,
             summary,
+            mcpTool: mcpTool ? true : undefined,
             choices: isQuestion
               ? options.flatMap((option) => typeof option.name === "string" && option.name.trim() ? [option.name.trim()] : [])
               : undefined,
@@ -1357,6 +1363,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             let init = session.initResult;
 
             const cursor = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
+            let rebuiltFromHistory = false;
             let sessionResult: any = null;
             for (;;) {
               const liveSessionId = session.sessionId;
@@ -1415,6 +1422,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               // a genuinely fresh native session forgets what the previous
               // one allowed
               if (!cursor) sessionAllows.delete(threadId);
+              rebuiltFromHistory = Boolean(cursor && turn.recoveryText);
               sessionResult = await request("session/new", { cwd, mcpServers: sessionServers }, NEW_SESSION_TIMEOUT, (result) => {
                 session.sessionId = typeof result?.sessionId === "string" ? result.sessionId : null;
                 session.sessionKey = sessionKey;
@@ -1434,6 +1442,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                 ...base(threadId, turnId),
                 type: "session.started",
                 sessionId,
+                ...(rebuiltFromHistory ? { rebuilt: true } : {}),
                 model: selectedModel ?? init?._meta?.modelState?.currentModelId ?? cliTurn.model ?? null,
               });
             };
@@ -1495,11 +1504,12 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               throw error;
             }
             emitSessionStarted();
+            const promptTurn = rebuiltFromHistory ? { ...turn, text: turn.recoveryText! } : turn;
             const text = support.buildPromptText
-              ? support.buildPromptText(turn)
-              : turn.system
-                ? `${turn.system}\n\n${turn.text}`
-                : turn.text;
+              ? support.buildPromptText(promptTurn)
+              : promptTurn.system
+                ? `${promptTurn.system}\n\n${promptTurn.text}`
+                : promptTurn.text;
             const imageBlocks = support.images === true && runtimeAcceptsImages
               ? await readAcpImageBlocks(turn.images ?? [])
               : [];
@@ -1618,6 +1628,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           },
           sendTurn,
           interruptTurn: async (threadId) => active.get(threadId)?.interrupt(),
+          releaseSession: async (threadId) => { closeSession(threadId, "private session released"); },
           respondToRequest: async (threadId, requestId, decision) => {
             const turn = active.get(threadId);
             const finish = turn?.asks.get(requestId);

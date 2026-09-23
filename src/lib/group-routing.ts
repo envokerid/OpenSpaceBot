@@ -22,21 +22,14 @@ export function defaultResponderName(group: Group, members: Bot[]): string | nul
 
 export function groupResponseHint(group: Group, members: Bot[]): string {
   if (group.dm) return t("room.hint.dm");
-  const value = effectiveDefaultResponder(group, members);
-  if (value.kind === "everyone") return t("room.hint.everyone");
-  if (value.kind === "mentions") return t("room.hint.mentions");
-  const name = defaultResponderName(group, members) ?? t("room.hint.leadFallback");
-  return t("room.hint.lead", { name });
+  void members;
+  return t("room.hint.election");
 }
 
 export function groupComposerHint(group: Group, members: Bot[]): string {
   if (group.dm) return t("composer.hint.dm");
-  const value = effectiveDefaultResponder(group, members);
-  if (value.kind === "everyone") return t("composer.hint.everyone");
-  if (value.kind === "mentions") return t("composer.hint.mentions");
-  return t("composer.hint.responder", {
-    name: defaultResponderName(group, members) ?? t("composer.hint.lead"),
-  });
+  void members;
+  return t("composer.hint.election");
 }
 
 /** Same routing sendGroup uses: explicit @mentions win, otherwise the

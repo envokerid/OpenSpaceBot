@@ -3,6 +3,17 @@ import { test } from 'node:test';
 import { settleSendDraft } from '../src/core/sendDraft.ts';
 import type { Draft } from '../src/core/types.ts';
 
+test('goals reset after sending, survive failure, and mode changes invalidate retries', () => {
+  const goal: Draft = { text: 'Ship the draft', files: [], channelMode: 'goal' };
+  assert.deepEqual(settleSendDraft(goal, goal, 'receipt'), { text: '', files: [] });
+  assert.equal(settleSendDraft(goal, goal, 'receipt', true).channelMode, 'goal');
+  assert.equal(settleSendDraft(goal, goal, 'receipt', true).sendId, 'receipt');
+  const next: Draft = { ...goal, channelMode: 'chat' };
+  assert.equal(settleSendDraft(next, goal, 'receipt', true).sendId, undefined);
+  assert.equal(settleSendDraft(next, goal, 'receipt').text, goal.text);
+  assert.equal(settleSendDraft(goal, next, 'receipt').channelMode, 'goal');
+});
+
 test('accepted sends clear only the submitted draft, preserving edits made in flight', () => {
   const sent: Draft = { text: 'First message', files: [] };
   assert.deepEqual(settleSendDraft({ ...sent, sending: true }, sent, 'receipt'), { text: '', files: [] });

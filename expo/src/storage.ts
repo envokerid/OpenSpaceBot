@@ -28,7 +28,7 @@ export async function forget(connection: Connection) {
   await AsyncStorage.setItem(key, JSON.stringify((await connections()).filter(c => c.id !== connection.id)));
 }
 
-export interface Preferences { skin?: import('./core/skins').Skin | 'system'; showThreads?: boolean; welcomeSeen: boolean; notificationsSeen: boolean; activity: 'off' | 'summary' | 'full'; quickReplies: QuickReply[]; selectedThreads: Record<string, string> }
+export interface Preferences { skin?: import('./core/skins').Skin | 'system'; showThreads?: boolean; showDiscussionCards?: boolean; welcomeSeen: boolean; notificationsSeen: boolean; activity: 'off' | 'summary' | 'full'; quickReplies: QuickReply[]; selectedThreads: Record<string, string> }
 const defaults: Preferences = { welcomeSeen: false, notificationsSeen: false, activity: 'full', quickReplies: defaultReplies, selectedThreads: {} };
 export async function preferences(): Promise<Preferences> { const saved = JSON.parse(await AsyncStorage.getItem('omb.expo.preferences.v1') ?? '{}'); if (saved.quickReplies?.some((r: unknown) => typeof r === 'string')) delete saved.quickReplies; return { ...defaults, ...saved }; }
 export async function savePreferences(value: Preferences) { await AsyncStorage.setItem('omb.expo.preferences.v1', JSON.stringify(value)); }

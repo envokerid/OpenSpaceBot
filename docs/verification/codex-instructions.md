@@ -13,13 +13,20 @@ Codex 0.147.0 and 0.153.4 retain the original developer message on resume, even
 when configuration changes. Therefore a changed instruction block also needs a
 `thread/inject_items` developer update before the next user turn.
 
-The driver stores a SHA-256 receipt per OpenMausBot/native-thread pair under
+The driver stores a SHA-256 receipt per provider instance/native-thread pair under
 `codex-instructions/` in the data directory. It contains no prompt text. Native
 injection flushes history before acknowledging; the receipt is written only
 after that acknowledgement. Unchanged rules need no injected update. Missing
 receipts (including sessions created before this change) cause one adoption
 update. Current thread configuration restores the latest rules after compaction.
 Removed rules get an explicit developer update and empty native configuration.
+
+Private election routes and the public room route share each member's native
+conversation. Their instruction receipt must therefore share that native
+identity too. The previous route-based receipt could skip restoring speaking
+instructions after a vote, leaving the latest native developer message saying
+not to post chat messages. Versioned receipts adopt existing sessions once after
+this correction and then track subsequent changes across all routes.
 
 A rejected native resume fails the turn instead of starting an empty thread.
 The existing history and cursor remain available; automatic canonical replay is

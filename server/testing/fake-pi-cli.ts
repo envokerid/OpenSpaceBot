@@ -183,6 +183,10 @@ function handle(cmd: any) {
       send({ type: "response", command: "new_session", success: true, data: { sessionId: `s-${sessionCounter}`, sessionFile: currentSessionFile } });
       return;
     case "switch_session":
+      if (mode === "missing-session") {
+        send({ type: "response", command: "switch_session", success: false, error: "Saved session was removed" });
+        return;
+      }
       currentSessionFile = cmd.sessionPath ?? currentSessionFile;
       send({ type: "response", command: "switch_session", success: true, data: { sessionId: "s-resumed", sessionFile: currentSessionFile } });
       return;

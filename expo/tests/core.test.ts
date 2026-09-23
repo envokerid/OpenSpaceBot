@@ -13,6 +13,20 @@ import type { Connection, Fleet, Frame, Message } from '../src/core/types.ts';
 const fixture = (name: string) => JSON.parse(readFileSync(new URL(`../../ios/Tests/CompanionCoreTests/Fixtures/${name}.json`, import.meta.url), 'utf8'));
 const connection: Connection = { id: 'test', name: 'Test', endpoint: endpoint('127.0.0.1:8810'), endpoints: [endpoint('127.0.0.1:8810')], server: false };
 
+test('goal sends opt into group coordination without changing direct bot payloads', async () => {
+  const bodies: Record<string, unknown>[] = [];
+  const client = new Client(connection, 'fixture', async (_url, init) => {
+    bodies.push(JSON.parse(String(init?.body))); return Response.json({});
+  });
+  const group = { kind: 'groups' as const, id: 'group', threadId: 'thread' };
+  await client.send(group, 'Finish this', 'goal-receipt', 'goal');
+  await client.send(group, 'Hello', 'chat-receipt');
+  await client.send({ ...group, kind: 'bots' }, 'Hello', 'bot-receipt');
+  assert.deepEqual(bodies[0], { text: 'Finish this', threadId: 'thread', sendId: 'goal-receipt', mode: 'goal' });
+  assert.equal(bodies[1].mode, 'chat');
+  assert.equal('mode' in bodies[2], false);
+});
+
 test('manual LAN, explicit HTTPS and IPv6 preserve their authorities', () => {
   assert.equal(endpoint('desktop.local').url, 'http://desktop.local:8810');
   assert.equal(endpoint('https://desktop.example').url, 'https://desktop.example');

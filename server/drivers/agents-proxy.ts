@@ -6,8 +6,7 @@
 //
 //   list_bots()                          → the other bots in this section + their status
 //   list_rooms()                         → the shared rooms this bot may post into
-//   post_to_room(group_id, message)      → put ONE message in a room; nobody's
-//                                          turn starts, so nobody replies
+//   post_to_room(group_id, message)      → post a message and start a room election
 //   ask_bot(bot_id, msg)                 → send msg to that bot, wait, return its reply
 //   delegate_bot(bot_id, msg, reason?)   → hand the task to a peer ASYNC: returns
 //                                          immediately, the peer runs after your
@@ -45,8 +44,12 @@ import readline from "node:readline";
 import { availableTools, catalogProfileFromEnv } from "./agents-catalog.ts";
 import { callTool, capResult, toolCallContextFromEnv } from "./agents-call.ts";
 import type { Json } from "./agents-client.ts";
+import { electionTools } from "../election-tools.ts";
 
-const AVAILABLE_TOOLS = availableTools(catalogProfileFromEnv(process.env));
+const electionPhase = process.env.OMB_ELECTION_PHASE;
+const AVAILABLE_TOOLS = electionPhase
+  ? electionTools(electionPhase, JSON.parse(process.env.OMB_ELECTION_CANDIDATES ?? "[]"))
+  : availableTools(catalogProfileFromEnv(process.env));
 // One proxy process serves one turn, so its per-turn guards start here.
 const CONTEXT = toolCallContextFromEnv(process.env);
 
@@ -82,6 +85,11 @@ async function handle(msg: Json) {
       const name = params.name as string;
       if (!AVAILABLE_TOOLS.some((t) => t.name === name)) return rpcErr(id, -32602, `Unknown tool: ${name}`);
       try {
+        if (electionPhase) {
+          const result = await CONTEXT.client.api("/decision", { method: "POST", body: JSON.stringify({ ...(params.arguments as Json), tool: name }) });
+          textResult(id, JSON.stringify(result));
+          return;
+        }
         const { text, isError, passthrough } = await callTool(name, (params.arguments ?? {}) as Json, CONTEXT);
         if (passthrough) ok(id, passthrough);
         else textResult(id, name === "tool_result_read" ? text : await capResult(text, CONTEXT), isError);

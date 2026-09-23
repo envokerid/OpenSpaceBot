@@ -1012,6 +1012,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           requestType: isQuestion ? "question" : "permission",
           tool,
           summary,
+          mcpTool: isMcpPermission || undefined,
           choices,
           approvalScope: controlsHost ? "local-computer" : undefined,
           requiresExplicitApproval: isAdditionalPermission || undefined,
@@ -1412,6 +1413,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         if (cursor) {
           const resumeThread = () => request("thread/resume", {
             threadId: cursor,
+            ...(turn.cwd ? { cwd: turn.cwd } : {}),
             developerInstructions,
             ...approvalParams.thread,
           });
@@ -1471,7 +1473,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           startedModel = started?.model ?? null;
         }
         if (!codexThreadId) throw new Error("Codex did not return a native thread id");
-        await syncCodexInstructions(threadId, codexThreadId, developerInstructions, resumedNativeThread, request);
+        await syncCodexInstructions(instanceId, codexThreadId, developerInstructions, resumedNativeThread, request);
         emit({ ...base(threadId, turnId), type: "session.started", sessionId: codexThreadId, model: startedModel ?? turn.model ?? null, ...(rebuiltFromReplay ? { rebuilt: true } : {}) });
         const turnInput = [
           ...(promptText ? [{ type: "text" as const, text: promptText }] : []),

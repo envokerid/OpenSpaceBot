@@ -7,6 +7,7 @@ import { chmodSync, existsSync, readFileSync, mkdirSync, rmSync, statSync, unlin
 import { join } from "node:path";
 
 import { writeFileAtomic } from "./atomic.ts";
+import { roomBotHistoryDirectory, roomBotHistoryFile } from "./room-bot-history.ts";
 import { ensureSections, readSections, changeEmptySection } from "./section-context.ts";
 import { removeBotFolder, soulFile, soulHash, writeSoulMirror } from "./bot-folder.ts";
 import type { BotProfilePatch } from "./bot-profile.ts";
@@ -645,6 +646,10 @@ export class Store {
       g.defaultResponder = normalized;
       // Bot-to-bot channels intentionally remain one canonical thread.
       if (g.dm) {
+        if (g.mainThreadId !== g.threadId) {
+          g.mainThreadId = g.threadId;
+          groupsMigrated = true;
+        }
         if (g.tasks !== undefined) {
           delete g.tasks;
           groupsMigrated = true;
@@ -668,6 +673,10 @@ export class Store {
       if (!active) {
         active = g.tasks[0]!;
         g.threadId = active.threadId;
+        groupsMigrated = true;
+      }
+      if (!g.tasks.some(task => task.threadId === g.mainThreadId)) {
+        g.mainThreadId = [...g.tasks].reverse().sort((a, b) => a.createdAt - b.createdAt)[0]!.threadId;
         groupsMigrated = true;
       }
       g.pinnedCwd = active.pinnedCwd;
@@ -703,6 +712,14 @@ export class Store {
           resumeCursors: b.resumeCursors ?? {},
         };
         b.tasks.unshift(active);
+        botsMigrated = true;
+      }
+      if (!b.tasks.some(task => task.threadId === b.mainThreadId && !task.routineRunId)) {
+        // Prefer the original human conversation over old peer/routine jobs.
+        const ordinary = b.tasks.filter(task => !task.routineRunId);
+        b.mainThreadId = [...ordinary].reverse()
+          .sort((a, b) => Number(Boolean(a.openedBy)) - Number(Boolean(b.openedBy)) || a.createdAt - b.createdAt)[0]?.threadId
+          ?? this.createTask(b.id, undefined, false)!.threadId;
         botsMigrated = true;
       }
       for (const task of b.tasks) {
@@ -849,6 +866,7 @@ export class Store {
     const group: GroupRecord = {
       id: newId(),
       threadId,
+      mainThreadId: threadId,
       name,
       memberIds,
       defaultResponder: dm
@@ -879,7 +897,7 @@ export class Store {
     );
   }
 
-  patchGroup(id: string, patch: Partial<Pick<GroupRecord, "name" | "memberIds" | "defaultResponder" | "bulletin" | "unread" | "busyBotId" | "cwd" | "pinnedMessageId" | "section" | "setupCompletedAt" | "setupSkippedAt">>): GroupRecord | null {
+  patchGroup(id: string, patch: Partial<Pick<GroupRecord, "name" | "memberIds" | "defaultResponder" | "electionOffset" | "judgeModelSelection" | "bulletin" | "unread" | "busyBotId" | "cwd" | "pinnedMessageId" | "section" | "setupCompletedAt" | "setupSkippedAt">>): GroupRecord | null {
     const group = this.group(id);
     if (!group) return null;
     if (Object.prototype.hasOwnProperty.call(patch, "section")) {
@@ -916,6 +934,7 @@ export class Store {
   private deleteThreadRecord(threadId: string) {
     this.threads.delete(threadId);
     mdb.deleteThread(threadId);
+    rmSync(roomBotHistoryDirectory(join(DATA_DIR, "room-bot-histories"), threadId), { recursive: true, force: true });
     for (const file of [
       messagesFile(threadId),
       `${messagesFile(threadId)}.imported`,
@@ -980,6 +999,7 @@ export class Store {
         text: `Goal ${state}: ${resolution.detail}`,
         goalRun: {
           ...hit.message.goalRun,
+          ...(hit.message.goalRun.election ? { election: { ...hit.message.goalRun.election, phase: "paused" as const } } : {}),
           status: resolution.status,
           detail: resolution.detail,
           finishedAt: resolution.finishedAt,
@@ -1075,6 +1095,7 @@ export class Store {
     if (!group.tasks.some((task) => task.threadId === threadId)) return null;
     group.tasks = group.tasks.filter((task) => task.threadId !== threadId);
     this.deleteThreadRecord(threadId);
+    if (group.mainThreadId === threadId) group.mainThreadId = group.tasks[0]!.threadId;
     if (group.threadId === threadId) {
       const next = group.tasks[0]!;
       group.threadId = next.threadId;
@@ -1386,6 +1407,7 @@ export class Store {
       resumeCursors: {},
       createdAt: Date.now(),
     };
+    bot.mainThreadId = bot.threadId;
     if (section) bot.section = section;
     bot.tasks = [{
       threadId: bot.threadId,
@@ -1505,6 +1527,13 @@ export class Store {
     this.saveBots(nextBots);
     this.bots = nextBots;
     this.legacyActivities.delete(id);
+    for (const group of this.groups) {
+      for (const threadId of new Set([group.threadId, ...(group.tasks ?? []).map(task => task.threadId)])) {
+        for (const historyId of [id, `room-proposer-${id}`]) {
+          rmSync(roomBotHistoryFile(join(DATA_DIR, "room-bot-histories"), threadId, historyId), { force: true });
+        }
+      }
+    }
     // every task's transcript goes with the bot, not just the open one
     for (const threadId of new Set([bot.threadId, ...(bot.tasks ?? []).map((t) => t.threadId)])) {
       this.deleteThreadRecord(threadId);
@@ -2065,7 +2094,8 @@ export class Store {
     return task;
   }
 
-  /** Where a bot-to-bot send outside a room lands: the PAIR CONVERSATION
+  /** Legacy pair-thread resolver. coordinate_bots uses mainThreadId instead.
+   * The PAIR CONVERSATION
    * for (sender, recipient) — the recipient's task stamped `openedBy` this
    * sender with kind "pair".
    *
@@ -2197,6 +2227,7 @@ export class Store {
     bot.tasks = bot.tasks.filter((t) => t.threadId !== threadId);
     const visible = bot.tasks.find((task) => !task.routineRunId)
       ?? this.createTask(botId, undefined, bot.threadId === threadId)!;
+    if (bot.mainThreadId === threadId) bot.mainThreadId = visible.threadId;
     if (bot.threadId === threadId || this.taskByThread(botId, bot.threadId)?.routineRunId) {
       this.mirrorActiveTask(bot, visible);
     }

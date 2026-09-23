@@ -4,6 +4,7 @@ import type { Draft } from './types.ts';
 // exact submitted draft; later edits belong to the next message.
 export function settleSendDraft(current: Draft, submitted: Draft, sendId: string, failed = false): Draft {
   const unchanged = current.text === submitted.text && current.files.length === submitted.files.length
+    && (current.channelMode ?? 'chat') === (submitted.channelMode ?? 'chat')
     && current.files.every((file, index) => file.path === submitted.files[index].path);
   if (!failed && unchanged) return { text: '', files: [] };
   return { ...current, sending: false, sendId: failed && unchanged ? sendId : undefined };

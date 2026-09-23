@@ -111,14 +111,14 @@
     },
     {
       "name": "coordinate_bots",
-      "description": "Ask existing OpenMausBot teammates for advice or assign concrete work. From normal chat every assignment you send a teammate continues your one standing conversation with that teammate, so they keep the context of what you asked before; from a room it defaults to this room. Use group_id from list_room_targets for a specific room. Give 1-4 bot_ids — teammate ids as list_bots or your roster prints them; a unique teammate name also resolves: they receive only your brief and use their own model, tools and permissions. Busy bots queue. They can consult their specialists; all results return here and resume you automatically. Include exact file paths, constraints and what must be verified. After sending all assignments, END your turn; do not poll or wait. On return, resolve tradeoffs, verify the requested outcome and request concrete corrections if necessary before giving one final answer. Do not send acknowledgements as new work.",
+      "description": "Ask existing OpenMausBot teammates for advice or assign concrete work. From normal chat every assignment goes to that teammate's main thread, shared by all senders; room members must speak through elected public replies, so delegating to them in their direct threads is unavailable too. Only specialists outside the originating room may receive delegated work. Explain the needed member contribution in your room reply instead. Omit group_id to assign work in the teammate’s direct conversation. Shared rooms do not accept addressed assignments. Give 1-4 bot_ids — teammate ids as list_bots or your roster prints them; a unique teammate name also resolves: they receive your brief in that conversation and use their own model, tools and permissions. Busy bots queue in the same main thread; no extra conversation is created. They can consult their specialists; all results return here and resume you automatically. Include exact file paths, constraints and what must be verified. After sending all assignments, END your turn; do not poll or wait. On return, resolve tradeoffs, verify the requested outcome and request concrete corrections if necessary before giving one final answer. Do not send acknowledgements as new work.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
           "group_id": {
             "type": "string",
-            "description": "Optional destination room. Omit for this room, or your standing conversation with each teammate when chatting directly."
+            "description": "Omit for an eligible teammate’s main thread. Shared rooms reject addressed assignments; room members must speak through elected public replies."
           },
           "bot_ids": {
             "type": "array",
@@ -146,7 +146,7 @@
           },
           "label": {
             "type": "string",
-            "description": "Optional short name (one line, at most 60 characters) for this job. Used only when the teammate is still working on your previous assignment and this one therefore runs in its own thread beside your standing conversation."
+            "description": "Optional short job label (one line, at most 60 characters), accepted for compatibility. It does not create, rename or select a thread."
           }
         },
         "required": [
@@ -273,7 +273,7 @@
     },
     {
       "name": "post_to_room",
-      "description": "Put one message into a shared room you belong to, for example when the user asks you to tell the team something. Get group_id from list_rooms. This posts and returns: no room member's turn starts, nobody replies, and nothing comes back except confirmation — so never use it to ask a question or hand out work (use ask_bot or delegate_bot for those). Post once, say it in full, and tell the user what you posted. If a post is refused, do not retry it: say what you wanted to post in your reply instead.",
+      "description": "Put one message into a shared room you belong to, for example when the user asks you to tell the team something. Get group_id from list_rooms. This posts and returns confirmation, then the room collects proposals and votes on whether anyone should reply. A post does not guarantee a named responder or return their answer to you. Post once, say it in full, and tell the user what you posted. If a post is refused, do not retry it: say what you wanted to post in your reply instead.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,

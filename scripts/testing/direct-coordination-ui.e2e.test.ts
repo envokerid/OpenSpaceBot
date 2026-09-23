@@ -12,7 +12,7 @@ import { UI_TOOLS_DIR } from "./control-omb-ui.ts";
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const enabled = process.env.OMB_UI_E2E === "1" || Boolean(resolveAgentBrowserBinary({ dataDir: UI_TOOLS_DIR, env: process.env }));
 
-(enabled ? it : it.skip)("coordinates from the real composer and opens the exact child task from its existing inline receipt", async () => {
+(enabled ? it : it.skip)("coordinates from the real composer and opens the recipient main thread from its existing inline receipt", async () => {
   const temporary = mkdtempSync(join(tmpdir(), "omb-direct-ui-plan-"));
   const planPath = join(temporary, "plan.json");
   writeFileSync(planPath, "{}");
@@ -50,7 +50,7 @@ const enabled = process.env.OMB_UI_E2E === "1" || Boolean(resolveAgentBrowserBin
     const gateFile = join(temporary, "finish-teammate");
     writeFileSync(planPath, JSON.stringify({
       [info.botId]: { steps: [{ arguments: { bot_ids: [lead.id], request_key: "review", message: "Check the fixture CSV export" } }], reply: "Assigned", resumeReply: "Engineer checked the fixture CSV export" },
-      [lead.id]: { gateFile, reply: "CSV export checked in my separate task" },
+      [lead.id]: { gateFile, reply: "CSV export checked in my main thread" },
     }));
     await ui("flag", "--set", "features.showToolCalls=false");
     await ui("type", "--name", "Message Pepper", "--text", "Please have Engineer check the CSV export and report back");
@@ -69,11 +69,11 @@ const enabled = process.env.OMB_UI_E2E === "1" || Boolean(resolveAgentBrowserBin
     const parent = state.bots.find((bot: any) => bot.id === info.botId);
     const receipt = parent.messages.find((message: any) => message.tool?.name === "Sent to Engineer");
     expect(receipt.threadRef.botId).toBe(lead.id);
-    expect(receipt.threadRef.threadId).not.toBe(lead.threadId);
+    expect(receipt.threadRef.threadId).toBe(lead.threadId);
     const screenshot = info.logPath + ".direct-coordination.png";
     await ui("screenshot", "--out", screenshot);
     await click("Sent to Engineer");
-    await expect.poll(snapshot, { timeout: 15_000 }).toContain("CSV export checked in my separate task");
+    await expect.poll(snapshot, { timeout: 15_000 }).toContain("CSV export checked in my main thread");
     const selected = (await api("/api/bots")).bots.find((bot: any) => bot.id === lead.id);
     expect(selected.threadId).toBe(receipt.threadRef.threadId);
     const evidence = { source: parent.messages, receipt, selectedThread: selected.threadId, final: await snapshot(), screenshot };

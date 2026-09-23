@@ -6,6 +6,17 @@ export class ChatScrollPosition {
   contentHeight = 0;
   viewportHeight = 0;
   offset = 0;
+  private manualMomentum = false;
+  private dragging = false;
+
+  beginDrag() { this.dragging = true; this.manualMomentum = true; this.interacting = true; }
+  endDrag() { this.dragging = false; this.interacting = false; }
+  beginMomentum() {
+    if (this.manualMomentum) this.interacting = true;
+    return this.manualMomentum;
+  }
+  endMomentum() { if (!this.dragging) { this.interacting = false; this.manualMomentum = false; } }
+  programmaticScroll() { this.manualMomentum = false; }
 
   record(offset: number, contentHeight: number, viewportHeight: number) {
     this.offset = offset;

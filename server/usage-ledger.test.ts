@@ -62,7 +62,8 @@ describe("usage ledger files", () => {
     writeFileSync(file, readFileSync(file, "utf8") + '{"at":"2026-09-04T00:00:00.000Z","botId":"x"' + "\n" + JSON.stringify({ unrelated: true }) + "\n", { flag: "w" });
     const rows = readUsage(dataDir, { from: new Date("2026-09-01T00:00:00Z"), to: new Date("2026-09-30T23:59:59Z") });
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ input: 0, output: 12, cachedInput: 0, costUsd: null });
+    expect(rows[0]).toMatchObject({ input: 0, output: 12, costUsd: null });
+    expect(rows[0].cachedInput).toBeUndefined();
     expect(readUsage(dataDir, { from: new Date("2026-09-04T00:00:00Z"), to: new Date("2026-09-30T23:59:59Z") })).toHaveLength(0);
   });
 
@@ -95,6 +96,16 @@ describe("usage ranges", () => {
 });
 
 describe("usage summaries", () => {
+  it("separates unknown cache reporting from zero hits and weights rates by reported input", () => {
+    const rows = [row({ input: 1000, cachedInput: 800 }), row({ input: 100, cachedInput: 0 }),
+      row({ input: 4000, cachedInput: undefined }), row({ input: 50, cachedInput: Number.NaN })] as UsageRow[];
+    const summary = summarizeUsage(rows, "bot");
+    expect(summary.total).toMatchObject({ input: 5150, cachedInput: 800, cacheReportedInput: 1100, cacheReportedTurns: 2 });
+    expect(summary.groups[0]).toMatchObject({ cacheReportedInput: 1100, cacheReportedTurns: 2 });
+    const unknown = usageCsv([row({ cachedInput: undefined }) as UsageRow]).trim().split("\n")[1].split(",");
+    expect(unknown[7]).toBe("");
+    expect(usageCsv([row({ cachedInput: 0 }) as UsageRow]).trim().split("\n")[1].split(",")[7]).toBe("0");
+  });
   const rows: UsageRow[] = [
     { ...row({ at: "2026-09-01T10:00:00.000Z" }), at: "2026-09-01T10:00:00.000Z" } as UsageRow,
     { ...row({ at: "2026-09-01T11:00:00.000Z", botId: "b2", botName: "Clerk", model: "gpt-5", driverKind: "codex", costUsd: null, trigger: { kind: "owner" } }), at: "2026-09-01T11:00:00.000Z" } as UsageRow,

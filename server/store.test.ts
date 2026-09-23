@@ -7,6 +7,8 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, write
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { roomBotHistoryFile } from "./room-bot-history.ts";
+import { dirname } from "node:path";
 import { soulFile, soulHash } from "./bot-folder.ts";
 import { flushProfileHistory, readHistory, recordProfileChange } from "./profile-versions.ts";
 import { DATA_DIR } from "./config.ts";
@@ -23,6 +25,62 @@ const selection = (): ModelSelection => ({ instanceId: "claude", model: "claude-
 describe("Store", () => {
   beforeEach(() => {
     rmSync(DATA_DIR, { recursive: true, force: true });
+  });
+
+  it("persists bot and group main threads independently of selection", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const group = store.createGroup("Main room", [bot.id]);
+    const mainBot = bot.threadId;
+    const mainGroup = group.threadId;
+    const otherBot = store.createTask(bot.id, "Other conversation")!;
+    const otherGroup = store.createGroupTask(group.id, "Other conversation")!;
+    expect(bot.mainThreadId).toBe(mainBot);
+    expect(group.mainThreadId).toBe(mainGroup);
+    const reloaded = new Store(selection);
+    expect(reloaded.bot(bot.id)).toMatchObject({ mainThreadId: mainBot, threadId: otherBot.threadId });
+    expect(reloaded.group(group.id)).toMatchObject({ mainThreadId: mainGroup, threadId: otherGroup.threadId });
+  });
+
+  it("adopts original ordinary conversations as main on upgrade without changing history or selection", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const group = store.createGroup("Old room", [bot.id]);
+    const mainBot = bot.threadId;
+    const mainGroup = group.threadId;
+    const otherBot = store.createTask(bot.id, "Selected conversation")!;
+    const otherGroup = store.createGroupTask(group.id, "Selected room conversation")!;
+    store.createTask(bot.id, "Old peer job", false, undefined, { botId: "sender", name: "Sender", at: 1 });
+    const messages = store.messagesFor(mainBot);
+    for (const file of ["bots.json", "groups.json"]) {
+      const records = JSON.parse(readFileSync(join(DATA_DIR, file), "utf8"));
+      for (const record of records) delete record.mainThreadId;
+      writeFileSync(join(DATA_DIR, file), JSON.stringify(records));
+    }
+    const reloaded = new Store(selection);
+    expect(reloaded.bot(bot.id)).toMatchObject({ mainThreadId: mainBot, threadId: otherBot.threadId });
+    expect(reloaded.group(group.id)).toMatchObject({ mainThreadId: mainGroup, threadId: otherGroup.threadId });
+    expect(reloaded.messagesFor(mainBot)).toEqual(messages);
+    expect(reloaded.tasks(bot.id)).toHaveLength(3);
+    expect(new Store(selection).bot(bot.id)?.mainThreadId).toBe(mainBot);
+  });
+
+  it("keeps a valid main destination after explicit thread deletion", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const group = store.createGroup("Room", [bot.id]);
+    const mainBot = bot.mainThreadId!;
+    const mainGroup = group.mainThreadId!;
+    const otherBot = store.createTask(bot.id)!;
+    const otherGroup = store.createGroupTask(group.id)!;
+    store.deleteTask(bot.id, mainBot);
+    store.deleteGroupTask(group.id, mainGroup);
+    expect(bot.mainThreadId).toBe(otherBot.threadId);
+    expect(group.mainThreadId).toBe(otherGroup.threadId);
+    store.deleteTask(bot.id, otherBot.threadId);
+    expect(bot.mainThreadId).toBe(bot.threadId);
+    expect(store.taskByThread(bot.id, bot.mainThreadId!)).toBeDefined();
+    expect(new Store(selection).bot(bot.id)?.mainThreadId).toBe(bot.mainThreadId);
   });
 
   it("persists compaction records but keeps session bookkeeping off the wire", () => {
@@ -1041,6 +1099,9 @@ describe("Store", () => {
     const skillState = join(DATA_DIR, "skill-state", bot.id);
     mkdirSync(skillState, { recursive: true });
     writeFileSync(join(skillState, "staged.json"), '{"writes":{}}');
+    const group = store.createGroup("History cleanup", [bot.id]);
+    const histories = [bot.id, `room-proposer-${bot.id}`].map(id => roomBotHistoryFile(join(DATA_DIR, "room-bot-histories"), group.threadId, id));
+    for (const file of histories) { mkdirSync(dirname(file), { recursive: true }); writeFileSync(file, "{}"); }
     // the transcript is durable — a fresh Store sees the seeded messages
     expect(new Store(selection).messagesFor(bot.threadId).length).toBeGreaterThan(0);
 
@@ -1048,6 +1109,7 @@ describe("Store", () => {
     expect(store.bot(bot.id)).toBeNull();
     expect(new Store(selection).messagesFor(bot.threadId)).toHaveLength(0);
     expect(existsSync(skillState)).toBe(false);
+    for (const file of histories) expect(existsSync(file)).toBe(false);
     expect(store.deleteBot(bot.id)).toBe(false);
   });
   it("migrates a pre-branching flat transcript file", () => {

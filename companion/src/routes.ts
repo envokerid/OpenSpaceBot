@@ -139,9 +139,10 @@ const ALLOWED: ReadonlyArray<{ method: string; path: RegExp }> = [
   { method: "POST", path: /^\/api\/groups$/ },
   // Finish the server's first-message setup gate from the phone.
   { method: "PATCH", path: /^\/api\/groups\/[\w-]+\/setup$/ },
-  // Roster only; the handler rejects other fields and stale member lists.
+  // Members and shared instructions; the handler rejects unrelated fields and stale edits.
   { method: "PATCH", path: /^\/api\/groups\/[\w-]+\/members$/ },
   { method: "POST", path: /^\/api\/groups\/[\w-]+\/messages$/ },
+  { method: "POST", path: /^\/api\/groups\/[\w-]+\/elections\/[\w-]+\/resume$/ },
   { method: "POST", path: /^\/api\/groups\/[\w-]+\/interrupt$/ },
   { method: "DELETE", path: /^\/api\/groups\/[\w-]+\/queue\/[\w-]+$/ },
   { method: "POST", path: /^\/api\/groups\/[\w-]+\/read$/ },

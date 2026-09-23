@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { RuntimeEvent } from "../contracts.ts";
+import type { RuntimeEvent, SendTurnInput } from "../contracts.ts";
 import { MinimaxDriver } from "./minimax.ts";
 import { OpenAICompatDriver } from "./openai-compat.ts";
 
@@ -104,6 +104,39 @@ describe("createOpenAIChatRuntime tool approvals", () => {
 
   it("answers for the person under Full access, so no card is raised", async () => {
     expect(await cardRaisedFor("full")).toBe(false);
+  }, 20_000);
+
+  it("continues the exact assistant/tool protocol in the next room phase", async () => {
+    const requests: any[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: unknown, options: RequestInit) => {
+      requests.push(JSON.parse(String(options.body)));
+      const body = requests.length === 1
+        ? 'data: {"choices":[{"index":0,"delta":{"reasoning_content":"opaque provider reasoning","tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"fx_write","arguments":"{}"}}]}}]}\n\n' +
+          'data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}\n\n'
+        : 'data: {"choices":[{"index":0,"delta":{"content":"Finished"},"finish_reason":"stop"}]}\n\n';
+      return new Response(body, { headers: { "content-type": "text/event-stream" } });
+    }));
+    const instance = await OpenAICompatDriver.create({
+      instanceId: "compat", displayName: "Compat", enabled: true,
+      config: OpenAICompatDriver.decodeConfig({ url: "https://api.example.com/v1", apiKeyEnv: "K", model: "m" }),
+      environment: { K: "secret" },
+    });
+    const completions: RuntimeEvent[] = [];
+    instance.adapter.onEvent(event => { if (event.type === "turn.completed") completions.push(event); });
+    let history: SendTurnInput["providerHistory"];
+    try {
+      await instance.adapter.sendTurn({ threadId: "room", text: "Work", approvalMode: "full",
+        integrations: { custom: { fx: toolServer() } }, saveProviderHistory: value => { history = structuredClone(value); } });
+      await vi.waitFor(() => expect(completions).toHaveLength(1), { timeout: 10_000 });
+      expect(completions[0]).toMatchObject({ ok: true });
+      const prefix = structuredClone(history!.messages);
+      expect(prefix.map(message => message.role)).toEqual(["user", "assistant", "tool", "assistant"]);
+      expect(prefix[1]).toMatchObject({ reasoning_content: "opaque provider reasoning", tool_calls: [{ id: "c1" }] });
+      expect(prefix[2]).toMatchObject({ tool_call_id: "c1" });
+      await instance.adapter.sendTurn({ threadId: "private-election", text: "Vote", providerHistory: history });
+      await vi.waitFor(() => expect(completions).toHaveLength(2));
+      expect(requests[2].messages).toEqual([...prefix, { role: "user", content: "Vote" }]);
+    } finally { await instance.dispose(); }
   }, 20_000);
 });
 

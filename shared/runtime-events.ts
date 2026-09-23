@@ -100,6 +100,10 @@ export type RuntimeEvent = RuntimeEventBase &
          * set of questions, each with its own options, so the card can offer
          * them instead of an Allow/Deny a person cannot answer. */
         questions?: AskQuestion[];
+        /** This permission belongs to an MCP tool call. Provider-facing tool
+         * names are not uniform, so consumers must use this provenance bit
+         * instead of guessing from prefixes. */
+        mcpTool?: boolean;
         approvalScope?: "local-computer";
         /** Provider asks to widen its configured sandbox. Only explicit Full
          * access may answer this automatically; Auto/remembered grants may not. */
@@ -141,4 +145,3 @@ export type RuntimeEvent = RuntimeEventBase &
   );
 
 export type RuntimeEventListener = (event: RuntimeEvent) => void;
-

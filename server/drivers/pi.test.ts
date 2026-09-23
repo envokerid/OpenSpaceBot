@@ -5,7 +5,7 @@
 //
 // The fake CLI is a shebang script Windows cannot exec directly; spawnCli
 // resolves it to `node <script>`, so these run everywhere.
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -335,6 +335,19 @@ describe("PiDriver turns (fake CLI)", () => {
     const done = await recorder.until((e) => e.type === "turn.completed" && e.turnId === turnId);
     expect(done).toMatchObject({ ok: false, stopReason: "failed" });
     expect(instance.adapter.hasSession("t-exit")).toBe(false);
+  });
+
+  it("replays saved room history when a native session cannot be loaded", async () => {
+    const home = mkdtempSync(join(tmpdir(), "omb-pi-recovery-"));
+    const dump = join(home, "pi-missing-session.jsonl");
+    try {
+      await create("missing-session", { HOME: home, FAKE_PI_DUMP: dump });
+      const { turnId } = await instance.adapter.sendTurn({ threadId: "room-recovery", text: "Vote", resumeCursor: "/missing/session.json",
+        recoveryText: "Saved proposal, tool result and reply. Now vote." });
+      expect(await recorder.until(event => event.type === "turn.completed" && event.turnId === turnId)).toMatchObject({ ok: true });
+      const rows = readFileSync(dump, "utf8").trim().split("\n").map(line => JSON.parse(line));
+      expect(rows.find(row => row.prompt)?.prompt.message).toBe("Saved proposal, tool result and reply. Now vote.");
+    } finally { await instance?.dispose(); rmSync(home, { recursive: true, force: true }); }
   });
 
   it("surfaces a pi turn error instead of reporting an empty success", async () => {

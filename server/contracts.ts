@@ -91,6 +91,15 @@ export type RequestOutcome = "allowed-once" | "rejected" | "answered" | "unavail
 // becomes onEvent(listener) → unsubscribe; sessions start implicitly on
 // the first turn (the agentcal per-turn-process model) with resumeCursor
 // carrying the provider-native continuation (e.g. a claude session id).
+export interface ChatHistoryMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string | null;
+  tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }>;
+  tool_call_id?: string;
+  reasoning_content?: string;
+  reasoning_details?: Record<string, unknown>[];
+}
+
 export interface SendTurnInput {
   threadId: ThreadId;
   /** The bot this turn belongs to. threadIds are meant to be unique per bot
@@ -128,6 +137,10 @@ export interface SendTurnInput {
   recoveryIsReplay?: boolean;
   /** Prior turns for transcript-replay providers (API-backed drivers). */
   transcript?: Array<{ role: "user" | "assistant"; text: string }>;
+  /** Exact non-system protocol messages for durable API-backed conversations.
+   * Native drivers instead retain their protocol through resumeCursor. */
+  providerHistory?: { format: "openai-chat"; messages: ChatHistoryMessage[] };
+  saveProviderHistory?: (history: NonNullable<SendTurnInput["providerHistory"]>) => void;
   /** Bot persona (name/title/description) as a system prompt. */
   system?: string;
   /** `system` split at the sections that legitimately change mid-conversation
@@ -286,6 +299,8 @@ export interface ProviderAdapter {
      * for that new session. The harness then keeps such a session across
      * externally appended messages and sends only those. */
     strictResume?: boolean;
+    /** Consumes transcript/providerHistory instead of inline replay text. */
+    structuredHistory?: boolean;
     /** True when sendTurn can register the harness's hook helper with the
      * engine (integrations.hooks). Only Claude Code today; other engines
      * deliver the same information through their protocols. */
@@ -293,6 +308,9 @@ export interface ProviderAdapter {
   };
   sendTurn(input: SendTurnInput): Promise<TurnStartResult>;
   interruptTurn(threadId: ThreadId, turnId?: TurnId): Promise<void>;
+  /** Dispose an idle pooled session after a temporary private turn. Drivers
+   * that terminate their process with every turn need no implementation. */
+  releaseSession?(threadId: ThreadId): Promise<void>;
   /** Answer a pending ask. Resolves with what actually happened — never
    * throws for an ask that is no longer there: `unavailable` means nobody
    * could take the answer (the turn ended, the broker died, the driver

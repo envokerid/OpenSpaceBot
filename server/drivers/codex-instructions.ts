@@ -24,14 +24,17 @@ export function codexDeveloperInstructions(config: unknown, botInstructions: str
 }
 
 export async function syncCodexInstructions(
-  key: string,
+  instanceId: string,
   nativeThreadId: string,
   instructions: string,
   resumed: boolean,
   request: (method: string, params: Record<string, unknown>) => Promise<unknown>,
 ): Promise<void> {
   const directory = join(DATA_DIR, "codex-instructions");
-  const path = join(directory, `${digest(JSON.stringify([key, nativeThreadId]))}.sha256`);
+  // Private voting routes and public speaking routes resume the same native
+  // conversation. Its latest developer block is shared across those routes.
+  // A fresh namespace also avoids trusting old route-scoped receipts on upgrade.
+  const path = join(directory, `${digest(JSON.stringify(["native-session-v2", instanceId, nativeThreadId]))}.sha256`);
   const fingerprint = digest(instructions);
   let previous: string | undefined;
   try {

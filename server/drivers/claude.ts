@@ -1453,6 +1453,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 requestType: ask.kind,
                 tool: ask.tool,
                 summary: askSummary(ask),
+                mcpTool: ask.kind === "permission" && typeof ask.tool === "string" && ask.tool.startsWith("mcp__")
+                  ? true
+                  : undefined,
                 nativeReview,
                 // the proxy hands Claude its own suggested rules on `always`;
                 // host control stays one action at a time
@@ -2077,6 +2080,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         sendTurn,
         steer,
         interruptTurn: async (threadId) => active.get(threadId)?.stop(),
+        releaseSession: async (threadId) => { closeSession(threadId, "private session released"); },
         respondToRequest: async (threadId, requestId, decision) => {
           // fail-closed by construction: no broker, or an ask that already
           // timed out / settled, is `unavailable` — the caller denies

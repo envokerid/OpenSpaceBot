@@ -48,6 +48,9 @@ export interface UsageGroup {
   input: number;
   output: number;
   cachedInput: number;
+  /** Input/turns for which a valid cached-input count was actually reported. */
+  cacheReportedInput: number;
+  cacheReportedTurns: number;
   /** Sum of the rows that reported a price; null when none did. */
   costUsd: number | null;
   /** Rows in this group that reported no price. */
@@ -71,6 +74,8 @@ const clean = (value: unknown): number =>
   typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
 const finiteOrNull = (value: unknown): number | null =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+const cachedFor = (row: { input: number; cachedInput?: number }): number | undefined =>
+  finiteOrNull(row.cachedInput) === null ? undefined : Math.min(clean(row.input), clean(row.cachedInput));
 
 function monthKey(at: Date): string {
   return `${at.getUTCFullYear()}-${String(at.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -82,12 +87,14 @@ export function usageFileFor(dataDir: string, at: Date): string {
 
 /** Append one settled turn. Fire-and-forget; see the module comment. */
 export function appendUsage(dataDir: string, row: Omit<UsageRow, "at"> & { at?: string }): void {
+  const { cachedInput: _cachedInput, ...rest } = row;
+  const cached = cachedFor(row);
   const record: UsageRow = {
-    ...row,
+    ...rest,
     at: row.at ?? new Date().toISOString(),
     input: clean(row.input),
     output: clean(row.output),
-    ...(typeof row.cachedInput === "number" ? { cachedInput: clean(row.cachedInput) } : {}),
+    ...(cached !== undefined ? { cachedInput: cached } : {}),
     costUsd: finiteOrNull(row.costUsd),
   };
   const previous = writeQueues.get(dataDir) ?? Promise.resolve();
@@ -225,14 +232,19 @@ function groupOf(row: UsageRow, groupBy: UsageGroupBy): { key: string; label: st
 }
 
 function emptyGroup(key: string, label: string): UsageGroup {
-  return { key, label, turns: 0, input: 0, output: 0, cachedInput: 0, costUsd: null, unpriced: 0, billableUsd: null };
+  return { key, label, turns: 0, input: 0, output: 0, cachedInput: 0, cacheReportedInput: 0, cacheReportedTurns: 0, costUsd: null, unpriced: 0, billableUsd: null };
 }
 
 function add(group: UsageGroup, row: UsageRow, prices: PriceList | null): void {
   group.turns += 1;
   group.input += clean(row.input);
   group.output += clean(row.output);
-  group.cachedInput += clean(row.cachedInput);
+  const cached = cachedFor(row);
+  if (cached !== undefined) {
+    group.cachedInput += cached;
+    group.cacheReportedInput += clean(row.input);
+    group.cacheReportedTurns += 1;
+  }
   const cost = finiteOrNull(row.costUsd);
   if (cost === null) group.unpriced += 1;
   else group.costUsd = (group.costUsd ?? 0) + cost;
@@ -288,7 +300,7 @@ export function usageCsv(rows: UsageRow[], prices: PriceList | null = null): str
       triggerLabel(row.trigger),
       clean(row.input),
       clean(row.output),
-      clean(row.cachedInput),
+      cachedFor(row) ?? null,
       finiteOrNull(row.costUsd),
       ...(prices ? [billableFor(row, prices)] : []),
       row.threadId,

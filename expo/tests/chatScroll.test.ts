@@ -62,3 +62,24 @@ test('sending explicitly resumes following and short conversations have no negat
   position.viewportHeight = 0;
   assert.equal(position.target(), undefined, 'wait for the viewport measurement');
 });
+
+test('native animated scrolling does not masquerade as a reader dragging away', () => {
+  const position = atBottom();
+  position.contentHeight = 4000;
+  position.programmaticScroll();
+  assert.equal(position.beginMomentum(), false);
+  position.record(1700, 4000, 600);
+  assert.equal(position.following, true, 'an intermediate animation offset is not reader intent');
+  assert.equal(position.target(), 3400);
+  position.endMomentum();
+  position.beginDrag();
+  position.endMomentum();
+  assert.equal(position.interacting, true, 'an interrupted animation ending cannot release an active finger');
+  position.record(2500, 4000, 600);
+  position.endDrag();
+  assert.equal(position.beginMomentum(), true);
+  position.record(2000, 4000, 600);
+  position.endMomentum();
+  position.contentHeight = 5000;
+  assert.equal(position.target(), undefined, 'a real fling still suspends following');
+});

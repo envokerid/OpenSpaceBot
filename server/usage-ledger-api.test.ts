@@ -67,6 +67,9 @@ describe("usage ledger through real turns", () => {
       expect.arrayContaining([["owner", 1, 0.01], ["user:ada's phone", 1, 0.01]]),
     );
     expect(byUser.total).toMatchObject({ turns: 2, unpriced: 0 });
+    expect(byUser.total.cacheReportedTurns).toBe(2);
+    expect(byUser.total.cacheReportedInput).toBe(byUser.total.input);
+    expect(byUser.total.cachedInput).toBeGreaterThan(0);
     expect(byUser.total.costUsd).toBeCloseTo(0.02, 6);
     const byBot = (await (await api("/api/usage?groupBy=bot")).json()) as any;
     expect(byBot.groups).toEqual([expect.objectContaining({ key: `bot:${botId}`, label: "Ledger probe", turns: 2 })]);

@@ -208,6 +208,7 @@ export interface Group {
   name: string;
   memberIds: string[];
   defaultResponder: GroupDefaultResponder;
+  judgeModelSelection?: ModelSelection;
   bulletin: string;
   unread: boolean;
   createdAt: number;

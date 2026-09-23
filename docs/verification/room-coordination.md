@@ -29,8 +29,7 @@ handoff loop inside those turns.
 
 The tools are `list_room_targets` and `coordinate_bots`. Discovery includes
 reachable bots as well as rooms. The latter addresses 1–4 existing bots in this
-room (default), or — in ordinary direct chat without a room — the sender's one
-standing conversation with each recipient. A Chief can reach additional teams only
+room (default), or — in ordinary direct chat without a room — each recipient's main thread. A Chief can reach additional teams only
 after the owner grants that access in [team settings](team-access.md).
 Recipients run sequentially per room, with their own models, permissions and
 working environments. Busy recipients queue. Once all requested results arrive,
@@ -39,16 +38,28 @@ specialists; it never inherits the parent Chief's cross-team access or permissio
 Advice is not a verification
 receipt: the lead must ask the reviewer to run the requested checks.
 
-Outside a room there is exactly one conversation per pair of bots, titled after
-the sender (“@Clive”), reused by every later assignment from that sender so the
-recipient still has the earlier context, and never closed automatically. A
-recipient still carrying one thread per assignment from an older version has its
-most recently active one adopted as that conversation rather than gaining
-another row; nothing is deleted or closed. A second assignment that arrives
-while the first is still running gets its own thread beside it, named by the
-optional `label` (otherwise “@Clive · parallel work”), and that thread closes
-itself once its result has been reported. `request_key` is only a within-turn
-idempotency token; it never selects a conversation.
+Outside a room, `coordinate_bots` delivers to the recipient's persistent
+`mainThreadId`. All senders use that same conversation, regardless of the
+recipient's selected thread. Overlapping assignments queue there, even when
+parallel-thread capacity is available. No pair or temporary work thread is
+created, and completion does not close the main conversation. The optional
+`label` remains accepted for compatibility but does not select, create or
+rename a thread. `request_key` is still a within-turn idempotency token.
+
+New bots and groups mark their initial conversation as main. Existing records
+adopt the oldest ordinary conversation (preferring human-created bot threads
+over peer jobs); selection and saved transcripts are preserved. The pointer
+survives restart and selection changes. Explicit deletion moves it to a
+surviving conversation, or the normal empty replacement when none remain.
+The recipient main thread keeps its saved model and approval settings, including
+the existing Full-access Chief delegation policy. Receipts identify individual
+requests and return to the exact source conversation. Sending work does not
+give the sender ownership of the recipient's main thread.
+
+This is the first main-thread routing scenario. Other thread creation and
+execution entry points remain available. Room-targeted coordination uses the
+destination room's main thread; same-room assignments retain their originating
+conversation so their existing return and serialization rules stay intact.
 
 The chat shows an avatar and “Sent to Eli · Delivery”; clicking opens the
 receiving conversation. Same-room receipts have no unnecessary navigation.
@@ -108,10 +119,9 @@ approvals and validation. Multiple required approvals are presented together;
 no recipient starts until all are allowed. It does not claim model judgment or artifact correctness.
 The direct-chat suite exercises Clive → lead → specialist → lead → Clive with
 the real MCP proxy, no room, and no changes to unrelated conversations. It also
-checks one conversation per bot pair across separate user turns, its title,
-labelled concurrent work that closes itself, recipient model/permission
-defaults, idempotency without extra tasks, capacity-bound queues, dispatch to a
-spare recipient thread while unrelated work remains active, pinned parent
+checks one main conversation across separate user turns and multiple senders,
+labels and overlapping work without extra threads, recipient main-thread
+model/permission settings, idempotency, busy-main and capacity-bound queues, pinned parent
 selection, steering a live coordination (including an automation turn
 landing in the same conversation), conversation-scoped Stop, source
 deletion, access revocation, and fresh transcript replay after
@@ -156,6 +166,36 @@ remain supported. Ordinary-chat checks assert that calling a replaced tool is
 an explicit protocol error, never an empty successful reply. Thread checks also
 cover self-owned jobs, queued provenance and the transition from a completed
 routine back to a normal user conversation.
+
+## Main-thread delivery evidence — 2026-09-22
+
+The focused run passed 377 tests across nine files, plus the composer/receipt
+UI check. Server typechecking and lint on the changed files passed. Commands
+used the installed executables because `pnpm` is not on this host's PATH:
+
+```sh
+node_modules/.bin/vitest run server/store.test.ts server/room-handoffs.test.ts --maxWorkers=1
+node_modules/.bin/vitest run server/direct-coordination.e2e.test.ts server/thread-aware-bots.e2e.test.ts server/room-coordination.e2e.test.ts --maxWorkers=1
+node_modules/.bin/vitest run server/full-access-workflows.e2e.test.ts server/drivers/agents-proxy.test.ts server/peer-allowlist.e2e.test.ts --maxWorkers=1
+UPDATE_AGENTS_CATALOG_GOLDENS=1 node_modules/.bin/vitest run server/drivers/agents-catalog-wire.test.ts --maxWorkers=1
+node_modules/.bin/tsc -p tsconfig.server.json --noEmit
+OMB_UI_E2E=1 node_modules/.bin/vitest run scripts/testing/direct-coordination-ui.e2e.test.ts --maxWorkers=1
+```
+
+The first UI launch could not start Chrome because this host has no usable
+Chrome sandbox. The passing retry set `AGENT_BROWSER_EXECUTABLE_PATH` to a
+temporary shell launcher executing the fixture's installed Chrome with
+`--no-sandbox`. The launcher was removed afterward; no application browser
+settings changed.
+
+The direct fixture now retains its control commands, `wait` and `messages`
+JSON, bot state, fixture URL and log path beside each server log. Multiple
+senders delivering to the same main thread while another is selected:
+`/tmp/openmausbot-verification-evidence/server-1790076649434-1205023.log.direct-coordination.json`.
+The real composer and receipt navigation:
+`/tmp/openmausbot-verification-evidence/server-1790076866712-1225458.log.direct-coordination.json`,
+with screenshots beside it. Every server used a disposable home and fake
+provider. These checks prove routing and lifecycle, not live-model judgment.
 
 ## Real-model and UI checks
 

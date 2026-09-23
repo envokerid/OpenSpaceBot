@@ -21,6 +21,6 @@ export interface Destination { kind: 'bots' | 'groups'; id: string; threadId: st
 export interface SearchHit { threadId: string; messageId: string; botId?: string; groupId?: string; text: string; snippet?: string }
 export interface Instance { instanceId: string; displayName: string; driverKind?: string; snapshot?: { state: string }; models: { default: string; options: { id: string; label?: string }[] }; capabilities?: { queueing?: boolean; images?: boolean; effortLevels?: string[]; agentsMcp?: boolean } }
 export interface Upload { path: string; name: string; kind?: 'image' | 'file' }
-export interface Draft { text: string; files: Upload[]; sendId?: string; sending?: boolean }
+export interface Draft { text: string; files: Upload[]; sendId?: string; sending?: boolean; channelMode?: 'chat' | 'goal' }
 export const destinationKey = (d: Destination) => `${d.kind}:${d.id}:${d.threadId}`;
 export const canAdminister = (c: Connection) => !c.server || !!c.scopes?.includes('admin');

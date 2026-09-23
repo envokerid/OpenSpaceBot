@@ -66,8 +66,8 @@ export class Client {
     // Preserve the existing responder, instructions and working folder.
     return this.request<{ group: Group }>(`/api/groups/${routeId(groupId)}/setup`, 'PATCH', { action: 'skip' });
   }
-  groupMembers(groupId: string, memberIds: string[], expectedMemberIds: string[]) {
-    return this.request<{ group: Group }>(`/api/groups/${routeId(groupId)}/members`, 'PATCH', { memberIds, expectedMemberIds });
+  groupMembers(groupId: string, memberIds: string[], expectedMemberIds: string[], instructions?: { bulletin?: string; expectedBulletin?: string; judgeModelSelection?: Group["judgeModelSelection"] | null; expectedJudgeModelSelection?: Group["judgeModelSelection"] | null }) {
+    return this.request<{ group: Group }>(`/api/groups/${routeId(groupId)}/members`, 'PATCH', { memberIds, expectedMemberIds, ...instructions });
   }
   page(thread: string, options: { before?: string; around?: string } = {}) {
     return this.request<Page>(`/api/threads/${routeId(thread)}/messages?${new URLSearchParams({ limit: '50', ...options })}`);
@@ -77,8 +77,8 @@ export class Client {
     return this.request<{ bot: Bot }>(`/api/bots/${routeId(botId)}/permissions`, 'PATCH', patch);
   }
   search(q: string) { return this.request<{ hits: SearchHit[] }>(`/api/search?${new URLSearchParams({ q, limit: '40' })}`); }
-  send(d: Destination, text: string, sendId: string) {
-    return this.request(`${destinationPath(d)}/messages`, 'POST', { text, threadId: d.threadId, sendId });
+  send(d: Destination, text: string, sendId: string, mode: 'chat' | 'goal' = 'chat') {
+    return this.request(`${destinationPath(d)}/messages`, 'POST', { text, threadId: d.threadId, sendId, ...(d.kind === 'groups' ? { mode } : {}) });
   }
   stop(d: Destination) { return this.request(`${destinationPath(d)}/interrupt`, 'POST', { threadId: d.threadId }); }
   read(d: Destination) { return this.request(`${destinationPath(d)}/read`, 'POST', { threadId: d.threadId }); }

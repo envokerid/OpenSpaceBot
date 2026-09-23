@@ -787,6 +787,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
       // hands it back next turn, so that id IS the resume handle — pi's
       // sessionFile, which switch_session expects as `sessionPath`.
       const sessionPath = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
+      let promptText = turn.text;
       let sessionFile = sessionPath;
       try {
         const command = sessionPath ? "switch_session" : "new_session";
@@ -802,7 +803,9 @@ export const PiDriver: ProviderDriver<PiConfig> = {
         });
       } catch {
         // without a session we can still try a bare prompt; pi --no-session
-        // accepts a prompt without an explicit session.
+        // accepts a prompt without an explicit session. Preserve the saved
+        // room conversation when a provider cannot restore its cursor.
+        if (sessionPath && turn.recoveryText) promptText = turn.recoveryText;
       }
 
       // pin the chosen model (composite id or host::model inject → provider + modelId)
@@ -829,7 +832,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
         }
       }
 
-      const message = turn.system ? `${turn.system}\n\n${turn.text}` : turn.text;
+      const message = turn.system ? `${turn.system}\n\n${promptText}` : promptText;
       try {
         send({ type: "prompt", message, ...(images.length ? { images } : {}) });
       } catch {

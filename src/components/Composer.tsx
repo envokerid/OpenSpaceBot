@@ -244,6 +244,7 @@ export function Composer({
     );
   const imageTargetsSupport = (message: string, mode: "chat" | "goal") => {
     if (!group) return botSupportsImages(bot);
+    if (!group.dm) return (members ?? []).filter(member => !member.hidden).every(botSupportsImages);
     if (mode === "goal") {
       return botSupportsImages(goalCoordinatorForComposer(message, members ?? [], group) ?? undefined);
     }
@@ -268,11 +269,6 @@ export function Composer({
           )?.capabilities?.agentsMcp,
       );
     const available: ComposerSlashCommand[] = [];
-    if (group && !group.dm) available.push({
-      id: "goal",
-      label: "/goal",
-      description: t("composer.command.goalDesc"),
-    });
     if (
       skillAuthoringEnabled(state.config) &&
       (group ? (members ?? []).some(supportsAgents) : supportsAgents(bot))
@@ -909,38 +905,6 @@ export function Composer({
               >
                 <Paperclip size={17} />
               </button>
-              {group && !group.dm && (
-                <button
-                  type="button"
-                  aria-pressed={effectiveChannelMode === "goal"}
-                  aria-label={t("composer.goal.aria")}
-                  title={t("composer.goal.title")}
-                  onClick={() => {
-                    markDraftEdited(draftId);
-                    if (typedGoalText !== null) {
-                      const nextCaret = Math.max(0, caret - (text.length - typedGoalText.length));
-                      editText(typedGoalText);
-                      setCaret(nextCaret);
-                      setChannelMode("chat");
-                      requestAnimationFrame(() => {
-                        inputRef.current?.focus();
-                        inputRef.current?.setSelectionRange(nextCaret, nextCaret);
-                      });
-                      return;
-                    }
-                    setChannelMode((current) => current === "goal" ? "chat" : "goal");
-                  }}
-                  className={cn(
-                    "flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-[13px] transition-colors",
-                    effectiveChannelMode === "goal"
-                      ? "border-accent/35 bg-accent/10 text-accent"
-                      : "border-hairline/20 bg-transparent text-ink-secondary hover:bg-raised hover:text-ink",
-                  )}
-                >
-                  <Target size={14} aria-hidden="true" />
-                  {effectiveChannelMode === "goal" ? "/goal" : t("composer.goal.chip")}
-                </button>
-              )}
               {modeBot && approvalEngine && !remoteClient && (
                 <ApprovalModeSelector
                   approvalMode={modeBot.approvalMode}
@@ -1067,9 +1031,7 @@ export function Composer({
                   ? t("composer.placeholder.queueGroup", { name: busyName })
                   : t("composer.placeholder.queue", { name: busyName })
                 : group
-                  ? channelMode === "goal"
-                    ? t("composer.placeholder.goal", { name: group.name })
-                    : t("composer.placeholder.group", {
+                  ? t("composer.placeholder.group", {
                         name: group.name,
                         hint: groupComposerHint(group, members ?? []),
                       })

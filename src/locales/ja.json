@@ -337,6 +337,8 @@
   "composer.placeholder.goal": "{name} が一緒に仕上げる内容を書いてください",
   "composer.placeholder.group": "{name} へのメッセージ — {hint}",
   "composer.placeholder.bot": "{name} へのメッセージ",
+  "composer.hint.election": "全員が返信案を作成し、判定役が投稿する返信を選びます",
+  "room.hint.election": "メンバーが返信案を作成し、判定役が次に投稿する返信を選びます。",
   "composer.hint.dm": "会話を続けます",
   "composer.hint.everyone": "全員が応答します",
   "composer.hint.mentions": "@ でボットを呼びます",

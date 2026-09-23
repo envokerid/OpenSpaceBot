@@ -228,6 +228,7 @@ describe("ACP turns (fake CLI)", () => {
     delete process.env.FAKE_ACP_RPC_APPEND_FILE;
     delete process.env.FAKE_ACP_ALLOW_ALWAYS;
     delete process.env.FAKE_ACP_PERMISSION_ANSWER;
+    delete process.env.FAKE_ACP_PERMISSION_TOOL_CALL;
     delete process.env.XAI_API_KEY;
     delete process.env.OPENCODE_API_KEY;
     delete process.env.CURSOR_API_KEY;
@@ -714,6 +715,25 @@ describe("ACP turns (fake CLI)", () => {
     expect(done).toMatchObject({ ok: true });
   });
 
+  it("preserves MCP tool provenance and its provider-visible command name", async () => {
+    process.env.FAKE_ACP_PERMISSION_TOOL_CALL = JSON.stringify({
+      toolCallId: "fixture-composio",
+      kind: "other",
+      title: "composio__COMPOSIO_MULTI_EXECUTE_TOOL",
+      rawInput: { tools: [{ slug: "fixture" }] },
+    });
+    await create(GrokAgentDriver, "permission");
+    await instance.adapter.sendTurn({ threadId: "t-mcp-permission", text: "go" });
+    const opened = await recorder.until((event) => event.type === "request.opened");
+    expect(opened).toMatchObject({
+      requestType: "permission",
+      tool: "composio__COMPOSIO_MULTI_EXECUTE_TOOL",
+      mcpTool: true,
+    });
+    await instance.adapter.respondToRequest("t-mcp-permission", opened.requestId!, { behavior: "allow" });
+    await recorder.until((event) => event.type === "turn.completed");
+  });
+
   it("per-bot Ask surfaces permissions from a legacy full-auto instance", async () => {
     process.env.FAKE_ACP_MODE = "permission";
     const dump = join(scratch, "ask-permission-overrides-full-auto.json");
@@ -1099,17 +1119,22 @@ describe("ACP turns (fake CLI)", () => {
 
   it("falls through to session/new when session/load returns null", async () => {
     process.env.FAKE_ACP_LOAD_NULL = "1";
+    const dump = join(scratch, "recovery-prompt.json");
+    process.env.FAKE_ACP_DUMP = dump;
+    process.env.FAKE_ACP_DUMP_PROMPT = "1";
     await create(GrokAgentDriver);
     await instance.adapter.sendTurn({
       threadId: "t-resume-null",
       text: "go",
       resumeCursor: "gone-cursor",
+      recoveryText: "Saved proposal, votes and tool results. Now go.",
     });
 
     const started = await recorder.until((e) => e.type === "session.started");
-    expect(started).toMatchObject({ sessionId: "fake-acp-session" });
+    expect(started).toMatchObject({ sessionId: "fake-acp-session", rebuilt: true });
     const done = await recorder.until((e) => e.type === "turn.completed");
     expect(done).toMatchObject({ ok: true });
+    expect(readFileSync(`${dump}.prompt.json`, "utf8")).toContain("Saved proposal, votes and tool results. Now go.");
   });
 
   it("applyTurnEnv sees the picker model after resolveTurnModel", async () => {

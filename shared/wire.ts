@@ -183,6 +183,8 @@ export interface WireBot {
   id: string;
   /** The task selected in the UI; running turns keep their own thread id. */
   threadId: string;
+  /** Stable destination for coordinated work, independent of UI selection. */
+  mainThreadId?: string;
   /** every task this bot has, newest first, projected like wireTask */
   tasks?: WireTask[];
   /** Projects group this bot's threads; older bots have no projects. */
@@ -349,7 +351,7 @@ export interface WireMessage {
   /** group threads: which member said this (sender attribution). */
   from?: { botId: string; name: string; color: string };
   /** Set on a room message a bot pushed in with post_to_room. */
-  peerPost?: { unattended?: boolean };
+  peerPost?: { unattended?: boolean; electionRoot?: { id: string; expiresAt: number; replies: number } };
   /** Set on the user-role line another bot delivered into this bot's own
    * conversation (ask_bot, start_thread). */
   peerAsk?: { botId: string; name: string; unattended?: boolean };
@@ -378,6 +380,8 @@ export interface OptionCardData {
   requestId?: string;
   /** permission cards: the tool being requested. */
   tool?: string;
+  /** The permission was raised by an MCP tool call. */
+  mcpTool?: boolean;
   /** why this card is waiting: guard, mode, sandbox or delivery error. */
   held?: string;
   /** Catalog key for held when it is one of the fixed notes. */
@@ -452,11 +456,17 @@ export interface WireGroup {
   id: string;
   /** The active task's thread. Direct-message channels stay single-threaded. */
   threadId: string;
+  /** Stable destination for coordinated work, independent of UI selection. */
+  mainThreadId?: string;
   /** User-created channels have independent tasks, newest first. */
   tasks?: GroupTask[];
   name: string;
   memberIds: string[];
   defaultResponder: GroupDefaultResponder;
+  /** Legacy ordered-voting offset retained for historical compatibility. */
+  electionOffset?: number;
+  /** Response judge; when unset use the first active member’s model. */
+  judgeModelSelection?: ModelSelection;
   /** The room's shared instructions. */
   bulletin: string;
   unread: boolean;

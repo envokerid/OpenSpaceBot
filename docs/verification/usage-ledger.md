@@ -15,6 +15,13 @@
 Settings → Usage shows the live per-bot card and, below it, **History**: pick
 a period, group it, or **Export CSV**.
 
+Expo's **Settings → Workspace settings → Usage** adds a mobile stats view with
+cache-hit rate and reporting coverage; see [Expo verification](../../expo/verification/usage.md).
+The API exposes `cacheReportedInput` and `cacheReportedTurns` for each group.
+Only rows reporting a finite nonnegative cache count enter that denominator.
+Unknown cache counts remain blank in CSV rather than being exported as zero.
+Proposal, vote and judge calls retain the driver's cached-input count too.
+
 ## Driving it
 
 ```sh

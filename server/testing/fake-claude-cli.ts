@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { runElectionAgent } from "./election-agent.ts";
 // Fake of the claude CLI's stream-json surface, for driver tests.
 // Reads the prompt from stdin (one stream-json line), then plays a
 // scripted session. Failure modes are toggled by env var, mirroring how
@@ -192,6 +193,7 @@ if (argv[0] === "auth" && argv[1] === "status") {
   );
 }
 
+// Isolated proposal/vote calls. Never enter the working-turn/tool simulator.
 // One-shot helper mode used by generateText/reviewPermission. The prompt is
 // deliberately read from stdin so sensitive review text never appears in
 // argv or process listings.
@@ -366,9 +368,22 @@ const playTurn = (prompt: JsonValue) => {
     return;
   }
 
-  if (process.env.FAKE_CLAUDE_ROOM_PLAN) {
+  const electionConfig = argAfter("--mcp-config");
+  const electionIntegration = electionConfig ? Object.values(JSON.parse(readFileSync(electionConfig, "utf8")).mcpServers ?? {}).find((value: any) => value.env?.OMB_ELECTION_PHASE) : undefined;
+  if (electionIntegration) {
+    void runElectionAgent(electionIntegration as any, promptText(prompt), argv).then(() => {
+      out({ type: "assistant", message: { content: [{ type: "text", text: "Private submission finished." }] } });
+      out({ type: "result", is_error: false, stop_reason: "end_turn", usage: { input_tokens: 20, cache_read_input_tokens: 80, output_tokens: 30 }, total_cost_usd: 0.001 });
+    }).catch(error => out({ type: "result", is_error: true, result: String(error), stop_reason: "error" }))
+      .finally(() => { turnRunning = false; finishIfDone(); });
+    return;
+  }
+
+  const electionControl = process.env.FAKE_CLAUDE_ELECTION_CONTROL ? JSON.parse(readFileSync(process.env.FAKE_CLAUDE_ELECTION_CONTROL, "utf8")) : {};
+  const roomPlan = process.env.FAKE_CLAUDE_ROOM_PLAN ?? electionControl.planFile;
+  if (roomPlan) {
     const progress = (text: string) => out({ type: "assistant", message: { content: [{ type: "text", text }] } });
-    void runRoomHandoffAgent(argv, process.env.FAKE_CLAUDE_ROOM_PLAN, prompt, undefined, progress).then(text => {
+    void runRoomHandoffAgent(argv, roomPlan, prompt, undefined, progress).then(text => {
       const contextTokens = Number(process.env.FAKE_CLAUDE_CONTEXT_TOKENS);
       const usage = Number.isSafeInteger(contextTokens) && contextTokens > 0 ? { input_tokens: contextTokens, output_tokens: 5 } : undefined;
       out({ type: "assistant", message: { content: [{ type: "text", text }], ...(usage ? { usage } : {}) } });

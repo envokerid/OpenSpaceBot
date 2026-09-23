@@ -6,13 +6,13 @@ const speech: typeof import('expo-speech-recognition') | undefined =
   !isRunningInExpoGo() && requireOptionalNativeModule('ExpoSpeechRecognition')
     ? require('expo-speech-recognition')
     : undefined;
-interface DictationProps { text: string; onText: (text: string) => void; disabled: boolean }
+interface DictationProps { text: string; onText: (text: string) => void; disabled: boolean; color?: string; surface?: string }
 export function Dictation(props: DictationProps) {
-  return speech ? <NativeDictation {...props} /> : <IconButton icon="mic" size={32} label="Start dictation" onPress={() => Alert.alert('Dictation', 'Dictation is available in the OpenMausBot development build.')} />;
+  return speech ? <NativeDictation {...props} /> : <IconButton icon="mic" size={32} color={props.color} surface={props.surface} label="Start dictation" onPress={() => Alert.alert('Dictation', 'Dictation is available in the OpenMausBot development build.')} />;
 }
 import { IconButton, ErrorNotice, Row, useTheme } from './ui';
 
-function NativeDictation({ text, onText, disabled }: DictationProps) {
+function NativeDictation({ text, onText, disabled, color, surface }: DictationProps) {
   const { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } = speech!;
   const c = useTheme(); const [listening, setListening] = useState(false); const [error, setError] = useState<string>();
   const prefix = useRef(''); const active = useRef(false);
@@ -31,7 +31,7 @@ function NativeDictation({ text, onText, disabled }: DictationProps) {
     return () => { sub.remove(); active.current = false; ExpoSpeechRecognitionModule.abort(); };
   }, []);
   useEffect(() => { if (disabled && active.current) { active.current = false; ExpoSpeechRecognitionModule.abort(); } }, [disabled]);
-  return <Row><IconButton icon="mic" size={32} surface={c.muted + '20'} elevation={0} label={listening ? 'Stop dictation' : 'Start dictation'} disabled={disabled && !listening} onPress={() => {
+  return <Row><IconButton icon="mic" size={32} color={color} surface={surface ?? c.muted + '20'} elevation={0} label={listening ? 'Stop dictation' : 'Start dictation'} disabled={disabled && !listening} onPress={() => {
     if (listening) { ExpoSpeechRecognitionModule.stop(); return; }
     setError(undefined);
     void ExpoSpeechRecognitionModule.requestPermissionsAsync().then(result => {

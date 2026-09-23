@@ -43,9 +43,13 @@
 //                         MCP server and replies with its text
 //   FAKE_CODEX_COMPLETE_BEFORE_ACK  with FAKE_CODEX_ROOM_PLAN: stream the whole
 //                         turn, completion included, before acknowledging turn/start
+//   FAKE_CODEX_SESSION_DIR  retain native developer messages across processes;
+//                         resume changes config, inject_items changes live history
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
-import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 
 
 const mode = process.env.FAKE_CODEX_MODE ?? "happy";
@@ -86,6 +90,14 @@ if (process.argv[2] === "login" && process.argv[3] === "status") {
 const calls: Array<{ method: string; params: unknown }> = [];
 let developerInstructions = "";
 let resumedThread: string | null = null;
+const sessionFile = (id: string) => process.env.FAKE_CODEX_SESSION_DIR
+  ? join(process.env.FAKE_CODEX_SESSION_DIR, `${encodeURIComponent(id)}.json`) : undefined;
+const saveSession = (id: string) => {
+  const file = sessionFile(id);
+  if (!file) return;
+  mkdirSync(process.env.FAKE_CODEX_SESSION_DIR!, { recursive: true });
+  writeFileSync(file, JSON.stringify({ developerInstructions }));
+};
 let decision: unknown = null;
 let experimentalApi = false;
 
@@ -211,8 +223,13 @@ const playRoomPlanTurn = (msg: any, planPath: string) => {
   const text = (msg.params?.input ?? []).filter((item: any) => item?.type === "text").map((item: any) => item.text).join("\n");
   if (!early) ack();
   // Loaded only in this mode: other tests run a copy of this file on its own.
-  void import("./room-handoff-agent.ts").then(({ runRoomHandoffAgent }) => runRoomHandoffAgent(process.argv.slice(2), planPath, { message: { content: text } },
-    { integration, system: developerInstructions, evidence: { resumedThread } }))
+  void (integration.env.OMB_ELECTION_PHASE
+    ? import("./election-agent.ts").then(({ runElectionAgent }) => runElectionAgent(integration, text, process.argv.slice(2))).then(() => "Private submission finished")
+    // Reproduce the native session retaining a private phase's no-public-reply
+    // instruction until the app explicitly updates the developer message.
+    : process.env.FAKE_CODEX_SESSION_DIR && developerInstructions.includes("You are in a private room election phase.") ? Promise.resolve("")
+    : import("./room-handoff-agent.ts").then(({ runRoomHandoffAgent }) => runRoomHandoffAgent(process.argv.slice(2), planPath, { message: { content: text } },
+      { integration, system: developerInstructions, evidence: { resumedThread } })))
     .then((reply) => {
       notify("item/completed", { item: { id: "m1", type: "agentMessage", text: reply } });
       notify("turn/completed", { turn: { status: "completed" } });
@@ -343,6 +360,10 @@ process.stdin.on("data", (chunk) => {
         dump();
         developerInstructions = msg.params?.developerInstructions ?? "";
         resumedThread = msg.params?.threadId ?? null;
+        if (resumedThread) {
+          const file = sessionFile(resumedThread);
+          if (file && existsSync(file)) developerInstructions = JSON.parse(readFileSync(file, "utf8")).developerInstructions;
+        }
         if (process.env.FAKE_CODEX_RESUME_ERROR) {
           out({ jsonrpc: "2.0", id: msg.id, error: JSON.parse(process.env.FAKE_CODEX_RESUME_ERROR) });
         } else if (msg.params?.permissions && (!experimentalApi || mode === "config-profile-unsupported")) {
@@ -359,6 +380,13 @@ process.stdin.on("data", (chunk) => {
           dump();
           out({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "method not found" } });
           break;
+        }
+        if (process.env.FAKE_CODEX_SESSION_DIR) {
+          const update = msg.params?.items?.findLast((item: any) => item.role === "developer");
+          if (update) {
+            developerInstructions = update.content.map((item: any) => item.text ?? "").join("\n");
+            saveSession(msg.params.threadId);
+          }
         }
         out({ jsonrpc: "2.0", id: msg.id, result: {} });
         break;
@@ -398,7 +426,9 @@ process.stdin.on("data", (chunk) => {
         } else if (msg.params?.permissions && (!experimentalApi || mode === "config-profile-unsupported")) {
           out({ jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: "experimental API required for permissions" } });
         } else {
-          threadReply({ jsonrpc: "2.0", id: msg.id, result: { thread: { id: "codex-thread-1" }, model: "fake-codex-model" } });
+          const id = process.env.FAKE_CODEX_SESSION_DIR ? randomUUID() : "codex-thread-1";
+          saveSession(id);
+          threadReply({ jsonrpc: "2.0", id: msg.id, result: { thread: { id }, model: "fake-codex-model" } });
         }
         break;
       case "turn/start": {
@@ -540,8 +570,8 @@ process.stdin.on("data", (chunk) => {
           });
           break;
         }
-        if (process.env.FAKE_CODEX_ROOM_PLAN) {
-          playRoomPlanTurn(msg, process.env.FAKE_CODEX_ROOM_PLAN);
+        if (process.env.FAKE_CODEX_ROOM_PLAN || process.env.OMB_ELECTION_PHASE) {
+          playRoomPlanTurn(msg, process.env.FAKE_CODEX_ROOM_PLAN ?? "");
           break;
         }
         if (mode === "early-turn-events") finishTurn();

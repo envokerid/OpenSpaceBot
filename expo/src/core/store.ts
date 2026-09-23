@@ -1,3 +1,4 @@
+import { roomSelectionPending } from "../../../shared/room-election.ts";
 import type { Bot, Group, Message, Frame, Fleet, Page, BotQueuedMessages } from './types.ts';
 
 export interface State {
@@ -6,21 +7,34 @@ export interface State {
   streaming: Record<string, string>; reasoning: Record<string, string>;
   // Reply generation ends before the server finishes saving hidden digests.
   typing: Record<string, boolean>;
+  typingTurns: Record<string, Record<string, boolean>>;
+  arrivals: Record<string, string[]>;
   queues: BotQueuedMessages; screens: Record<string, { png: string; mime: string }>;
   cursor?: string; status: 'connecting' | 'connected' | 'offline' | 'revoked'; error?: string;
 }
-export const initialState = (): State => ({ hydrated: false, bots: [], groups: [], sections: [], pages: {}, streaming: {}, reasoning: {}, typing: {}, queues: {}, screens: {}, status: 'connecting' });
+export const initialState = (): State => ({ hydrated: false, bots: [], groups: [], sections: [], pages: {}, streaming: {}, reasoning: {}, typing: {}, typingTurns: {}, arrivals: {}, queues: {}, screens: {}, status: 'connecting' });
 export function mergeMessages(older: Message[], newer: Message[]) {
   const messages = new Map(older.map(m => [m.id, m]));
   for (const m of newer) messages.set(m.id, m);
   return [...messages.values()].sort((a, b) => a.at - b.at);
 }
+// Keep the older, already loaded prefix only when the latest page overlaps it.
+// An empty/disjoint replacement (clear/restore/search) must not resurrect history.
+export function mergeLatestPage(old: Page | undefined, page: Page): Page {
+  if (!old || !page.messages.length || page.hasMore === false) return page;
+  const ids = new Set(page.messages.map(message => message.id));
+  const overlap = old.messages.findIndex(message => ids.has(message.id));
+  if (overlap <= 0) return page;
+  const older = old.messages.slice(0, overlap).filter(message => message.at <= page.messages[0].at);
+  return older.length ? { ...page, messages: mergeMessages(older, page.messages), hasMore: old.hasMore } : page;
+}
 export function hydrate(state: State, fleet: Fleet, extra: Record<string, Page> = {}): State {
   const pages: Record<string, Page> = {};
   for (const item of [...fleet.bots, ...fleet.groups]) {
-    pages[item.threadId] = { messages: item.messages ?? [], hasMore: item.hasMore, activeLeafId: item.activeLeafId };
+    pages[item.threadId] = mergeLatestPage(state.pages[item.threadId], { messages: item.messages ?? [], hasMore: item.hasMore, activeLeafId: item.activeLeafId });
   }
-  return { ...state, hydrated: true, bots: fleet.bots, groups: fleet.groups, sections: fleet.sections ?? [], pages: { ...pages, ...extra }, queues: fleet.botQueuedMessages ?? {}, streaming: {}, reasoning: {}, typing: {} };
+  for (const [thread, page] of Object.entries(extra)) pages[thread] = mergeLatestPage(state.pages[thread], page);
+  return { ...state, hydrated: true, bots: fleet.bots, groups: fleet.groups, sections: fleet.sections ?? [], pages, queues: fleet.botQueuedMessages ?? {}, streaming: {}, reasoning: {}, typing: {}, typingTurns: {}, arrivals: {} };
 }
 export function visibleMessages(page?: Page): Message[] {
   if (!page) return [];
@@ -37,6 +51,8 @@ export function visibleMessages(page?: Page): Message[] {
   return chain;
 }
 export function isTyping(state: State, threadId: string, busy: boolean): boolean {
+  const messages = visibleMessages(state.pages[threadId]);
+  if (messages.some(message => message.goalRun?.election)) return busy && roomSelectionPending(messages);
   const known = state.typing[threadId];
   if (known !== undefined) return known;
   // A snapshot may arrive while the server still owns a finished turn's
@@ -46,6 +62,13 @@ export function isTyping(state: State, threadId: string, busy: boolean): boolean
 }
 export function fold(state: State, frame: Frame): State {
   let next = { ...state };
+  const typing = (thread: string, turn: string | undefined, active: boolean, clear = false) => {
+    const turns = clear ? {} : { ...state.typingTurns[thread] };
+    const id = turn ?? 'unscoped';
+    if (active) turns[id] = true; else delete turns[id];
+    next.typingTurns = { ...state.typingTurns, [thread]: turns };
+    next.typing = { ...state.typing, [thread]: Object.values(turns).some(Boolean) };
+  };
   switch (frame.kind) {
     case 'sections': next.sections = frame.sections; break;
     case 'hello': next.cursor = frame.cursor; break;
@@ -67,11 +90,18 @@ export function fold(state: State, frame: Frame): State {
     case 'message':
     case 'message.patch': {
       const page = state.pages[frame.threadId] ?? { messages: [] };
+      if (frame.kind === 'message' && !page.messages.some(message => message.id === frame.message.id)) {
+        next.arrivals = { ...state.arrivals, [frame.threadId]: [...(state.arrivals[frame.threadId] ?? []), frame.message.id].slice(-128) };
+      }
       next.pages = { ...state.pages, [frame.threadId]: { ...page, messages: mergeMessages(page.messages, [frame.message]), ...(frame.kind === 'message' ? { activeLeafId: frame.message.id } : {}) } };
       if (frame.kind === 'message' && frame.message.role === 'bot' && (frame.message.kind === 'text' || frame.message.kind === 'digest')) {
         next.streaming = { ...state.streaming, [frame.threadId]: '' };
         next.reasoning = { ...state.reasoning, [frame.threadId]: '' };
-        next.typing = { ...state.typing, [frame.threadId]: false };
+        // Digests belong to a finished turn and must not hide a new speaker.
+        if (frame.message.kind === 'text') {
+          const turns = Object.keys(state.typingTurns[frame.threadId] ?? {});
+          typing(frame.threadId, frame.message.turnId ?? (turns.length === 1 ? turns[0] : undefined), false);
+        }
       }
       if (frame.message.queueId) next.queues = { ...state.queues, [frame.threadId]: (state.queues[frame.threadId] ?? []).filter(q => q.queueId !== frame.message.queueId) };
       break;
@@ -82,11 +112,11 @@ export function fold(state: State, frame: Frame): State {
       if (event.type === 'content.delta') {
         const key = event.streamKind === 'reasoning_text' ? 'reasoning' : 'streaming';
         next[key] = { ...state[key], [event.threadId]: (state[key][event.threadId] ?? '') + event.delta };
-        if (event.delta) next.typing = { ...state.typing, [event.threadId]: true };
+        if (event.delta) typing(event.threadId, event.turnId, true);
       } else if (event.type === 'turn.completed' || event.type === 'turn.started' || event.type === 'session.exited') {
         next.streaming = { ...state.streaming, [event.threadId]: '' };
         next.reasoning = { ...state.reasoning, [event.threadId]: '' };
-        next.typing = { ...state.typing, [event.threadId]: event.type === 'turn.started' };
+        typing(event.threadId, event.turnId, event.type === 'turn.started', event.type === 'session.exited' && !event.turnId);
       }
       break;
     }

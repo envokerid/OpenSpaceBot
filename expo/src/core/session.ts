@@ -1,5 +1,5 @@
 import { APIError, Client } from './client.ts';
-import { fold, hydrate, initialState, mergeMessages, type State } from './store.ts';
+import { fold, hydrate, initialState, mergeLatestPage, mergeMessages, type State } from './store.ts';
 import { stream } from './sse.ts';
 import type { Frame, Page } from './types.ts';
 
@@ -49,7 +49,7 @@ export class Session {
     const page = await this.client.page(thread, options);
     if (generation !== this.generation || requestId !== this.pageIds.get(thread)) return;
     const old = this.state.pages[thread];
-    const merged = options.before && old ? { ...page, activeLeafId: old.activeLeafId, messages: mergeMessages(page.messages, old.messages) } : page;
+    const merged = options.before && old ? { ...page, activeLeafId: old.activeLeafId, messages: mergeMessages(page.messages, old.messages) } : options.around ? page : mergeLatestPage(old, page);
     let next = { ...this.state, pages: { ...this.state.pages, [thread]: merged } };
     for (const entry of this.journal) {
       if (entry.revision > revision && 'threadId' in entry.frame && entry.frame.threadId === thread) next = fold(next, entry.frame);
