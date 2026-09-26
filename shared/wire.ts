@@ -189,6 +189,8 @@ export interface WireBot {
   tasks?: WireTask[];
   /** Projects group this bot's threads; older bots have no projects. */
   projects?: BotProject[];
+  /** Standing per-tool grants; false overrides a built-in default. */
+  mcpToolApprovals?: Record<string, boolean>;
   name: string;
   title: string;
   description: string;
@@ -351,7 +353,7 @@ export interface WireMessage {
   /** group threads: which member said this (sender attribution). */
   from?: { botId: string; name: string; color: string };
   /** Set on a room message a bot pushed in with post_to_room. */
-  peerPost?: { unattended?: boolean; electionRoot?: { id: string; expiresAt: number; replies: number } };
+  peerPost?: { unattended?: boolean };
   /** Set on the user-role line another bot delivered into this bot's own
    * conversation (ask_bot, start_thread). */
   peerAsk?: { botId: string; name: string; unattended?: boolean };
@@ -463,10 +465,6 @@ export interface WireGroup {
   name: string;
   memberIds: string[];
   defaultResponder: GroupDefaultResponder;
-  /** Legacy ordered-voting offset retained for historical compatibility. */
-  electionOffset?: number;
-  /** Response judge; when unset use the first active member’s model. */
-  judgeModelSelection?: ModelSelection;
   /** The room's shared instructions. */
   bulletin: string;
   unread: boolean;

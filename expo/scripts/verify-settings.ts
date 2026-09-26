@@ -229,6 +229,40 @@ try {
     command: "control:omb new-bot --name Settings Probe",
     result: created,
   });
+  const createdBot = (created as any).bot;
+  const approved = await client.request<any>("/api/settings/approved-commands");
+  assert.ok(approved.tools.includes("composio_multi_execute_tool"));
+  assert.ok(approved.bots.some((bot: any) => bot.id === createdBot.id));
+  const revokedCommand = await client.request<any>(
+    "/api/settings/approved-commands",
+    "PATCH",
+    {
+      botId: createdBot.id,
+      tool: "composio_multi_execute_tool",
+      approved: false,
+    },
+  );
+  assert.equal(
+    revokedCommand.bots.find((bot: any) => bot.id === createdBot.id)
+      .approvals.composio_multi_execute_tool,
+    false,
+  );
+  evidence.push({
+    action:
+      "Approved commands available through granted Expo settings access; default Composio command revoked for fixture bot",
+    passed: true,
+  });
+  const bulkCommand = await client.request<any>("/api/settings/approved-commands", "PATCH", {
+    allBots: true, tool: "mcp__fixture__lookup", approved: true, includeNewBots: true,
+  });
+  assert.equal(bulkCommand.newBotApprovals.mcp__fixture__lookup, true);
+  assert.ok(bulkCommand.bots.every((bot: any) => bot.approvals.mcp__fixture__lookup === true));
+  const futureCommand = await client.request<any>("/api/settings/approved-commands", "PATCH", {
+    botIds: [], tool: "mcp__fixture__lookup", approved: true, includeNewBots: false,
+  });
+  assert.equal(futureCommand.newBotApprovals.mcp__fixture__lookup, false);
+  assert.ok(futureCommand.bots.every((bot: any) => bot.approvals.mcp__fixture__lookup === true));
+  evidence.push({ action: "Paired phone approved all bots and changed the future-bot default without revoking existing bots", passed: true });
   const password = "isolated-fixture-backup-password";
   const exported = await client.request<any>(
     "/api/workspace-backup/export",

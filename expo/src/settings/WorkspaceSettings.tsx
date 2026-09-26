@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { BackHandler, View } from "react-native";
+import type { IconName } from "../Icon";
 import type { Session } from "../core/session";
 import { canAdminister } from "../core/types";
 import {
@@ -15,6 +16,7 @@ import {
 } from "../ui";
 import { GeneralSettings, ExperimentalSettings } from "./General";
 import { ConnectionSettings, MediaSettings } from "./Connections";
+import { ApprovedCommandsSettings } from "./ApprovedCommands";
 import { EngineSettings } from "./Engines";
 import { ComputerSettings } from "./Computers";
 import { UsageSettings } from "./Usage";
@@ -28,6 +30,7 @@ import {
 import type { WorkspaceConfig } from "./shared";
 
 const sections = [
+  { id: "approvedCommands", title: "Approved commands", detail: "Approve MCP tool calls for individual bots" },
   {
     id: "general",
     title: "General",
@@ -61,7 +64,7 @@ const sections = [
   {
     id: "usage",
     title: "Usage",
-    detail: "History, exports, budgets and model prices",
+    detail: "Tokens, cache hits, costs and budgets",
   },
   {
     id: "people",
@@ -90,12 +93,37 @@ const sections = [
   },
 ] as const;
 type SectionId = (typeof sections)[number]["id"];
+const groups: { title: string; ids: SectionId[] }[] = [
+  { title: "Workspace", ids: ["general", "connections", "engines", "media"] },
+  { title: "Tools & resources", ids: ["computer", "approvedCommands", "usage", "experimental"] },
+  {
+    title: "Administration",
+    ids: ["people", "remote", "backups", "organization", "fleet"],
+  },
+];
+const sectionIcons: Record<SectionId, { icon: IconName; color: string }> = {
+  approvedCommands: { icon: "checkCircle", color: "#2BBD65" },
+  general: { icon: "person", color: "#2BBD65" },
+  connections: { icon: "hub", color: "#05AADB" },
+  engines: { icon: "settings", color: "#7563EC" },
+  media: { icon: "mic", color: "#AB59EA" },
+  computer: { icon: "computer", color: "#7563EC" },
+  usage: { icon: "list", color: "#E99730" },
+  experimental: { icon: "checkCircle", color: "#CD609A" },
+  people: { icon: "person", color: "#2BBD65" },
+  remote: { icon: "phone", color: "#05AADB" },
+  backups: { icon: "folder", color: "#E99730" },
+  organization: { icon: "hub", color: "#647D90" },
+  fleet: { icon: "computer", color: "#7563EC" },
+};
 export function WorkspaceSettings({
   session,
   onBack,
+  initialSection,
 }: {
   session: Session;
   onBack: () => void;
+  initialSection?: SectionId;
 }) {
   const client = session.client;
   const action = useAction();
@@ -104,7 +132,7 @@ export function WorkspaceSettings({
     allowed: boolean;
     desktop: boolean;
   }>();
-  const [section, setSection] = useState<SectionId>();
+  const [section, setSection] = useState<SectionId | undefined>(initialSection);
   const [query, setQuery] = useState("");
   const load = async () => {
     const grant = client.connection.server
@@ -121,7 +149,7 @@ export function WorkspaceSettings({
   }, [client]);
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-      if (section) {
+      if (section && section !== initialSection) {
         setSection(undefined);
         return true;
       }
@@ -129,7 +157,7 @@ export function WorkspaceSettings({
       return true;
     });
     return () => sub.remove();
-  }, [section, onBack]);
+  }, [section, initialSection, onBack]);
   const props = config ? { client, config, reload: load } : undefined;
   return (
     <View style={{ flex: 1 }}>
@@ -137,7 +165,7 @@ export function WorkspaceSettings({
         title={
           sections.find((s) => s.id === section)?.title ?? "Workspace settings"
         }
-        onBack={() => (section ? setSection(undefined) : onBack())}
+        onBack={() => (section && section !== initialSection ? setSection(undefined) : onBack())}
       />
       <Page key={section ?? "index"}>
         <ErrorNotice error={action.error} />
@@ -180,8 +208,36 @@ export function WorkspaceSettings({
               value={query}
               onChangeText={setQuery}
             />
-            {sections
-              .filter(
+            {groups.map((group) => {
+              const visible = sections.filter(
+                (s) =>
+                  group.ids.includes(s.id) &&
+                  (access.desktop || s.id !== "organization") &&
+                  (s.id !== "fleet" ||
+                    (config.fleet?.available &&
+                      config.edition?.features.includes("admin"))) &&
+                  `${s.title} ${s.detail}`
+                    .toLowerCase()
+                    .includes(query.toLowerCase()),
+              );
+              if (!visible.length) return null;
+              return (
+                <Section key={group.title} title={group.title}>
+                  {visible.map((s) => (
+                    <SettingRow
+                      key={s.id}
+                      title={s.title}
+                      subtitle={s.detail}
+                      icon={sectionIcons[s.id].icon}
+                      iconColor={sectionIcons[s.id].color}
+                      onPress={() => setSection(s.id)}
+                    />
+                  ))}
+                </Section>
+              );
+            })}
+            {query.trim() &&
+              !sections.some(
                 (s) =>
                   (access.desktop || s.id !== "organization") &&
                   (s.id !== "fleet" ||
@@ -190,18 +246,7 @@ export function WorkspaceSettings({
                   `${s.title} ${s.detail}`
                     .toLowerCase()
                     .includes(query.toLowerCase()),
-              )
-              .map((s) => (
-                <Section key={s.id} title="">
-                  <SettingRow
-                    title={s.title}
-                    onPress={() => setSection(s.id)}
-                  />
-                  <Label size={13} muted>
-                    {s.detail}
-                  </Label>
-                </Section>
-              ))}
+              ) && <Label muted>No settings found.</Label>}
             <Button
               title="Refresh workspace settings"
               disabled={action.busy}
@@ -218,6 +263,7 @@ export function WorkspaceSettings({
               </>
             )}
             {section === "connections" && <ConnectionSettings {...props} />}
+            {section === "approvedCommands" && <ApprovedCommandsSettings {...props} session={session} />}
             {section === "engines" && <EngineSettings {...props} />}
             {section === "media" && <MediaSettings {...props} />}
             {section === "experimental" && <ExperimentalSettings {...props} />}

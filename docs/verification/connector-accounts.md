@@ -50,6 +50,27 @@ Connector transport tests cover per-bot session separation, replacing a session
 when approvals change, and refusing a request revoked during session setup.
 Broker tests assert the same toolkit allowlist and exact account pins.
 
+## Expo account assignment
+
+The phone's **Settings → Connected Apps** lists **Approved bots** under each
+account. Its plus button opens a searchable bot picker; the remove button revokes
+only that bot's approval for that account. Pending or unverified accounts cannot
+receive new approvals. Hosted workspace sessions still require administrator
+access, as on desktop.
+
+```sh
+node --experimental-strip-types expo/scripts/verify-connector-accounts.ts
+```
+
+This owns a fake-engine workspace, synthetic work/personal/pending Gmail accounts
+and the real companion proxy. It checks account-specific add/remove, duplicate
+adds, enabling connected apps, unrelated-bot isolation, live mobile stream updates,
+persisted IDs, and rejection of missing/pending/wrong-service accounts and invalid
+methods or credentials. JSON evidence is saved next to the printed server log.
+Pass `--interactive` to keep the fixture running and print a pairing link for a
+disposable phone emulator. Ctrl-C records final bot approvals and removes its
+temporary data. Do not pair a user's phone or mutate a live workspace.
+
 ## Access behavior
 
 `connectorAccounts` on each bot maps service slugs to approved account IDs.
@@ -75,3 +96,12 @@ is in `.omb-scratch/verify-evidence/connector-accounts/`, with manual fixture
 server log `/tmp/openmausbot-verification-evidence/server-1789996863940-15513.log`.
 These checks use synthetic inventory and mocked provider transport. They do
 not prove live OAuth or provider-side execution of real account calls.
+
+Expo checks on 2026-09-22 passed the real proxy workflow and Android UI add,
+search and account-specific removal. API readback confirmed that removing Pepper
+from work left personal access intact and did not change other bots. Native
+screenshots, UI trees and readback are in `/tmp/omb-expo-connectors-a21776od/`;
+the automated fixture log is
+`/tmp/openmausbot-verification-evidence/server-1790067866686-794829.log`.
+Expo type checks, lint, 38 Expo tests, 132 route/auth tests and Android/iOS/web
+exports passed. The native iOS UI and real OAuth were not exercised.

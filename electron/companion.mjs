@@ -44,8 +44,8 @@ const expectedStops = new WeakSet();
 /** Where the sidecar's entry lives, and the Node flags it needs.
  *
  * Packaged, it is staged into resources alongside the harness. In dev the
- * compiled dist-companion output is preferred when it exists, and the
- * TypeScript source is the fallback — run with type stripping, exactly as
+ * TypeScript source is preferred over potentially stale dist-companion output —
+ * run with type stripping, exactly as
  * the `companion` script runs it — so the toggle works without a build step
  * nobody remembers. Returning null rather than a path that does not exist is
  * what lets the toggle say so instead of failing with a spawn error nobody

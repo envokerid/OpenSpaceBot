@@ -41,12 +41,14 @@ const CONTROL_PLANE_FIXTURE = {
 };
 
 describe("CodexDriver.decodeConfig", () => {
-  it("defaults to the codex binary with fullAuto off", () => {
-    expect(CodexDriver.decodeConfig({})).toEqual({ cli: "codex", fullAuto: false });
-    expect(CodexDriver.decodeConfig(undefined)).toEqual({ cli: "codex", fullAuto: false });
+  it("defaults to the codex binary with fullAuto off and Fast mode on", () => {
+    expect(CodexDriver.decodeConfig({})).toEqual({ cli: "codex", fullAuto: false, fastMode: true });
+    expect(CodexDriver.decodeConfig(undefined)).toEqual({ cli: "codex", fullAuto: false, fastMode: true });
     expect(CodexDriver.decodeConfig({ fullAuto: true }).fullAuto).toBe(true);
     // anything non-true is off — a truthy string must not enable full auto
     expect(CodexDriver.decodeConfig({ fullAuto: "yes" }).fullAuto).toBe(false);
+    expect(CodexDriver.decodeConfig({ fastMode: false }).fastMode).toBe(false);
+    expect(CodexDriver.decodeConfig({ fastMode: "false" }).fastMode).toBe(true);
   });
 
   it("allows Company endpoints over HTTPS, and over HTTP only on loopback", () => {
@@ -89,7 +91,7 @@ describe("CodexDriver turns (fake app-server)", () => {
   let scratch: string;
 
   const create = async (
-    opts: { mode?: string; fullAuto?: boolean; environment?: Record<string, string>; managed?: boolean } = {},
+    opts: { mode?: string; fullAuto?: boolean; fastMode?: boolean; environment?: Record<string, string>; managed?: boolean } = {},
   ) => {
     if (opts.mode) process.env.FAKE_CODEX_MODE = opts.mode;
     instance = await CodexDriver.create({
@@ -103,6 +105,7 @@ describe("CodexDriver turns (fake app-server)", () => {
       config: {
         cli: FAKE_CLI,
         fullAuto: opts.fullAuto ?? false,
+        fastMode: opts.fastMode ?? true,
         ...(opts.managed ? { managed: { url: "http://127.0.0.1:1/v1", models: ["company-codex-model"] } } : {}),
       },
     });
@@ -244,6 +247,35 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(turnStart.params.input[0].text).toBe("list files");
     const threadStart = seen.calls.find((c: { method: string }) => c.method === "thread/start");
     expect(threadStart.params).toMatchObject({ model: "gpt-5.6-sol", modelProvider: "openai", developerInstructions: "You are Testy." });
+  });
+
+  it.each([
+    [true, 'service_tier="fast"'],
+    [false, 'service_tier="default"'],
+  ])("launches personal Codex with fastMode=%s", async (fastMode, tier) => {
+    await create({ fastMode });
+    const dump = join(scratch, "speed.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    await instance.adapter.sendTurn({ threadId: `speed-${fastMode}`, text: "hello", model: "gpt-5.6-sol" });
+    await recorder.until((event) => event.type === "turn.completed");
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.argv).toContain(tier);
+    expect(seen.argv).toContain("features.fast_mode=true");
+    expect(seen.calls.find((call: { method: string }) => call.method === "turn/start").params.serviceTier)
+      .toBe(fastMode ? "fast" : "default");
+  });
+
+  it("changes a resumed personal thread to Standard without losing its native cursor", async () => {
+    await create({ mode: "resume", fastMode: false });
+    const dump = join(scratch, "resumed-speed.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    await instance.adapter.sendTurn({
+      threadId: "resumed-speed", resumeCursor: "codex-thread-1", text: "continue", model: "gpt-5.6-sol",
+    });
+    await recorder.until((event) => event.type === "turn.completed");
+    const calls = JSON.parse(readFileSync(dump, "utf8")).calls as Array<{ method: string; params: Record<string, unknown> }>;
+    expect(calls.find((call) => call.method === "thread/resume")?.params.threadId).toBe("codex-thread-1");
+    expect(calls.find((call) => call.method === "turn/start")?.params.serviceTier).toBe("default");
   });
 
   it("ignores requests received after turn completion", async () => {
@@ -851,6 +883,8 @@ describe("CodexDriver turns (fake app-server)", () => {
     });
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     expect(seen.argv).toContain("model_providers.unsloth.base_url=\"http://127.0.0.1:8888/v1\"");
+    expect(seen.argv.join(" ")).not.toContain("service_tier=");
+    expect(seen.calls.find((call: { method: string }) => call.method === "turn/start").params.serviceTier).toBeUndefined();
     expect(JSON.stringify(seen.argv)).not.toContain("unsloth-secret");
     expect(seen.env.OPENMAUSBOT_LOCAL_UNSLOTH_API_KEY).toBe("unsloth-secret");
   });
@@ -960,6 +994,8 @@ describe("CodexDriver turns (fake app-server)", () => {
       input: [{ type: "text", text: recoveryText }, { type: "localImage", path: imagePath }],
     });
     expect(seen.argv).toContain('model_provider="openmaus_company"');
+    expect(seen.argv.join(" ")).not.toContain("service_tier=");
+    expect(seen.calls.find((call: { method: string }) => call.method === "turn/start").params.serviceTier).toBeUndefined();
     expect(JSON.stringify(seen.argv)).not.toContain("synthetic-company-fixture");
     expect(recorder.events.filter((event) => event.type === "session.started")).toMatchObject([{ sessionId: "codex-thread-1", rebuilt: true }]);
   });

@@ -27,8 +27,8 @@ describe("parseBotProfilePatch (strict — the paired boundary)", () => {
   });
 
   it("refuses unknown cosmetic keys too — strict means the allowlist IS the contract", () => {
-    const result = parseBotProfilePatch({ color: "red" } as never, true);
-    expect(result).toEqual({ ok: false, error: "unsupported profile field: color" });
+    const result = parseBotProfilePatch({ decoration: "sparkles" } as never, true);
+    expect(result).toEqual({ ok: false, error: "unsupported profile field: decoration" });
   });
 
   it("accepts the full identity surface", () => {
@@ -68,7 +68,7 @@ describe("parseBotProfilePatch (both modes)", () => {
   });
 
   it("lenient mode drops unknown keys instead of failing — the desktop PATCH mixes fields", () => {
-    const result = parseBotProfilePatch({ name: "Mira", color: "red" } as never, false);
+    const result = parseBotProfilePatch({ name: "Mira", decoration: "sparkles" } as never, false);
     expect(result).toEqual({ ok: true, patch: { name: "Mira" } });
   });
 
@@ -129,5 +129,24 @@ describe("soul (standing instructions)", () => {
 
   it("rejects a non-string soul", () => {
     expect(parseBotProfilePatch({ soul: 5 } as never)).toEqual({ ok: false, error: "soul must be a string" });
+  });
+});
+
+
+describe("paired avatar appearance", () => {
+  it("accepts mascot settings together, including reset", () => {
+    for (const strict of [true, false]) {
+      const patch = { color: "coral", mascotExpression: "curious", mascotBody: "star", avatarCrop: "mascot" } as const;
+      expect(parseBotProfilePatch(patch, strict)).toEqual({ ok: true, patch });
+      expect(parseBotProfilePatch({ mascotExpression: null }, strict)).toEqual({ ok: true, patch: { mascotExpression: null } });
+      expect(parseBotProfilePatch({ mascotExpression: "friendly" }, strict).ok).toBe(true);
+    }
+  });
+  it("rejects unknown colors, expressions and invalid types", () => {
+    for (const strict of [true, false]) {
+      for (const patch of [{ color: "invisible" }, { color: 42 }, { mascotExpression: "invalid" }, { mascotExpression: "constructor" }, { mascotExpression: {} }]) {
+        expect(parseBotProfilePatch(patch as never, strict).ok).toBe(false);
+      }
+    }
   });
 });

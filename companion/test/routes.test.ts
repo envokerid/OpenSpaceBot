@@ -77,6 +77,7 @@ describe("what the app may do", () => {
     ["PATCH", "/api/groups/room-1/setup"],
     ["POST", "/api/groups/room-1/interrupt"],
     ["DELETE", "/api/groups/room-1/queue/queue_1"],
+    ["DELETE", "/api/groups/room-1"],
     ["POST", "/api/groups/room-1/read"],
     ["POST", "/api/groups/room-1/tasks"],
     ["POST", "/api/groups/room-1/tasks/th_1"],
@@ -107,6 +108,8 @@ describe("what the app may do", () => {
     ["GET", "/api/connectors"],
     ["POST", "/api/connectors/slack/authorize"],
     ["DELETE", "/api/connectors/slack/accounts/ca_123"],
+    ["POST", "/api/bots/bot-1/connector-accounts/gmail/ca_work"],
+    ["DELETE", "/api/bots/bot-1/connector-accounts/gmail/ca_work"],
     ["GET", "/api/bots/bot_123/connector-cards/msg_2/status"],
     ["POST", "/api/bots/bot_123/connector-cards/msg_2/authorize"],
     ["POST", "/api/bots/bot_123/connector-cards/msg_2/resume"],
@@ -215,6 +218,10 @@ describe("what it may not", () => {
     expect(allowed("GET", "/api/threads/th_1/messages/msg_2/file")).toBe(false);
     expect(allowed("POST", "/api/threads/th_1/messages/msg_2/file/extra")).toBe(false);
     expect(allowed("GET", "/api/groups/room-1")).toBe(false);
+    expect(allowed("DELETE", "/api/groups")).toBe(false);
+    expect(allowed("DELETE", "/api/groups/room-1/extra")).toBe(false);
+    expect(allowed("DELETE", "/api/groups/room-1%2Fextra")).toBe(false);
+    expect(ask("DELETE", "/api/groups/room-1", false)?.status).toBe(401);
     expect(allowed("PATCH", "/api/bots/bot_123")).toBe(false);
     expect(allowed("GET", "/api/bots/bot_123/model")).toBe(false);
     expect(allowed("POST", "/api/bots/bot_123/model")).toBe(false);
@@ -269,6 +276,15 @@ describe("what it may not", () => {
       expect(allowed("GET", path), path).toBe(false);
       expect(allowed("POST", path), path).toBe(false);
       expect(allowed("DELETE", path), path).toBe(false);
+    }
+  });
+
+  it("limits connector approvals to exact account mutations", () => {
+    const path = "/api/bots/bot-1/connector-accounts/gmail/ca_work";
+    for (const method of ["GET", "PATCH", "PUT"]) expect(allowed(method, path)).toBe(false);
+    for (const bad of [path + "/extra", path.replace("ca_work", ".."), path.replace("gmail", "Gmail"), path.replace("ca_work", "%2e%2e")]) {
+      expect(allowed("POST", bad)).toBe(false);
+      expect(allowed("DELETE", bad)).toBe(false);
     }
   });
 });

@@ -1,9 +1,11 @@
-// Group details edit the roster and room judge atomically.
+// Edit an existing room's roster: the same picker "New Room" uses, opened
+// from the member mauses in the room header and pre-ticked with who is
+// already in. Membership is the only thing this touches — the transcript
+// keeps every message a departing bot already sent.
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { track } from "@/lib/analytics";
 import { api, useStore, type Group } from "@/state/store";
 import { BotPickerList } from "./BotPickerList";
-import type { ModelSelection } from "../../shared/wire";
 import { nextMemberIds } from "@/lib/room-members";
 
 export function ManageMembersPanel({
@@ -17,11 +19,6 @@ export function ManageMembersPanel({
 }) {
   const { state, dispatch } = useStore();
   const [picked, setPicked] = useState<Set<string>>(() => new Set(group.memberIds));
-  const [judge, setJudge] = useState<ModelSelection | null>(group.judgeModelSelection ?? null);
-  const openedJudge = useRef(group.judgeModelSelection ?? null);
-  const judgeChanged = JSON.stringify(judge) !== JSON.stringify(openedJudge.current);
-  const judgeInstances = state.instances.filter(i => i.capabilities?.agentsMcp);
-  const judgeInstance = judgeInstances.find(i => i.instanceId === judge?.instanceId);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const pending = useRef(false);
@@ -39,7 +36,7 @@ export function ManageMembersPanel({
     const dialog = dialogRef.current;
     if (!dialog) return;
     const focusable = () =>
-      [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])')].filter(
+      [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])')].filter(
         (element) => !element.hasAttribute("hidden"),
       );
     focusable()[0]?.focus();
@@ -93,14 +90,14 @@ export function ManageMembersPanel({
       setSaveError("This group's members changed while the panel was open. Close it and try again.");
       return;
     }
-    if (changed || judgeChanged) {
+    if (changed) {
       pending.current = true;
       setSaving(true);
       setSaveError(null);
       try {
         const result = await api<{ group: Group }>(`/api/groups/${group.id}/members`, {
           method: "PATCH",
-          body: JSON.stringify({ memberIds, expectedMemberIds: opened, ...(judgeChanged ? { judgeModelSelection: judge, expectedJudgeModelSelection: openedJudge.current } : {}) }),
+          body: JSON.stringify({ memberIds, expectedMemberIds: opened }),
         });
         dispatch({ type: "groupPatched", group: result.group });
       } catch (error) {
@@ -135,25 +132,6 @@ export function ManageMembersPanel({
         <div className="mb-3 truncate text-[13px] text-ink-secondary">{group.name}</div>
         <BotPickerList bots={bots} picked={picked} onToggle={toggle} disabled={saving} emptyHint="Create a bot first — groups are made of bots." />
         {!memberIds.length && <div className="mt-2 text-[12px] text-ink-secondary">A group needs at least one bot.</div>}
-        <fieldset disabled={saving || group.working} className="mt-4 space-y-2 text-sm">
-          <legend className="font-semibold text-ink">Room judge</legend>
-          <label className="block">Judge provider
-            <select aria-label="Judge provider" className="mt-1 w-full rounded-lg bg-inset p-2" value={judge?.instanceId ?? ""}
-              onChange={event => { const instance = judgeInstances.find(i => i.instanceId === event.target.value); setJudge(instance ? { instanceId: instance.instanceId, model: instance.models.default } : null); }}>
-              <option value="">Automatic · first active member’s model</option>
-              {judge && !judgeInstance && <option value={judge.instanceId}>{judge.instanceId} (unavailable)</option>}
-              {judgeInstances.map(i => <option key={i.instanceId} value={i.instanceId}>{i.displayName}</option>)}
-            </select>
-          </label>
-          {judge && <label className="block">Judge model
-            <select aria-label="Judge model" className="mt-1 w-full rounded-lg bg-inset p-2" value={judge.model}
-              onChange={event => setJudge({ instanceId: judge.instanceId, model: event.target.value })}>
-              {!judgeInstance?.models.options.some(m => m.id === judge.model) && <option value={judge.model}>{judge.model}</option>}
-              {judgeInstance?.models.options.map(m => <option key={m.id} value={m.id}>{m.label ?? m.id}</option>)}
-            </select>
-          </label>}
-          <p className="text-xs text-ink-secondary">Members submit reasons and ready-made replies in parallel. The judge reads the chat history and selects the next message to post.</p>
-        </fieldset>
         {saveError && (
           <div role="alert" className="mt-2 text-[12px] text-danger">
             {saveError}

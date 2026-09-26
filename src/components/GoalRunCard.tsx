@@ -10,7 +10,6 @@ import {
 import { cn } from "@/lib/cn";
 import type { Message } from "@/state/store";
 import type { GroupGoalRunCardData } from "../../shared/group-goal-run";
-import { RoomElectionDetails } from "./RoomElectionDetails";
 
 const DETAIL_LIMIT = 280;
 
@@ -54,7 +53,7 @@ function StatusIcon({ status }: { status: GroupGoalRunCardData["status"] }) {
 }
 
 /** One durable terminal receipt for a goal-driven channel run. */
-export function GoalRunCard({ message, onResume }: { message: Message; onResume?: () => void }) {
+export function GoalRunCard({ message }: { message: Message }) {
   const run = message.goalRun;
   if (!run) {
     const fallback = compact(message.text, DETAIL_LIMIT);
@@ -74,7 +73,7 @@ export function GoalRunCard({ message, onResume }: { message: Message; onResume?
 
   return (
     <section
-      aria-label={`${run.election ? "Room discussion" : "Goal run"}: ${copy.label}`}
+      aria-label={`Goal run: ${copy.label}`}
       className={cn("w-full max-w-[680px] rounded-2xl border bg-card px-3.5 py-3 shadow-sm", copy.border)}
     >
       <div className="flex items-start gap-3">
@@ -90,13 +89,10 @@ export function GoalRunCard({ message, onResume }: { message: Message; onResume?
           </div>
           {detail && <p className="mt-1 line-clamp-2 text-[12.5px] leading-relaxed text-ink-secondary">{detail}</p>}
           <p className="mt-1 text-[11.5px] text-ink-secondary/80">
-            {run.election ? `${run.turnCount} replies · ${run.election.phase}` : `${run.coordinatorName} coordinating · ${turns}`}
+            {run.coordinatorName} coordinating · {turns}
           </p>
         </div>
       </div>
-      {run.election && <RoomElectionDetails election={run.election} />}
-      {run.election && !run.election.resumedBy && onResume && ["paused", "blocked", "limit-reached", "failed", "stopped"].includes(run.status) &&
-        <button type="button" onClick={onResume} className="mt-2 rounded-lg bg-raised px-3 py-1.5 text-sm text-ink">Resume discussion</button>}
     </section>
   );
 }

@@ -4,7 +4,7 @@
 // default responder; @mentions override that routing.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { activeLocale, t } from "@/lib/i18n";
-import { ArrowDown, ChevronRight, Folder, FolderOpen, Loader2, MessageSquareReply, Pin, PinOff, Plus, Search, X } from "lucide-react";
+import { ArrowDown, Check, ChevronDown, ChevronRight, Folder, FolderOpen, Loader2, MessageSquareReply, Pin, PinOff, Plus, Search, X } from "lucide-react";
 import {
   api,
   useStore,
@@ -13,6 +13,7 @@ import {
   openNotificationTarget,
   type Bot,
   type Group,
+  type GroupDefaultResponder,
   type Message,
 } from "@/state/store";
 import { BotAvatar } from "./Avatar";
@@ -24,7 +25,7 @@ import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { CompactionChip, DigestChip } from "./DigestChip";
 import { roomActivityVisible } from "@/lib/room-activity";
 import { normalizeState } from "@/lib/mascot";
-import { groupResponseHint } from "@/lib/group-routing";
+import { effectiveDefaultResponder, groupResponseHint } from "@/lib/group-routing";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { Composer } from "./Composer";
 import { ChatFindBar } from "./ChatFindBar";
@@ -35,7 +36,6 @@ import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
 import { GoalRunCard } from "./GoalRunCard";
-import { useShowDiscussionCards } from "@/lib/discussion-card-preferences";
 import { AttachmentGallery, MessageAttachmentGallery } from "./AttachmentGallery";
 import { OptionCard } from "./OptionCard";
 import { GroupCallButton, GroupCallOverlay } from "./GroupCallView";
@@ -51,8 +51,6 @@ import { useFocusMessage } from "@/lib/focus-message";
 import { shortPath } from "@/lib/short-path";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow, useBottomFollowResize } from "@/lib/bottom-follow";
 import { useComposerDockPad } from "@/lib/composer-dock";
-import { WorkingDots } from "./WorkingIndicator";
-import { roomSelectionPending } from "../../shared/room-election";
 import { awaitedMemberId, showWorkingDots } from "@/lib/turn-tail";
 import { liveActivityLabel } from "@/lib/live-activity";
 import { splitTranscriptAttachments } from "@/lib/composer-attachments";
@@ -188,13 +186,11 @@ const Transcript = memo(function Transcript({
 }) {
   const { state, dispatch } = useStore();
   const showToolCalls = showToolCallsEnabled(state.config);
-  const showDiscussionCards = useShowDiscussionCards();
   const memberOf = (id?: string) => members.find((b) => b.id === id);
   // Several bots working at once turn a room into a wall of chips; fold the
   // finished ones the same way a 1:1 chat does.
   const items = useMemo(() => groupActivityRuns(messages.filter(message =>
-    (showDiscussionCards || !(message.kind === "goal.run" && message.goalRun?.election)) &&
-    (message.kind !== "activity" || roomActivityVisible(message, showToolCalls)))), [messages, showToolCalls, showDiscussionCards]);
+    message.kind !== "activity" || roomActivityVisible(message, showToolCalls))), [messages, showToolCalls]);
   const newestMessageId = messages.at(-1)?.id;
   const newestUserMessageId = [...messages].reverse().find((message) => message.role === "user")?.id;
   const focus = state.focusMessage;
@@ -266,7 +262,7 @@ const Transcript = memo(function Transcript({
             </div>
           ) : m.kind === "goal.run" ? (
             <div className="flex justify-start">
-              <GoalRunCard message={m} onResume={() => { void api(`/api/groups/${group.id}/elections/${m.id}/resume`, { method: "POST", body: JSON.stringify({ threadId: group.threadId }) }).catch(error => window.alert(error instanceof Error ? error.message : "Could not resume discussion")); }} />
+              <GoalRunCard message={m} />
             </div>
           ) : m.kind === "routine.run" ? (
             <div className="flex justify-start">
@@ -378,6 +374,55 @@ const Transcript = memo(function Transcript({
     </>
   );
 });
+
+function DefaultResponderSelect({ group, members }: { group: Group; members: Bot[] }) {
+  const { dispatch } = useStore();
+  const responder = effectiveDefaultResponder(group, members);
+  const value = responder.kind === "member" ? `member:${responder.botId}` : responder.kind;
+  const lead = responder.kind === "member" ? members.find((member) => member.id === responder.botId) : undefined;
+  const title =
+    responder.kind === "everyone"
+      ? t("room.responder.everyone")
+      : responder.kind === "mentions"
+        ? t("room.responder.mentions")
+        : t("room.responder.lead", { name: lead?.name ?? t("room.responder.leadFallback") });
+
+  const change = (nextValue: string) => {
+    let next: GroupDefaultResponder;
+    if (nextValue === "everyone") next = { kind: "everyone" };
+    else if (nextValue === "mentions") next = { kind: "mentions" };
+    else next = { kind: "member", botId: nextValue.slice("member:".length) };
+    dispatch({ type: "patchGroup", groupId: group.id, patch: { defaultResponder: next } });
+  };
+
+  return (
+    <div className="relative shrink-0" title={title}>
+      <select
+        aria-label={t("room.responder.aria")}
+        value={value}
+        onChange={(event) => change(event.target.value)}
+        className="h-8 max-w-[190px] appearance-none truncate rounded-full border border-hairline/40 bg-raised/60 py-1 pl-3 pr-7 text-[12.5px] font-medium text-ink outline-none hover:bg-raised focus:border-accent"
+      >
+        <optgroup label={t("room.responder.groupLead")}>
+          {members.map((member) => (
+            <option key={member.id} value={`member:${member.id}`}>
+              {t("room.responder.leadOption", { name: member.name })}
+            </option>
+          ))}
+        </optgroup>
+        <optgroup label={t("room.responder.groupBehavior")}>
+          <option value="everyone">{t("room.responder.everyoneOption")}</option>
+          <option value="mentions">{t("room.responder.mentionsOption")}</option>
+        </optgroup>
+      </select>
+      <ChevronDown
+        size={13}
+        aria-hidden="true"
+        className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-secondary"
+      />
+    </div>
+  );
+}
 
 /** The room's shared desk: where every member's shell and file tools run,
  * overriding each bot's own folder for room turns. The room pins its own
@@ -504,7 +549,11 @@ type RoomSetupFields = {
   setupSkippedAt?: number | string | null;
 };
 
+type RoomResponderMode = "lead" | "everyone" | "mentions";
 
+function setupResponderMode(responder: GroupDefaultResponder): RoomResponderMode {
+  return responder.kind === "member" ? "lead" : responder.kind;
+}
 
 function roomNeedsSetup(group: Group): boolean {
   if (group.dm || group.messages.length > 0) return false;
@@ -528,13 +577,46 @@ function roomNeedsSetup(group: Group): boolean {
   return true;
 }
 
-function RoomSetup({ group }: { group: Group; members: Bot[] }) {
+function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
   const { dispatch } = useStore();
   const [folder, setFolder] = useState(group.cwd ?? "");
+  const [behavior, setBehavior] = useState<RoomResponderMode>(setupResponderMode(group.defaultResponder));
+  const [leadId, setLeadId] = useState(
+    group.defaultResponder.kind === "member" ? group.defaultResponder.botId : members[0]?.id ?? "",
+  );
   const [instructions, setInstructions] = useState(group.bulletin);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [leadPickerOpen, setLeadPickerOpen] = useState(false);
+  const leadPickerRef = useRef<HTMLDivElement>(null);
+  const selectedLead = members.find((member) => member.id === leadId) ?? members[0];
+
+  useEffect(() => {
+    if (!leadPickerOpen) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!leadPickerRef.current?.contains(event.target as Node)) setLeadPickerOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setLeadPickerOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [leadPickerOpen]);
+
+  const responder = (): GroupDefaultResponder => {
+    if (behavior === "everyone") return { kind: "everyone" };
+    if (behavior === "mentions") return { kind: "mentions" };
+    return members.some((member) => member.id === leadId)
+      ? { kind: "member", botId: leadId }
+      : group.defaultResponder;
+  };
+
   const finish = async (action: "complete" | "skip") => {
+    setLeadPickerOpen(false);
     setSaving(true);
     setError(null);
     try {
@@ -544,6 +626,7 @@ function RoomSetup({ group }: { group: Group; members: Bot[] }) {
           : {
               action,
               cwd: folder.trim() || null,
+              defaultResponder: responder(),
               bulletin: instructions,
             };
       const result = await api(`/api/groups/${group.id}/setup`, {
@@ -617,7 +700,159 @@ function RoomSetup({ group }: { group: Group; members: Bot[] }) {
           </div>
         </label>
 
-        <p className="text-sm text-ink-secondary">Every member reads the conversation and proposes who should reply and why. After all proposals are shared, members vote. The elected bot replies, then the room repeats until Task complete wins.</p>
+        <fieldset className="block">
+          <legend className="text-[13px] font-semibold text-ink">{t("room.responder.aria")}</legend>
+          <p className="mt-1 text-[12px] text-ink-secondary">{t("room.setup.responderDetail")}</p>
+          <div role="radiogroup" aria-label={t("room.responder.aria")} className="mt-2 grid gap-2 sm:grid-cols-3">
+            <div ref={leadPickerRef} className="relative min-w-0">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={behavior === "lead"}
+                aria-haspopup="listbox"
+                aria-expanded={behavior === "lead" && leadPickerOpen}
+                onClick={() => {
+                  setBehavior("lead");
+                  setLeadPickerOpen((open) => !open);
+                }}
+                disabled={saving}
+                className={cn(
+                  "flex min-h-[72px] w-full flex-col items-start justify-between rounded-2xl border px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-50",
+                  behavior === "lead"
+                    ? "border-accent bg-accent/10 text-ink ring-1 ring-accent/30"
+                    : "border-hairline/50 bg-inset text-ink-secondary hover:border-hairline hover:bg-raised",
+                )}
+              >
+                <span className="flex w-full items-center justify-between gap-2">
+                  <span className="flex items-center gap-2 text-[13px] font-semibold">
+                    <span
+                      className={cn(
+                        "flex size-4 shrink-0 items-center justify-center rounded-full border",
+                        behavior === "lead" ? "border-accent bg-accent" : "border-ink-secondary/60",
+                      )}
+                    >
+                      {behavior === "lead" && <span className="size-1.5 rounded-full bg-white" />}
+                    </span>
+                    {t("room.behavior.lead")}
+                  </span>
+                  <ChevronDown
+                    size={14}
+                    aria-hidden="true"
+                    className={cn("shrink-0 text-ink-secondary transition-transform", leadPickerOpen && "rotate-180")}
+                  />
+                </span>
+                <span className="ml-6 mt-2 truncate text-[11.5px] text-ink-secondary">
+                  {selectedLead?.name ?? t("room.behavior.chooseTeammate")}
+                </span>
+              </button>
+              {behavior === "lead" && leadPickerOpen && (
+                <div
+                  role="listbox"
+                  aria-label={t("room.behavior.chooseLead")}
+                  className="absolute left-0 top-full z-30 mt-2 w-72 max-w-[calc(100vw-3rem)] overflow-hidden rounded-2xl border border-hairline/60 bg-panel shadow-2xl shadow-black/20"
+                >
+                  <div className="border-b border-hairline/40 px-3 py-2.5">
+                    <div className="text-[12.5px] font-semibold text-ink">{t("room.behavior.chooseLead")}</div>
+                    <div className="mt-0.5 text-[11.5px] text-ink-secondary">{t("room.behavior.chooseLeadDetail")}</div>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto p-1.5">
+                    {members.map((member) => {
+                      const selected = member.id === leadId;
+                      return (
+                        <button
+                          key={member.id}
+                          type="button"
+                          role="option"
+                          aria-selected={selected}
+                          onClick={() => {
+                            setLeadId(member.id);
+                            setLeadPickerOpen(false);
+                          }}
+                          className={cn(
+                            "flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition",
+                            selected ? "bg-accent/10" : "hover:bg-raised",
+                          )}
+                        >
+                          <BotAvatar
+                            bot={member}
+                            state={normalizeState(member.mascotExpression) ?? "happy"}
+                            size={24}
+                            animated={false}
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[13px] font-medium text-ink">{member.name}</span>
+                            <span className="block truncate text-[11px] text-ink-secondary">{member.title}</span>
+                          </span>
+                          {selected && <Check size={15} className="shrink-0 text-accent" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              role="radio"
+              aria-checked={behavior === "everyone"}
+              onClick={() => {
+                setBehavior("everyone");
+                setLeadPickerOpen(false);
+              }}
+              disabled={saving}
+              className={cn(
+                "flex min-h-[72px] w-full flex-col items-start justify-between rounded-2xl border px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-50",
+                behavior === "everyone"
+                  ? "border-accent bg-accent/10 text-ink ring-1 ring-accent/30"
+                  : "border-hairline/50 bg-inset text-ink-secondary hover:border-hairline hover:bg-raised",
+              )}
+            >
+              <span className="flex items-center gap-2 text-[13px] font-semibold">
+                <span
+                  className={cn(
+                    "flex size-4 shrink-0 items-center justify-center rounded-full border",
+                    behavior === "everyone" ? "border-accent bg-accent" : "border-ink-secondary/60",
+                  )}
+                >
+                  {behavior === "everyone" && <span className="size-1.5 rounded-full bg-white" />}
+                </span>
+                {t("room.responder.everyoneOption")}
+              </span>
+              <span className="ml-6 mt-2 text-[11.5px] text-ink-secondary">{t("room.setup.allMembers")}</span>
+            </button>
+
+            <button
+              type="button"
+              role="radio"
+              aria-checked={behavior === "mentions"}
+              onClick={() => {
+                setBehavior("mentions");
+                setLeadPickerOpen(false);
+              }}
+              disabled={saving}
+              className={cn(
+                "flex min-h-[72px] w-full flex-col items-start justify-between rounded-2xl border px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-50",
+                behavior === "mentions"
+                  ? "border-accent bg-accent/10 text-ink ring-1 ring-accent/30"
+                  : "border-hairline/50 bg-inset text-ink-secondary hover:border-hairline hover:bg-raised",
+              )}
+            >
+              <span className="flex items-center gap-2 text-[13px] font-semibold">
+                <span
+                  className={cn(
+                    "flex size-4 shrink-0 items-center justify-center rounded-full border",
+                    behavior === "mentions" ? "border-accent bg-accent" : "border-ink-secondary/60",
+                  )}
+                >
+                  {behavior === "mentions" && <span className="size-1.5 rounded-full bg-white" />}
+                </span>
+                {t("room.responder.mentionsOption")}
+              </span>
+              <span className="ml-6 mt-2 text-[11.5px] text-ink-secondary">{t("room.setup.onlyMentioned")}</span>
+            </button>
+          </div>
+        </fieldset>
 
         <label className="block">
           <span className="text-[13px] font-semibold text-ink">{t("room.setup.instructions")}</span>
@@ -699,7 +934,6 @@ export function GroupView({ group }: { group: Group }) {
     [group.memberIds, state.bots],
   );
   const speaker = members.find((b) => b.id === group.busyBotId);
-  const selectingReply = Boolean(group.working && roomSelectionPending(group.messages));
   const setupPending = !remoteClient && roomNeedsSetup(group);
 
   // Mascot stays while a member works; the finished reply pops in above it.
@@ -944,6 +1178,7 @@ export function GroupView({ group }: { group: Group }) {
           />
           <GroupCallButton group={group} members={members} />
           {!remoteClient && !setupPending && !group.dm && <RoomWorkingFolderChip group={group} onToggle={() => setFolderOpen((open) => !open)} />}
+          {!remoteClient && !setupPending && !group.dm && <DefaultResponderSelect group={group} members={members} />}
           {group.dm ? (
             memberMauses
           ) : (
@@ -1150,10 +1385,7 @@ export function GroupView({ group }: { group: Group }) {
               </button>
             </div>
           )}
-          {selectingReply && <div role="status" aria-label={`${group.name} is typing`} className="flex w-fit items-center rounded-2xl bg-card px-4 py-3 text-ink-secondary">
-            <WorkingDots size={7} />
-          </div>}
-          {!selectingReply && (speaker || presenceVisible) && (
+          {(speaker || presenceVisible) && (
             <TurnPresence
               avatar={
                 // the speaker's real profile image when it has one, as in ChatView

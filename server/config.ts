@@ -453,11 +453,12 @@ const appConfigSchema = z.object({
    * file on a schema error, and one bad server entry must degrade to a
    * skipped entry (customMcpServers), never to a vanished config. */
   mcpServers: z.record(z.string(), z.unknown()).optional(),
+  mcpToolDefaults: z.record(z.string(), z.boolean()).optional(),
 });
 const storedAppConfigSchema = appConfigSchema.extend({
   browserProfiles: storedBrowserProfilesSchema.optional(),
 });
-const appConfigPatchSchema = appConfigSchema.omit({ instances: true, mcpServers: true, cliStartup: true, customDomain: true })
+const appConfigPatchSchema = appConfigSchema.omit({ instances: true, mcpServers: true, mcpToolDefaults: true, cliStartup: true, customDomain: true })
   .extend({ threads: threadsPatchSchema.optional() });
 const jsonObjectSchema = z.record(z.string(), z.json());
 
@@ -472,6 +473,7 @@ export interface AppConfig {
     phone?: "ios" | "android";
   };
   mcpServers?: Record<string, unknown>;
+  mcpToolDefaults?: Record<string, boolean>;
   language?: string;
   xai?: { key?: string; url?: string };
   anthropic?: { key?: string; url?: string };
@@ -1002,6 +1004,7 @@ export function saveConfig(
     disk.defaultModelSelection = checkedPatch.defaultModelSelection;
   }
   if (checkedPatch.cliStartup !== undefined) disk.cliStartup = checkedPatch.cliStartup;
+  if (checkedPatch.mcpToolDefaults !== undefined) disk.mcpToolDefaults = checkedPatch.mcpToolDefaults;
   // Custom MCP mutations go through their own dedicated local API, but
   // saveConfig remains the single atomic persistence boundary.
   if (checkedPatch.mcpServers !== undefined) {

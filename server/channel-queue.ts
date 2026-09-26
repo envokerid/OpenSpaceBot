@@ -196,16 +196,3 @@ export function drainChannelMessages(
 export function _queuedChannelCount(threadId: string): number {
   return queues.get(threadId)?.items.length ?? 0;
 }
-
-/** Deliver pending human input at an election boundary, preserving receipts. */
-export function absorbChannelMessages(groupId: string, threadId: string, append: (item: ChannelQueueItem) => void): void {
-  const entry = queues.get(threadId);
-  if (!entry || entry.groupId !== groupId) return;
-  while (entry.items.length) {
-    const item = entry.items[0];
-    append(item);
-    settleChatFollowups([item.id], null);
-    entry.items.shift();
-  }
-  queues.delete(threadId);
-}

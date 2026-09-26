@@ -13,6 +13,7 @@ import { withTourReset } from "@/lib/guided-tour";
 import { completionPatch } from "@/lib/onboarding";
 import { ApiKeyRow, OpenAiCompatUrl, VpsConnection } from "./ApiKeys";
 import { useUpdaterState } from "@/lib/updater";
+import { ApprovedCommandsSettings } from "./ApprovedCommandsSettings";
 import { EnginesSettings } from "./EnginesSettings";
 import { LocalComputerSection } from "./LocalComputerSection";
 import { CompanionSection } from "./CompanionSection";
@@ -35,7 +36,6 @@ import { WorkspaceBackupSettings } from "./WorkspaceBackupSettings";
 import { CompanyBackupSettings } from "./CompanyBackupSettings";
 import { cn } from "@/lib/cn";
 import { setShowThreads, useShowThreads } from "@/lib/thread-preferences";
-import { setShowDiscussionCards, useShowDiscussionCards } from "@/lib/discussion-card-preferences";
 
 // `labelKey`, not a label: t() reads the active pack when it is called, so a
 // label resolved here at module scope would freeze the language the app booted
@@ -50,9 +50,10 @@ const SECTIONS: Array<{
   { id: "general", labelKey: "settings.section.general", icon: User, keywords: ["profile", "name", "email", "analytics", "updates", "threads", "parallel", "concurrency", "cleanup", "retention", "event log", "event-log", "log size"] },
   { id: "desktopWorkspaces", labelKey: "settings.section.desktopWorkspaces", icon: Building2, keywords: ["workspace", "cloud", "hosted", "vps", "server", "connect", "pair", "switch", "local"] },
   { id: "organization", labelKey: "settings.section.organization", icon: Building2, keywords: ["company", "organization", "sign in", "enroll", "managed", "models", "disconnect"] },
-  { id: "appearance", labelKey: "settings.section.appearance", icon: Palette, keywords: ["skin", "theme", "appearance", "tools", "tool calls", "threads", "show threads", "hide threads", "sidebar", "display", "discussion cards", "group chats"] },
+  { id: "appearance", labelKey: "settings.section.appearance", icon: Palette, keywords: ["skin", "theme", "appearance", "tools", "tool calls", "threads", "show threads", "hide threads", "sidebar", "display"] },
   { id: "experimental", labelKey: "settings.section.experimental", icon: FlaskConical, keywords: ["early", "preview", "learn", "skill", "authoring", "browser", "profiles"] },
   { id: "connections", labelKey: "settings.section.connections", icon: KeyRound, keywords: ["keys", "api", "composio", "box", "xai", "vps"] },
+  { id: "approvedCommands", labelKey: "settings.section.approvedCommands", icon: KeyRound, keywords: ["approve", "approved", "commands", "permissions", "mcp", "tools", "composio", "bots"] },
   { id: "engines", labelKey: "settings.section.engines", icon: Terminal, keywords: ["models", "claude", "grok", "providers", "cli"] },
   { id: "companion", labelKey: "settings.section.companion", icon: TabletSmartphone, keywords: ["companion", "device", "phone", "desktop", "client", "host", "pair", "pairing", "mobile", "https", "secure", "tailscale", "wifi", "remote", "advanced", "domain", "dns", "self-hosted", "server", "caddy"] },
   { id: "computer", labelKey: "settings.section.computer", icon: Monitor, keywords: ["vm", "virtual", "desktop"] },
@@ -299,19 +300,6 @@ function ShowThreadsRow() {
         checked={enabled}
         aria-label={t("settings.threadDisplay.show")}
         onClick={() => setShowThreads(!enabled)}
-      />
-    </SettingRow>
-  );
-}
-
-function DiscussionCardsRow() {
-  const enabled = useShowDiscussionCards();
-  return (
-    <SettingRow title={t("settings.discussionCards.title")} subtitle={t("settings.discussionCards.subtitle")}>
-      <Switch
-        checked={enabled}
-        aria-label={t("settings.discussionCards.show")}
-        onClick={() => setShowDiscussionCards(!enabled)}
       />
     </SettingRow>
   );
@@ -672,7 +660,6 @@ export function SettingsModal() {
                 </Card>
                 <div>
                   <ShowThreadsRow />
-                  <DiscussionCardsRow />
                   {!remoteActive && <ToolCallsRow />}
                 </div>
               </>
@@ -716,6 +703,7 @@ export function SettingsModal() {
               </Card>
             )}
 
+            {section === "approvedCommands" && <ApprovedCommandsSettings bots={state.bots} />}
             {section === "engines" && (
               <EnginesSettings />
             )}

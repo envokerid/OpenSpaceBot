@@ -4,10 +4,12 @@ import Markdown, { MarkdownIt } from 'react-native-markdown-display';
 import * as WebBrowser from 'expo-web-browser';
 import { randomUUID } from 'expo-crypto';
 import { QuestionCard } from './QuestionCard';
+import { McpApprovalScope } from './McpApprovalScope';
 import { reviewedSkillSha256 } from '../../shared/skill-request';
 import { splitTranscriptAttachments } from '../../src/lib/composer-attachments';
 import type { Client } from './core/client';
 import { routeId } from './core/client';
+import { isConversationNotice } from './core/transcript';
 import type { Bot, Destination, Message } from './core/types';
 import { AttachmentView } from './AttachmentView';
 import { Avatar } from './Avatar';
@@ -60,6 +62,10 @@ function Approval({ message, client, destination, onChanged, name }: { name?: st
     {card.routineRequest && <><Label bold>Routine: {card.routineRequest.operation.action}</Label>{Object.entries(card.routineRequest.operation).filter(([key]) => !['action', 'expectedUpdatedAt'].includes(key)).map(([key, value]) => <View key={key}><Label bold>{key}</Label><Label>{typeof value === 'string' ? value : JSON.stringify(value, null, 2)}</Label></View>)}</>}
     {!pending ? <Row style={{ gap: 6 }}><Icon name="check" size={16} color={c.muted} /><Label size={14} muted>{card.answeredText ?? card.answered ?? 'Dismissed'}</Label></Row> : <><Row style={{ minHeight: 48, alignContent: 'center' }}>{card.options.map(choice => <Button key={choice} title={choice} disabled={action.busy || (!!card.skillRequest && !skillHash && !/deny|cancel|dismiss/i.test(choice))} primary={!/deny|cancel|dismiss/i.test(choice)} tonal={/deny|cancel|dismiss/i.test(choice)} onPress={() => void answer(choice)} />)}</Row>
       {!card.tool && <><Input label="Write an answer" value={freeText} onChangeText={setFreeText} /><Button title="Answer" disabled={!freeText.trim() || action.busy} onPress={() => void answer(freeText)} /></>}
+      {card.mcpTool && card.tool && card.requestId && card.approvalScope !== 'local-computer' && card.heldCode !== 'approval.held.sandbox' && <McpApprovalScope key={card.requestId} client={client} tool={card.tool} botId={message.from?.botId ?? (destination.kind === 'bots' ? destination.id : undefined)} onApprove={async () => {
+        await client.respond(destination.threadId, card.requestId!, 'allow');
+        await onChanged();
+      }} />}
     </>}
     <ErrorNotice error={action.error} />
   </View>;
@@ -89,10 +95,11 @@ export const MessageBubble = React.memo(function MessageBubble({ message, client
     await onChanged();
   });
   if (message.card) return <Approval name={name} message={message} client={client} destination={destination} onChanged={onChanged} />;
+  if (isConversationNotice(message)) return <View style={{ paddingHorizontal: 4, flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 24 }}><View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: message.tool?.ok === false ? c.danger : c.muted }} /><Label size={13} muted style={{ flexShrink: 1 }}>{message.tool?.name ?? message.text}</Label></View>;
   if (message.kind === 'activity' || message.tool) return <View style={{ paddingHorizontal: 4, gap: 8 }}><Pressable onPress={() => setDetails(!details)} accessibilityRole="button" accessibilityLabel={`${message.tool?.name ?? 'Activity'}, ${message.tool?.ok === false ? 'failed' : 'success'}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 24 }}><View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: message.tool?.ok === false ? c.danger : c.muted }} /><Label size={13} muted>{message.tool?.name ?? message.text}</Label></Pressable>{details && <View style={{ padding: 12, borderRadius: 12, backgroundColor: c.card }}><Label size={13} selectable style={{ fontFamily: 'monospace' }}>{[message.tool?.input, message.tool?.output].filter(Boolean).join('\n\n') || message.tool?.summary || 'No additional details.'}</Label></View>}</View>;
   return <><SpeechBubble onEnter={onEnter} mine={message.role === 'user'} goal={goal} fullWidth={!!message.goalRun} onLongPress={event => setMenu({ x: event.nativeEvent.pageX, y: event.nativeEvent.pageY })}>
     {goal && <GoalHeading run={message.goalRun} />}
-    {groupSpeaker ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><View style={{ width: 24, height: 24, flexShrink: 0 }}><Avatar bot={groupSpeaker} client={client} size={24} /></View><Label size={13} bold style={{ flexShrink: 1 }}>{groupSpeaker.name}</Label></View> : !!message.from?.name && message.role !== 'user' && <Label size={13} bold>{message.from.name}</Label>}
+    {groupSpeaker ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><View style={{ width: 24, height: 24, flexShrink: 0 }}><Avatar bot={groupSpeaker} client={client} size={24} animated={false} /></View><Label size={13} bold style={{ flexShrink: 1 }}>{groupSpeaker.name}</Label></View> : !!message.from?.name && message.role !== 'user' && <Label size={13} bold>{message.from.name}</Label>}
     {[...content.images.map(item => ({ ...item, image: true })), ...content.files.map(item => ({ ...item, image: false }))].map((item,index) => <AttachmentView key={`${item.path}-${index}`} client={client} threadId={destination.threadId} messageId={message.id} path={item.path} name={item.name} image={item.image} mine={message.role === 'user'} />)}
     {message.kind === 'screen' && <SecureImage client={client} path={`/api/threads/${routeId(destination.threadId)}/messages/${routeId(message.id)}/image`} />}
     {message.attachments?.filter((a,i,all) => all.findIndex(other => other.path === a.path) === i).map(a => <AttachmentView key={a.path} client={client} threadId={destination.threadId} messageId={message.id} path={a.path} name={a.path.split('/').pop() ?? 'Image'} image mine={message.role === 'user'} />)}
@@ -100,7 +107,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, client
     {message.digest && !message.text && <><Label bold>Work summary</Label><Label>{message.digest.reply}</Label><Label muted>{message.digest.tools.map(tool => `${tool.name}: ${tool.count} calls`).join(' · ')}</Label></>}
     {message.compaction && <Label>{message.compaction.summary}</Label>}
     {message.routineRun && <><Label bold>{message.routineRun.routineName} · {message.routineRun.status}</Label><Label>{message.routineRun.summary ?? message.routineRun.error ?? ''}</Label></>}
-    {message.goalRun && <GoalProgress run={message.goalRun} onResume={destination.kind === 'groups' ? () => void action.run(async () => { await client.request(`/api/groups/${routeId(destination.id)}/elections/${routeId(message.id)}/resume`, 'POST', { threadId: destination.threadId }); await onChanged(); }) : undefined} />}
+    {message.goalRun && <GoalProgress run={message.goalRun} />}
     {message.connector && <><Label bold>Connect {message.connector.slug}</Label><Label>{message.connector.error ?? 'Complete sign-in, then return here to continue.'}</Label>{!message.connector.dismissed && !message.connector.resumed && <Row><Button title="Sign in" disabled={action.busy} onPress={() => void cardAction('connector', 'authorize')} /><Button title="Continue" disabled={action.busy} onPress={() => void cardAction('connector', 'resume')} /><Button title="Dismiss" disabled={action.busy} onPress={() => void cardAction('connector', 'dismiss')} /></Row>}</>}
     {message.secret && <><Label bold>{message.secret.label}</Label><Label>{message.secret.description}</Label><Label muted>Provide this credential in the desktop app, then continue here.</Label>{!message.secret.dismissed && !message.secret.resumed && <Row><Button title="Continue" disabled={action.busy} onPress={() => void cardAction('secret', 'resume')} /><Button title="Dismiss" disabled={action.busy} onPress={() => void cardAction('secret', 'dismiss')} /></Row>}</>}
   </SpeechBubble>{(!!message.reactions?.length || !!action.error || (destination.kind === 'bots' && versions.length > 1)) && <View style={{ alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start', gap: 6 }}>
@@ -121,7 +128,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, client
 // These small avatars do not animate activity, so avoid reparsing every reply.
 function sameSpeaker(a?: Bot, b?: Bot) {
   return a === b || (!!a && !!b && a.id === b.id && a.name === b.name && a.color === b.color
-    && a.avatarUrl === b.avatarUrl && a.avatarCrop === b.avatarCrop && a.mascotBody === b.mascotBody);
+    && a.mascotExpression === b.mascotExpression && a.avatarUrl === b.avatarUrl && a.avatarCrop === b.avatarCrop && a.mascotBody === b.mascotBody);
 }
 
 export function ActivityRun({ items, ...props }: { items: Message[]; client: Client; destination: Destination; onChanged: () => Promise<unknown> }) {

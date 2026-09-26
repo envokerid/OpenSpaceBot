@@ -223,13 +223,8 @@ const playRoomPlanTurn = (msg: any, planPath: string) => {
   const text = (msg.params?.input ?? []).filter((item: any) => item?.type === "text").map((item: any) => item.text).join("\n");
   if (!early) ack();
   // Loaded only in this mode: other tests run a copy of this file on its own.
-  void (integration.env.OMB_ELECTION_PHASE
-    ? import("./election-agent.ts").then(({ runElectionAgent }) => runElectionAgent(integration, text, process.argv.slice(2))).then(() => "Private submission finished")
-    // Reproduce the native session retaining a private phase's no-public-reply
-    // instruction until the app explicitly updates the developer message.
-    : process.env.FAKE_CODEX_SESSION_DIR && developerInstructions.includes("You are in a private room election phase.") ? Promise.resolve("")
-    : import("./room-handoff-agent.ts").then(({ runRoomHandoffAgent }) => runRoomHandoffAgent(process.argv.slice(2), planPath, { message: { content: text } },
-      { integration, system: developerInstructions, evidence: { resumedThread } })))
+  void import("./room-handoff-agent.ts").then(({ runRoomHandoffAgent }) => runRoomHandoffAgent(process.argv.slice(2), planPath, { message: { content: text } },
+    { integration, system: developerInstructions, evidence: { resumedThread } }))
     .then((reply) => {
       notify("item/completed", { item: { id: "m1", type: "agentMessage", text: reply } });
       notify("turn/completed", { turn: { status: "completed" } });
@@ -570,8 +565,8 @@ process.stdin.on("data", (chunk) => {
           });
           break;
         }
-        if (process.env.FAKE_CODEX_ROOM_PLAN || process.env.OMB_ELECTION_PHASE) {
-          playRoomPlanTurn(msg, process.env.FAKE_CODEX_ROOM_PLAN ?? "");
+        if (process.env.FAKE_CODEX_ROOM_PLAN) {
+          playRoomPlanTurn(msg, process.env.FAKE_CODEX_ROOM_PLAN);
           break;
         }
         if (mode === "early-turn-events") finishTurn();

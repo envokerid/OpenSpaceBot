@@ -26,6 +26,8 @@ async function listen(handler: RequestListener) {
 
 it("settings grant opens exact operations and never widens ordinary pairing", () => {
   for (const [method, path] of [
+    ["GET", "/api/settings/approved-commands"],
+    ["PATCH", "/api/settings/approved-commands"],
     ["PATCH", "/api/config"],
     ["POST", "/api/instances/claude/auth/start"],
     ["PATCH", "/api/instances/company.a/icon"],
@@ -118,6 +120,27 @@ it("long administrative operations have bounded time to finish", () => {
   expect(proxyHeadersTimeoutMs("/api/local-computer/pull")).toBe(600000);
   expect(proxyHeadersTimeoutMs("/api/workspace-backup/export")).toBe(180000);
   expect(proxyHeadersTimeoutMs("/api/bots")).toBe(30000);
+});
+
+it("only a registry grant supplies the private desktop settings header", async () => {
+  let allowed = false;
+  const upstream = await listen((req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ grant: req.headers["x-openmausbot-companion-settings"] ?? null,
+      credential: req.headers["x-openmausbot-companion-auth"] }));
+  });
+  const proxy = await listen(createProxyHandler({
+    harnessPort: upstream.port,
+    mutationToken: () => "private-fixture-token",
+    authenticate: () => ({ id: "phone", settingsAccess: allowed, cloudDesktopAccess: false }),
+    redeem: () => ({ error: "disabled" }), serverName: () => "fixture",
+  }));
+  const request = () => fetch(proxy.origin + "/api/config", { headers: {
+    "x-openmausbot-companion-settings": "1", "x-openmausbot-companion-auth": "forged",
+  } }).then(response => response.json());
+  expect(await request()).toEqual({ grant: null, credential: "private-fixture-token" });
+  allowed = true;
+  expect(await request()).toEqual({ grant: "1", credential: "private-fixture-token" });
 });
 
 it("revocation terminates a backup already downloading", async () => {

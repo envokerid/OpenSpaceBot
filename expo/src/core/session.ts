@@ -1,6 +1,7 @@
 import { APIError, Client } from './client.ts';
-import { fold, hydrate, initialState, mergeLatestPage, mergeMessages, type State } from './store.ts';
+import { fold, hydrate, initialState, mergeLatestPage, mergeMessages, type State, type StateFrame } from './store.ts';
 import { stream } from './sse.ts';
+import type { AvatarPatch } from './avatarSettings.ts';
 import type { Frame, Page } from './types.ts';
 
 export class Session {
@@ -12,7 +13,7 @@ export class Session {
   private activeThread?: string;
   private screens = false;
   private revision = 0;
-  private journal: { revision: number; frame: Frame }[] = [];
+  private journal: { revision: number; frame: StateFrame }[] = [];
   private refreshId = 0;
   private pageIds = new Map<string, number>();
   onNotification?: (frame: Extract<Frame, { kind: 'notify' }>) => void;
@@ -20,6 +21,12 @@ export class Session {
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   snapshot = () => this.state;
   private commit(state: State) { this.state = state; this.listeners.forEach(fn => fn()); }
+  applyAvatar(botId: string, avatar: AvatarPatch) {
+    const frame: StateFrame = { kind: 'avatar.saved', botId, avatar };
+    this.journal.push({ revision: ++this.revision, frame });
+    if (this.journal.length > 10_000) this.journal.splice(0, 1000);
+    this.commit(fold(this.state, frame));
+  }
   async refresh(generation = this.generation) {
     const revision = this.revision;
     const requestId = ++this.refreshId;

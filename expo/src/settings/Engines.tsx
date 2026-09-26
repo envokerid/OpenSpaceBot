@@ -31,6 +31,7 @@ type Engine = Instance & {
   cliCandidates?: string[];
   icon?: ProviderIcon;
   readOnly?: boolean;
+  fastMode?: boolean;
   claudeAccount?: { configDir: string; isDefault: boolean };
   snapshot?: ProviderSnapshot;
   install?: EngineInstall;
@@ -238,6 +239,20 @@ function EngineCard({
                 )
               }
             />
+          )}
+          {engine.driverKind === "codex" && (
+            <>
+              <Toggle
+                title="Codex Fast mode"
+                value={engine.fastMode !== false}
+                disabled={action.busy}
+                onChange={(fastMode) => void action.run(async () => {
+                  await client.request(path, "PATCH", { fastMode });
+                  await refresh();
+                })}
+              />
+              <Label muted>Where supported, Fast uses more credits. Turn off for Standard speed. Applies to new personal Codex turns.</Label>
+            </>
           )}
           <Button
             title={expanded ? "Hide advanced settings" : "Advanced settings"}

@@ -22,3 +22,24 @@ from each other and from the harness and webhook ports. Use separate
 `OMB_COMPANION_DIR`, Electron profile and workspace data for the development
 copy. The desktop passes the configured ports to its child and uses the same
 control port for status and pairing requests.
+
+## Expo group-delete regression (2026-09-22)
+
+The lifecycle fixture now creates and deletes a group through the paired,
+Electron-owned companion and verifies group/history removal and preservation of
+its member bot and the existing groups. This exercises the entry point selected
+by the actual desktop, unlike Expo's source-only proxy fixture.
+
+The old development entry resolver preferred `dist-companion/index.js`. An older
+compiled route table reproduced `404 no route: DELETE /api/groups/:id`, despite
+the current source allowing that route. Development now prefers TypeScript
+sources, using the compiled entry only if sources are absent. Packaged builds
+still use only their staged resource. The local compiled companion was rebuilt
+as well; existing processes must restart to load new routes.
+
+Reproduction: `/tmp/omb-group-delete-desktop-before.log` with isolated server log
+`/tmp/openmausbot-verification-evidence/server-1790090717153-1524759.log`.
+Passing Electron workflow: `/tmp/omb-group-delete-desktop-after.log` with server
+log `/tmp/openmausbot-verification-evidence/server-1790090757177-1526738.log`.
+Both fixtures cleaned up their owned processes and temporary data. The companion
+build, lint, whitespace check and 99 entry-resolution/route tests passed.

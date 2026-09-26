@@ -108,15 +108,15 @@ export function mirrorExchange(
   if (channel) markMirrored(bus, channel, notify);
 }
 
-/** Mirror `target`'s reply into the channel so the channel stays the
- * single authoritative record of the exchange. The 1:1 threads already
- * carry their own chips from `mirrorExchange`. */
+/** Keep the full reply in the channel, with a small receipt in the pinned
+ * source conversation when requested. Never follow a later task selection. */
 export function mirrorReply(
   bus: CommsBus,
   target: BotRecord,
   reply: string,
   channel: GroupRecord | undefined,
   notify?: boolean,
+  sourceThreadId?: string,
 ): void {
   if (!channel || !reply.trim()) return;
   bus.store.appendMessage(channel.threadId, {
@@ -125,6 +125,16 @@ export function mirrorReply(
     text: reply,
     from: { botId: target.id, name: target.name, color: target.color },
   });
+  if (sourceThreadId && sourceThreadId !== channel.threadId && (
+    bus.store.botByThread(sourceThreadId) || bus.store.groupByThread(sourceThreadId)
+  )) {
+    bus.store.appendMessage(sourceThreadId, {
+      role: "bot",
+      kind: "activity",
+      tool: { name: `Received message from @${target.name}`, ok: true },
+      comm: { groupId: channel.id, withBotId: target.id, withName: target.name, withColor: target.color },
+    });
+  }
   markMirrored(bus, channel, notify);
 }
 

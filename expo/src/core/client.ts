@@ -55,18 +55,24 @@ export class Client {
   deleteBot(botId: string) {
     return this.request(`/api/bots/${routeId(botId)}`, 'DELETE');
   }
-  createGroup(name: string, memberIds: string[]) {
+  moveBotToSection(botId: string, name: string) {
+    return this.request<{ section: string; sections: string[]; bots: Bot[] }>('/api/sidebar-sections', 'POST', { name: name.trim(), botIds: [routeId(botId)] });
+  }
+  deleteGroup(groupId: string) {
+    return this.request(`/api/groups/${routeId(groupId)}`, 'DELETE');
+  }
+  createGroup(name: string, memberIds: string[], bulletin = '') {
     if (!memberIds.length) throw new Error('Choose at least one bot.');
     return this.request<{ group: Group }>('/api/groups', 'POST', {
       name: name.trim(), memberIds,
-      setup: { bulletin: '', defaultResponder: { kind: 'member', botId: memberIds[0] } },
+      setup: { bulletin, defaultResponder: { kind: 'member', botId: memberIds[0] } },
     });
   }
   startGroupChat(groupId: string) {
     // Preserve the existing responder, instructions and working folder.
     return this.request<{ group: Group }>(`/api/groups/${routeId(groupId)}/setup`, 'PATCH', { action: 'skip' });
   }
-  groupMembers(groupId: string, memberIds: string[], expectedMemberIds: string[], instructions?: { bulletin?: string; expectedBulletin?: string; judgeModelSelection?: Group["judgeModelSelection"] | null; expectedJudgeModelSelection?: Group["judgeModelSelection"] | null }) {
+  groupMembers(groupId: string, memberIds: string[], expectedMemberIds: string[], instructions?: { bulletin?: string; expectedBulletin?: string }) {
     return this.request<{ group: Group }>(`/api/groups/${routeId(groupId)}/members`, 'PATCH', { memberIds, expectedMemberIds, ...instructions });
   }
   page(thread: string, options: { before?: string; around?: string } = {}) {

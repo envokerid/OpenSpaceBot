@@ -1,5 +1,9 @@
-import { roomSelectionPending } from "../../../shared/room-election.ts";
+import type { AvatarPatch } from './avatarSettings.ts';
 import type { Bot, Group, Message, Frame, Fleet, Page, BotQueuedMessages } from './types.ts';
+
+// Local mutation receipts share the refresh journal with server events, but
+// contain only avatar fields so a late save cannot roll back chat/task state.
+export type StateFrame = Frame | { kind: 'avatar.saved'; botId: string; avatar: AvatarPatch };
 
 export interface State {
   hydrated: boolean;
@@ -51,8 +55,6 @@ export function visibleMessages(page?: Page): Message[] {
   return chain;
 }
 export function isTyping(state: State, threadId: string, busy: boolean): boolean {
-  const messages = visibleMessages(state.pages[threadId]);
-  if (messages.some(message => message.goalRun?.election)) return busy && roomSelectionPending(messages);
   const known = state.typing[threadId];
   if (known !== undefined) return known;
   // A snapshot may arrive while the server still owns a finished turn's
@@ -60,7 +62,7 @@ export function isTyping(state: State, threadId: string, busy: boolean): boolean
   const last = visibleMessages(state.pages[threadId]).findLast(message => message.role === 'user' || message.kind === 'text' || message.kind === 'digest');
   return busy && !(last?.role === 'bot' && (last.kind === 'text' || last.kind === 'digest'));
 }
-export function fold(state: State, frame: Frame): State {
+export function fold(state: State, frame: StateFrame): State {
   let next = { ...state };
   const typing = (thread: string, turn: string | undefined, active: boolean, clear = false) => {
     const turns = clear ? {} : { ...state.typingTurns[thread] };
@@ -72,6 +74,10 @@ export function fold(state: State, frame: Frame): State {
   switch (frame.kind) {
     case 'sections': next.sections = frame.sections; break;
     case 'hello': next.cursor = frame.cursor; break;
+    case 'avatar.saved': {
+      next.bots = state.bots.map(bot => bot.id === frame.botId ? { ...bot, ...frame.avatar } : bot);
+      break;
+    }
     case 'bot': {
       const old = state.bots.find(b => b.id === frame.bot.id);
       const bot = { ...old, ...frame.bot, messages: old?.messages ?? [] };
@@ -122,6 +128,6 @@ export function fold(state: State, frame: Frame): State {
     }
     case 'screen': next.screens = { ...state.screens, [frame.threadId]: { png: frame.png, mime: frame.mime ?? 'image/png' } }; break;
   }
-  if (frame.seq !== undefined && next.cursor) next.cursor = `${next.cursor.split(':')[0]}:${frame.seq}`;
+  if ('seq' in frame && frame.seq !== undefined && next.cursor) next.cursor = `${next.cursor.split(':')[0]}:${frame.seq}`;
   return next;
 }

@@ -68,10 +68,10 @@ export function Chat({ visible, session, state, destination, around, drafts, onD
   const setupPending = !!group && groupNeedsSetup(group);
   const goalAvailable = !!group && !group.dm;
   const payload = composerPayload(draft.text, goalAvailable);
-  const goalMode = false; // Legacy /goal drafts enter the same room election.
+  const goalMode = payload.mode === 'goal';
   const canSend = !!payload.text.trim() || !!draft.files.length;
   useEffect(() => { setMembersOpen(false); }, [key, visible]);
-  const [more, setMore] = useState(false); const [slash, setSlash] = useState(false);
+  const [more, setMore] = useState(false);
   const [suggestCommands, setSuggestCommands] = useState(false);
   const [steeringEngines,setSteeringEngines] = useState<string[]>([]);
   useEffect(() => { let alive = true; void session.client.instances().then(data => { if (alive) setSteeringEngines(data.instances.filter(i => i.capabilities?.queueing).map(i => i.instanceId)); }).catch(() => {}); return () => { alive = false; }; },[session]);
@@ -81,7 +81,7 @@ export function Chat({ visible, session, state, destination, around, drafts, onD
   const engineCanSteer = !!owner && 'modelSelection' in owner && steeringEngines.includes(task && 'modelSelection' in task ? task.modelSelection?.instanceId ?? owner.modelSelection.instanceId : owner.modelSelection.instanceId);
   const activeRoom = destination.kind !== 'groups' || owner?.threadId === destination.threadId;
   const page = state.pages[destination.threadId];
-  const messages = useMemo(() => transcriptRows(visibleMessages(page), prefs?.activity, destination.kind === 'groups', prefs?.showDiscussionCards !== false), [page, prefs?.activity, prefs?.showDiscussionCards, destination.kind]);
+  const messages = useMemo(() => transcriptRows(visibleMessages(page), prefs?.activity, destination.kind === 'groups'), [page, prefs?.activity, destination.kind]);
   const entrances = useRef({ key, rows: new BubbleEntrances(), timestamps: new Set<string>() });
   if (entrances.current.key !== key) entrances.current = { key, rows: new BubbleEntrances(), timestamps: new Set<string>() };
   const entranceRows = entrances.current.rows;
@@ -157,7 +157,7 @@ export function Chat({ visible, session, state, destination, around, drafts, onD
         <View style={{ flex: 1, minWidth: 0, alignItems: 'center' }}>
           {destination.kind === 'bots' && owner && 'color' in owner ? (
             <Pressable accessibilityRole="button" accessibilityLabel={`Open ${owner.name} settings`} onPress={onProfile} style={[styles.identityChip, { backgroundColor: c.chrome }]}>
-              <Avatar bot={owner} client={session.client} size={36} />
+              <Avatar bot={owner} client={session.client} size={36} animated={visible} />
               <Label size={15} bold numberOfLines={1} style={{ flexShrink: 1 }}>{owner.name}</Label>
             </Pressable>
           ) : group ? (
@@ -165,12 +165,11 @@ export function Chat({ visible, session, state, destination, around, drafts, onD
               expanded={membersOpen} onPress={() => setMembersOpen(true)} style={{ alignSelf: 'center' }} />
           ) : (
             <View style={[styles.identityChip, { backgroundColor: c.chrome }]}>
-              <Avatar bot={{ name: owner?.name ?? 'Group', color: 'blue' }} client={session.client} size={36} />
+              <Avatar bot={{ name: owner?.name ?? 'Group', color: 'blue' }} client={session.client} size={36} animated={visible} />
               <Label size={15} bold numberOfLines={1} style={{ flexShrink: 1 }}>{owner?.name ?? 'Group'}</Label>
             </View>
           )}
         </View>
-        {group && !group.dm && canAdminister(session.client.connection) && <IconButton icon="add" label="Manage group" onPress={() => setMembersOpen(true)} />}
         {destination.kind === 'bots' && <IconButton icon="computer" label={`Watch ${owner?.name}'s computer`} onPress={onComputer} />}
       </View>
     </View>
@@ -192,7 +191,9 @@ export function Chat({ visible, session, state, destination, around, drafts, onD
         </View> : page ? null : <Label muted>Loading conversation…</Label>}
         // Keep transient bubbles mounted so their occupied space can collapse
         // before removal; the follow-scroll hook tracks each layout frame.
-        ListFooterComponent={<View style={{ paddingBottom: 14 }}><LiveBubble key={key} visible={onScreen && isTyping(state, destination.threadId, !!busy)} name={owner?.name ?? 'Your bot'} color={owner && 'color' in owner && owner.color === 'green' ? '#009957' : '#377FE6'} /></View>} />
+        ListFooterComponent={<View style={{ paddingBottom: 14, gap: 8 }}>
+          <LiveBubble key={key} visible={onScreen && isTyping(state, destination.threadId, !!busy)} name={owner?.name ?? 'Your bot'} color={owner && 'color' in owner && owner.color === 'green' ? '#009957' : '#377FE6'} />
+        </View>} />
     <View pointerEvents="box-none" onLayout={event => setFooterHeight(event.nativeEvent.layout.height)} style={[styles.footerOverlay, { paddingBottom: insets.bottom }]}>
       <Svg pointerEvents="none" width="100%" height={footerHeight} style={{ position: 'absolute', bottom: 0, left: 0 }}>
         <Defs><LinearGradient id="footerFade" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor={c.bg} stopOpacity={0} /><Stop offset="0.65" stopColor={c.bg} stopOpacity={0.4} /><Stop offset="1" stopColor={c.bg} stopOpacity={0.75} /></LinearGradient></Defs>
@@ -201,17 +202,17 @@ export function Chat({ visible, session, state, destination, around, drafts, onD
       <View pointerEvents="box-none" style={{ paddingTop: 24 }}>
         <ErrorNotice error={action.error} />
         {!activeRoom && <ErrorNotice error="The desktop switched this channel to another thread. Choose the active thread before sending." />}
-        {more && <ComposerMenu name={owner?.name ?? 'your bot'} bot={destination.kind === 'bots'} goal={false} onClose={() => setMore(false)} onChoose={id => { setMore(false); if (id === 'goal') { setSlash(false); const text = insertGoalCommand(latest.current.text); update({ text, channelMode: undefined, sendId: text === latest.current.text ? latest.current.sendId : undefined }); } else if (id === 'photo' || id === 'file') void pick(id === 'photo'); else if (id === 'threads') onThreads(); else if (id === 'profile') onProfile(); else if (id === 'computer') onComputer(); else if (id === 'new') void action.run(async () => { const result = await session.client.createTask(destination, ''); await session.refresh(); const next = result.bot ?? result.group; if (next) onSelect({ ...destination, threadId: next.threadId }); }); else void action.run(async () => shareResponse(await session.client.response(`/api/threads/${routeId(destination.threadId)}/export?format=${id === 'json' ? 'json' : 'md'}`), `conversation.${id === 'json' ? 'json' : 'md'}`)); }} />}
-        {(slash || (suggestCommands && draft.text.startsWith('/') && !goalMode)) && <CommandHUD draft={draft.text} bot={destination.kind === 'bots'} onClose={() => { setSlash(false); if (draft.text === '/') update({ text: '' }); }} onChoose={(id, prompt) => { setSlash(false); if (draft.text.startsWith('/')) update({ text: '' }); if (id === 'computer') onComputer(); else if (id === 'threads') onThreads(); else void send(prompt); }} />}
+        {more && <ComposerMenu name={owner?.name ?? 'your bot'} bot={destination.kind === 'bots'} goal={goalAvailable} onClose={() => setMore(false)} onChoose={id => { setMore(false); if (id === 'goal') { setSuggestCommands(false); const text = insertGoalCommand(latest.current.text); update({ text, channelMode: undefined, sendId: text === latest.current.text ? latest.current.sendId : undefined }); } else if (id === 'photo' || id === 'file') void pick(id === 'photo'); else if (id === 'threads') onThreads(); else if (id === 'profile') onProfile(); else if (id === 'computer') onComputer(); else if (id === 'new') void action.run(async () => { const result = await session.client.createTask(destination, ''); await session.refresh(); const next = result.bot ?? result.group; if (next) onSelect({ ...destination, threadId: next.threadId }); }); else void action.run(async () => shareResponse(await session.client.response(`/api/threads/${routeId(destination.threadId)}/export?format=${id === 'json' ? 'json' : 'md'}`), `conversation.${id === 'json' ? 'json' : 'md'}`)); }} />}
+        {suggestCommands && draft.text.startsWith('/') && !goalMode && <CommandHUD draft={draft.text} bot={destination.kind === 'bots'} onClose={() => { setSuggestCommands(false); if (draft.text === '/') update({ text: '' }); }} onChoose={(id, prompt) => { setSuggestCommands(false); if (draft.text.startsWith('/')) update({ text: '' }); if (id === 'computer') onComputer(); else if (id === 'threads') onThreads(); else void send(prompt); }} />}
         <View style={{ paddingHorizontal: 12, paddingTop: 6, paddingBottom: 8, gap: 6 }}>
           {(state.queues[destination.threadId] ?? []).map(q => <Row key={q.queueId} style={{ flexWrap: 'nowrap', borderRadius: 18, backgroundColor: c.text+'14', paddingLeft: 12, paddingRight: 6, paddingVertical: 6, gap: 8 }}><Label numberOfLines={2} style={{ flex: 1 }}>{q.text}</Label>{destination.kind === 'bots' && <Button title={action.busy ? 'Steering…' : 'Steer'} text disabled={action.busy} style={{ backgroundColor: c.text+'1F' }} onPress={() => void action.run(() => session.client.stop(destination))} />}<IconButton icon="delete" label="Delete this queued message" chrome={false} glyph={16} onPress={() => void action.run(() => session.client.cancelQueued(destination,q.queueId))} /></Row>)}
 
           {!!draft.files.length && <ScrollView horizontal><Row>{draft.files.map((f, i) => <Button key={`${f.path}-${i}`} title={`× ${f.name}`} disabled={action.busy} onPress={() => update({ files: draft.files.filter((_, n) => n !== i), sendId: undefined })} />)}</Row></ScrollView>}
-          <Row style={{ flexWrap: 'nowrap', gap: 10, alignItems: 'flex-end' }}><IconButton icon={more ? 'close' : 'add'} label={more ? "Close" : "More"} size={44} glyph={22} surface={more ? c.text : c.chrome} color={more ? c.bg : c.text} onPress={() => setMore(!more)} /><View style={{ flex: 1, flexDirection: 'row', alignItems: 'flex-end', backgroundColor: c.chrome, borderRadius: 24, minHeight: 48, elevation: 6, overflow: 'hidden' }}>{goalMode && <GoalGradient />}<Pressable accessibilityRole="button" accessibilityLabel="Slash commands" onPress={() => setSlash(!slash)} style={{ width: 48, height: 48, alignItems: 'center', justifyContent: 'center' }}><Label size={18} bold muted style={{ fontFamily: 'monospace', ...(goalMode ? { color: '#FFFFFF' } : {}) }}>/</Label></Pressable><View style={{ flex: 1 }}>{goalMode && <Label size={11} bold style={{ color: '#FFFFFF', paddingLeft: 6, paddingTop: 9, lineHeight: 14 }}>Writing a goal</Label>}<ComposerInput revision={draftRevision} accessibilityLabel={goalMode ? "Goal" : "Message"} placeholder={draft.sending ? 'Sending…' : goalMode ? 'What should we achieve?' : busy ? engineCanSteer ? 'Add to turn…' : 'Queue…' : 'Message'} placeholderTextColor={goalMode ? '#FFFFFFBB' : c.muted} value={draft.text} multiline
+          <Row style={{ flexWrap: 'nowrap', gap: 10, alignItems: 'flex-end' }}><IconButton icon={more ? 'close' : 'add'} label={more ? "Close" : "More"} size={44} glyph={22} surface={more ? c.text : c.chrome} color={more ? c.bg : c.text} onPress={() => setMore(!more)} /><View style={{ flex: 1, flexDirection: 'row', alignItems: 'flex-end', backgroundColor: c.chrome, borderRadius: 24, minHeight: 48, elevation: 6, overflow: 'hidden' }}>{goalMode && <GoalGradient />}<View style={{ flex: 1 }}>{goalMode && <Label size={11} bold style={{ color: '#FFFFFF', paddingLeft: 6, paddingTop: 9, lineHeight: 14 }}>Writing a goal</Label>}<ComposerInput revision={draftRevision} accessibilityLabel={goalMode ? "Goal" : "Message"} placeholder={draft.sending ? 'Sending…' : goalMode ? 'What should we achieve?' : busy ? engineCanSteer ? 'Add to turn…' : 'Queue…' : 'Message'} placeholderTextColor={goalMode ? '#FFFFFFBB' : c.muted} value={draft.text} multiline
             enterKeyHint="send" submitBehavior="submit"
             // React Native Web still uses blurOnSubmit for multiline submission.
             blurOnSubmit={Platform.OS === 'web'} onSubmitEditing={event => { typeText(event.nativeEvent.text); void send(); }}
-            onChangeText={typeText} style={{ color: goalMode ? '#FFFFFF' : c.text, paddingVertical: goalMode ? 8 : 13, paddingLeft: 6, paddingRight: 0, minHeight: 48, maxHeight: 150, fontSize: 17, lineHeight: 22, includeFontPadding: false, textAlignVertical: 'top', letterSpacing: 0.5 }} /></View><View style={{ marginRight: 6 }}><Dictation color={goalMode ? '#FFFFFF' : undefined} surface={goalMode ? '#FFFFFF22' : undefined} text={draft.text} onText={text => update({ text, sendId: undefined })} disabled={action.busy || !!draft.sending} /></View><IconButton icon={goalMode ? 'goal' : 'send'} label={goalMode ? 'Start goal' : 'Send'} size={32} surface={goalMode ? '#FFFFFF22' : canSend ? c.mine : c.muted + '2E'} elevation={0} glyph={16} color={goalMode ? canSend ? '#FFFFFF' : '#FFFFFF66' : canSend ? c.mineText : c.muted} disabled={action.busy || draft.sending || !activeRoom || setupPending || !canSend || state.status === 'revoked'} onPress={() => void send()} /></View></Row>
+            onChangeText={typeText} style={{ color: goalMode ? '#FFFFFF' : c.text, paddingVertical: goalMode ? 8 : 13, paddingLeft: 16, paddingRight: 0, minHeight: 48, maxHeight: 150, fontSize: 17, lineHeight: 22, includeFontPadding: false, textAlignVertical: 'top', letterSpacing: 0.5 }} /></View><View style={{ marginRight: 6 }}><Dictation color={goalMode ? '#FFFFFF' : undefined} surface={goalMode ? '#FFFFFF22' : undefined} text={draft.text} onText={text => update({ text, sendId: undefined })} disabled={action.busy || !!draft.sending} /></View><IconButton icon={goalMode ? 'goal' : 'send'} label={goalMode ? 'Start goal' : 'Send'} size={32} surface={goalMode ? '#FFFFFF22' : canSend ? c.mine : c.muted + '2E'} elevation={0} glyph={16} color={goalMode ? canSend ? '#FFFFFF' : '#FFFFFF66' : canSend ? c.mineText : c.muted} disabled={action.busy || draft.sending || !activeRoom || setupPending || !canSend || state.status === 'revoked'} onPress={() => void send()} /></View></Row>
         </View>
       </View>
     </View>

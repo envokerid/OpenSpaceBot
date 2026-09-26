@@ -18,11 +18,15 @@ export async function verifyGroupSetup(client: Client, botIds: string[], control
     await control(['messages', '--channel', group.id, '--limit', '10']);
     outcomes.push({ groupId: group.id, threadId: group.threadId, sendId, text, status: 'settled' });
   };
-  const created = await client.createGroup('Ready mobile group', botIds);
+  const bulletin = 'Research together.\nCite sources and separate facts from assumptions. ✓';
+  const created = await client.createGroup('Ready mobile group', botIds, bulletin);
+  assert.equal(created.group.bulletin, bulletin);
+  assert.equal((await client.fleet()).groups.find(group => group.id === created.group.id)!.bulletin, bulletin);
   assert.ok(created.group.setupCompletedAt);
   assert.equal(groupNeedsSetup(created.group), false);
   assert.deepEqual(created.group.defaultResponder, { kind: 'member', botId: botIds[0] });
   await sendAndVerify(created.group, 'First message from the new Expo group');
+  assert.equal((await client.createGroup('No instructions', botIds)).group.bulletin, '');
 
   // Reproduce groups made by the old Expo flow, then recover the same group.
   const { group: pending } = await client.request<{ group: Group }>('/api/groups', 'POST', { name: 'Unfinished mobile group', memberIds: botIds });
@@ -41,5 +45,5 @@ export async function verifyGroupSetup(client: Client, botIds: string[], control
   assert.equal((await client.startGroupChat(pending.id)).group.setupSkippedAt, recovered.setupSkippedAt);
   assert.equal(groupNeedsSetup((await client.fleet()).groups.find(group => group.id === pending.id)!), false);
   await sendAndVerify(recovered, 'First message after finishing Expo group setup');
-  return { action: 'create ready group and recover unfinished group through companion; first sends settle', outcomes, status: 'passed' };
+  return { action: 'create ready group with optional multiline instructions, verify reload, and recover unfinished group through companion; first sends settle', outcomes, status: 'passed' };
 }

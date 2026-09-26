@@ -1,5 +1,8 @@
 **Room voting — implementation plan and status**
 
+> Historical design, retired on 2026-09-24. Group chats again use default
+> responders and @mentions; see `docs/verification/channels.md`.
+
 Status: implemented in the working tree, 23 September 2026. Verification coverage and remaining limits are recorded in [room voting verification](../verification/room-voting.md). Based on the current working tree and the [room-turn brief](../group-chat-turns-brief-2026-09-23.md).
 
 **Proposed behavior**

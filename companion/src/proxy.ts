@@ -219,7 +219,7 @@ const endpointSnapshot = (options: ProxyOptions): CompanionEndpointSnapshot => {
  * blocklist: `host` and `origin` must not travel (see above), `authorization`
  * is the sidecar's credential and means nothing to the harness, and hop-by-hop
  * headers are by definition not ours to relay. */
-const forwardHeaders = (req: IncomingMessage, authenticatedDeviceId?: string, mutationToken?: string): Record<string, string> => {
+const forwardHeaders = (req: IncomingMessage, authenticatedDeviceId?: string, mutationToken?: string, settingsAccess = false): Record<string, string> => {
   const out: Record<string, string> = {
     accept: String(req.headers.accept ?? "*/*"),
     // Lets a response whose URL is intentionally loopback-only (the VPS SSH
@@ -233,6 +233,7 @@ const forwardHeaders = (req: IncomingMessage, authenticatedDeviceId?: string, mu
   if (authenticatedDeviceId && /^[\w-]{1,128}$/.test(authenticatedDeviceId)) {
     out["x-openmausbot-companion-device"] = authenticatedDeviceId;
     if (mutationToken) out["x-openmausbot-companion-auth"] = mutationToken;
+    if (mutationToken && settingsAccess) out["x-openmausbot-companion-settings"] = "1";
   }
   const contentType = req.headers["content-type"];
   if (contentType) out["content-type"] = String(contentType);
@@ -382,7 +383,7 @@ export function createProxyHandler(options: ProxyOptions) {
         port: options.harnessPort,
         path: req.url,
         method,
-        headers: forwardHeaders(req, device?.id, mutationToken ?? undefined),
+        headers: forwardHeaders(req, device?.id, mutationToken ?? undefined, device?.settingsAccess === true),
       },
       (harness) => {
         clearTimeout(headersDeadline);

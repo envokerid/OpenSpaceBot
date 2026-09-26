@@ -137,12 +137,13 @@ const ALLOWED: ReadonlyArray<{ method: string; path: RegExp }> = [
   CLOUD_DESKTOP_CONTROL_ROUTE,
   // rooms — making one, and talking in one
   { method: "POST", path: /^\/api\/groups$/ },
+  // Explicitly confirmed group deletion from the mobile roster.
+  { method: "DELETE", path: /^\/api\/groups\/[\w-]+$/ },
   // Finish the server's first-message setup gate from the phone.
   { method: "PATCH", path: /^\/api\/groups\/[\w-]+\/setup$/ },
   // Members and shared instructions; the handler rejects unrelated fields and stale edits.
   { method: "PATCH", path: /^\/api\/groups\/[\w-]+\/members$/ },
   { method: "POST", path: /^\/api\/groups\/[\w-]+\/messages$/ },
-  { method: "POST", path: /^\/api\/groups\/[\w-]+\/elections\/[\w-]+\/resume$/ },
   { method: "POST", path: /^\/api\/groups\/[\w-]+\/interrupt$/ },
   { method: "DELETE", path: /^\/api\/groups\/[\w-]+\/queue\/[\w-]+$/ },
   { method: "POST", path: /^\/api\/groups\/[\w-]+\/read$/ },
@@ -195,6 +196,10 @@ const ALLOWED: ReadonlyArray<{ method: string; path: RegExp }> = [
   { method: "GET", path: /^\/api\/connectors$/ },
   { method: "POST", path: /^\/api\/connectors\/[\w-]+\/authorize$/ },
   { method: "DELETE", path: /^\/api\/connectors\/[\w-]+\/accounts\/[\w-]+$/ },
+  // Explicit per-bot, per-account approval. The owner API validates the
+  // active account and service; broad bot edits remain unavailable.
+  { method: "POST", path: /^\/api\/bots\/[\w-]+\/connector-accounts\/[a-z0-9_][a-z0-9_-]{0,80}\/[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/ },
+  { method: "DELETE", path: /^\/api\/bots\/[\w-]+\/connector-accounts\/[a-z0-9_][a-z0-9_-]{0,80}\/[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/ },
   // Inline connector cards are scoped by bot, transcript message, and
   // thread. They expose the same opaque OAuth authorization already allowed
   // above, then only poll, resume, or dismiss that exact pending card.

@@ -30,6 +30,22 @@ function render(authenticated: boolean, options: { email?: string; signOut?: boo
 }
 
 describe("Settings → Engines → Codex", () => {
+  it("shows the saved Fast or Standard choice for an editable Codex engine", () => {
+    vi.stubGlobal("window", {});
+    fixture.bots = [];
+    fixture.instances = [{
+      instanceId: "codex", driverKind: "codex", displayName: "Codex", cliDefault: "codex",
+      snapshot: { state: "available" }, models: { default: "model", options: [] }, fastMode: true,
+    }];
+    const fast = renderToStaticMarkup(createElement(EnginesSettings));
+    expect(fast).toContain('aria-label="Codex Fast mode"');
+    expect(fast).toContain('aria-checked="true"');
+    fixture.instances[0].fastMode = false;
+    expect(renderToStaticMarkup(createElement(EnginesSettings))).toContain('aria-checked="false"');
+    fixture.instances[0].readOnly = true;
+    expect(renderToStaticMarkup(createElement(EnginesSettings))).not.toContain('aria-label="Codex Fast mode"');
+  });
+
   it("makes browser sign-in discoverable in Settings, not only the model picker", () => {
     const html = render(false);
     expect(html).toContain("Connect ChatGPT");

@@ -86,6 +86,7 @@ export interface OptionCardData {
   requestId?: string;
   /** permission asks: the tool being requested (drives the approval box) */
   tool?: string;
+  mcpTool?: boolean;
   /** why auto mode stopped to ask anyway */
   held?: string;
   /** catalog key for `held` when it is a fixed note, so it reads in the
@@ -208,7 +209,6 @@ export interface Group {
   name: string;
   memberIds: string[];
   defaultResponder: GroupDefaultResponder;
-  judgeModelSelection?: ModelSelection;
   bulletin: string;
   unread: boolean;
   createdAt: number;
@@ -677,9 +677,12 @@ export interface InstanceInfo {
   cliCandidates?: string[];
   /** Server-owned Claude profile; a saved directory does not prove sign-in. */
   claudeAccount?: { configDir: string; signInCommand: string; signInShell: "powershell" | "sh"; isDefault: boolean };
+  /** Codex service tier preference for new personal-account turns. */
+  fastMode?: boolean;
 }
 
 export type AppSettingsSection =
+  | "approvedCommands"
   | "general"
   | "desktopWorkspaces"
   | "organization"

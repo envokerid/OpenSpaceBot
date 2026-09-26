@@ -272,10 +272,6 @@ it("does not treat self-opened work or an abandoned human branch as new human au
   const secret = (await f.messages(child.threadId)).find((message: any) => message.kind === "secret");
   expect(secret).toBeDefined();
   const opening = (await f.messages(child.threadId)).find((message: any) => message.peerAsk?.botId === f.chief.id);
-  // Posts now wake a room election. Settle that separate operation before
-  // editing this bot's direct branch; the API correctly refuses concurrent edits.
-  await expect.poll(async () => (await f.api("/api/bots")).groups.find((g: any) => g.id === room.id).working,
-    { timeout: 20_000 }).toBe(false);
   await f.api(`/api/bots/${f.chief.id}/messages/${opening.id}/edit`, { threadId: child.threadId, text: "An alternative human request." });
   await providerFinished(3);
   await f.api(`/api/bots/${f.chief.id}/active-branch`, { threadId: child.threadId, messageId: secret.id });

@@ -15,6 +15,7 @@ import type { LocaleKey } from "@/locales";
 import { SkillRequestPreview } from "@/components/SkillRequestPreview";
 import { toolLabel } from "./ApprovalCard";
 import { reviewedSkillSha256 } from "../../shared/skill-request";
+import { McpApprovalScope } from "./McpApprovalScope";
 
 interface ApprovalLabels {
   [tool: string]: LocaleKey;
@@ -240,6 +241,9 @@ export function PendingApprovalActions({
   const base = "rounded-full px-3.5 py-1.5 text-[13.5px] transition-colors";
   return (
     <div className="flex flex-wrap items-center justify-end gap-2 px-2 py-2">
+      {pending.message.card?.mcpTool && pending.message.card.approvalScope !== "local-computer" && pending.heldCode !== "approval.held.sandbox" && !durableRequest && (
+        <McpApprovalScope key={pending.requestId} tool={pending.tool} botId={bot?.id} onApprove={() => decide("allow")} />
+      )}
       {!durableRequest && (
         <button onClick={onCancelTurn} className={cn(base, "text-ink-secondary hover:bg-control hover:text-ink")}>
           {t("approval.action.cancelTurn")}

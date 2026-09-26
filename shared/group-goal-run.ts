@@ -11,8 +11,6 @@ export type GroupGoalRunStatus =
   | "failed";
 
 export interface GroupGoalRunCardData {
-  /** Shared-room proposal/vote run; absent on historical coordinator runs. */
-  election?: import("./room-election.ts").RoomElectionData;
   runId: string;
   goal: string;
   status: GroupGoalRunStatus;

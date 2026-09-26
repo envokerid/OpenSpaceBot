@@ -27,15 +27,19 @@ describe("companion entry resolution", () => {
     expect(resolve(true, [BUILT, SOURCE])).toBeNull();
   });
 
-  it("dev: prefers the compiled output when someone has built it", () => {
-    expect(resolve(false, [BUILT, SOURCE])).toEqual({ entry: BUILT, execArgv: [] });
+  it("dev: sources take precedence over potentially stale compiled output", () => {
+    expect(resolve(false, [BUILT, SOURCE])).toEqual({ entry: SOURCE, execArgv: ["--experimental-strip-types"] });
   });
 
-  it("dev: falls back to the TypeScript source, with type stripping", () => {
+  it("dev: TypeScript sources work without a build", () => {
     expect(resolve(false, [SOURCE])).toEqual({
       entry: SOURCE,
       execArgv: ["--experimental-strip-types"],
     });
+  });
+
+  it("dev: falls back to compiled output when sources are absent", () => {
+    expect(resolve(false, [BUILT])).toEqual({ entry: BUILT, execArgv: [] });
   });
 
   it("dev: a checkout with neither is a null, not a spawn error", () => {

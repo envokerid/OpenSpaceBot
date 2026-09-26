@@ -230,7 +230,6 @@ export const CLIENT_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: Reg
   // rooms
   { methods: ["POST"], path: /^\/api\/groups$/ },
   { methods: ["POST"], path: /^\/api\/groups\/[\w-]+\/messages$/ },
-  { methods: ["POST"], path: /^\/api\/groups\/[\w-]+\/elections\/[\w-]+\/resume$/ },
   { methods: ["POST"], path: /^\/api\/groups\/[\w-]+\/interrupt$/ },
   { methods: ["POST"], path: /^\/api\/groups\/[\w-]+\/read$/ },
   { methods: ["DELETE"], path: /^\/api\/groups\/[\w-]+\/queue\/[\w-]+$/ },
@@ -384,7 +383,11 @@ export function resolveRequestAuth(req: IncomingMessage, options: ResolveOptions
         !secureTokenMatch(companionToken, options.companionMutationToken ?? "") ||
         req.headers["x-openmausbot-companion"] !== "1" ||
         !/^[\w-]{1,128}$/.test(headerValue(req.headers["x-openmausbot-companion-device"]) ?? "") ||
-        companionDenial({ path, method, authenticated: true })
+        companionDenial({ path, method, authenticated: true,
+          // Only the authenticated sidecar may assert this per-device grant.
+          // Client-supplied headers never pass its forwarding allowlist.
+          settingsAccess: req.headers["x-openmausbot-companion-settings"] === "1",
+        })
       ) return deny(403, "forbidden: invalid companion request");
       return { auth: { kind: "loopback", scopes: LOOPBACK_SCOPES }, status: 401, error: "" };
     }

@@ -50,7 +50,7 @@ Use only mapped, tested commands:
 - [Welcome flow and guided tour](onboarding.md)
 - [Channels](channels.md)
 - [In-chat team coordination](room-coordination.md)
-- [Parallel room drafts and a single judge](room-voting.md)
+- [Retired room voting (restored group chats)](room-voting.md)
 - [Chief access to additional teams](team-access.md)
 - [Engines and Doctor](engines.md)
 - [Claude coordination and turn-scoped tools](claude-tool-lifecycle.md)
@@ -110,6 +110,10 @@ desktop app or controlling the user's computer.
 
 The [connector account fixture](connector-accounts.md) checks per-bot account
 approvals from both settings views, persistence, and gateway restrictions.
+
+The [approved commands fixture](approved-commands.md) checks bot-wide MCP tool
+approvals, the default Composio multi-execute grant, revocation, and paired-phone
+settings access in disposable workspaces.
 
 The [bot settings fixture](bot-settings.md) checks profile saves, standing
 instructions, history restore, skill/memory refresh, and stale-response isolation.

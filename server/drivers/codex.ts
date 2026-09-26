@@ -120,6 +120,8 @@ function codexAstraUpdate(
 export interface CodexConfig {
   cli: string;
   fullAuto: boolean;
+  /** Fast ChatGPT service tier for personal Codex turns; defaults on. */
+  fastMode?: boolean;
   /** Ephemeral Company routing, supplied by the trusted desktop parent. */
   managed?: { url: string; models: string[] };
 }
@@ -129,6 +131,7 @@ function decodeConfig(raw: unknown): CodexConfig {
   return {
     cli: typeof o.cli === "string" ? o.cli : "codex",
     fullAuto: o.fullAuto === true,
+    fastMode: o.fastMode !== false,
     ...(o.managed && typeof o.managed === "object" ? { managed: decodeManagedCodex(o.managed) } : {}),
   };
 }
@@ -666,7 +669,20 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
 
       const launchAttempt = async (attempt: number): Promise<void> => {
         const env = childEnv();
-        const appServerArgs = ["app-server", ...(config.managed ? managedCodexArgs(config.managed) : codexLocalProviderArgs(env, turn.model))];
+        const localProviderArgs = config.managed ? [] : codexLocalProviderArgs(env, turn.model);
+        const personalServiceTier = !config.managed && (!turn.model || decodeCodexSelection(turn.model).modelProvider === "openai")
+          ? config.fastMode !== false ? "fast" : "default"
+          : null;
+        const appServerArgs = [
+          "app-server",
+          ...(config.managed ? managedCodexArgs(config.managed) : localProviderArgs),
+          // A per-launch override wins over ~/.codex/config.toml, including a
+          // personal fast preference when this engine is set to Standard.
+          // ChatGPT Fast is not a service tier for Company or local providers.
+          ...(personalServiceTier
+            ? ["-c", `service_tier=${JSON.stringify(personalServiceTier)}`, "-c", "features.fast_mode=true"]
+            : []),
+        ];
         if (turn.integrations?.composio) {
           mountMcpServer(appServerArgs, env, "openmausbot_connectors", turn.integrations.composio);
         }
@@ -1486,6 +1502,10 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             threadId: codexThreadId,
             input: turnInput,
             ...approvalParams.turn,
+            // Resumed native threads can retain their previous tier. Set the
+            // thread's preference on each new turn so Settings takes effect
+            // without discarding its conversation history.
+            ...(personalServiceTier ? { serviceTier: personalServiceTier } : {}),
             // Spread, not `effort: turn.effort ?? null`. Probed against
             // codex-cli 0.146.0: null is indistinguishable from an absent key
             // — both leave the thread's current effort alone, emitting no

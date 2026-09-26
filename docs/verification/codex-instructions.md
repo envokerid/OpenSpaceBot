@@ -21,12 +21,9 @@ receipts (including sessions created before this change) cause one adoption
 update. Current thread configuration restores the latest rules after compaction.
 Removed rules get an explicit developer update and empty native configuration.
 
-Private election routes and the public room route share each member's native
-conversation. Their instruction receipt must therefore share that native
-identity too. The previous route-based receipt could skip restoring speaking
-instructions after a vote, leaving the latest native developer message saying
-not to post chat messages. Versioned receipts adopt existing sessions once after
-this correction and then track subsequent changes across all routes.
+Instruction receipts use the native conversation identity so switching routes
+keeps the latest bot instructions. Versioned receipts adopt existing sessions
+once and then track subsequent changes.
 
 A rejected native resume fails the turn instead of starting an empty thread.
 The existing history and cursor remain available; automatic canonical replay is

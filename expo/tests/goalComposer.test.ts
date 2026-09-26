@@ -45,7 +45,7 @@ test('failed goal retries preserve prefix; deleting it in flight preserves the n
   }
 });
 
-test('group discussion cards can be shown or hidden without deleting the original request', () => {
+test('group goal receipts and their original requests stay visible', () => {
   const prompt: Message = { id: 'prompt', at: 1, role: 'user', kind: 'text', channelMode: 'goal', text: 'Write a plan' };
   const card: Message = { id: 'card', at: 2, role: 'bot', kind: 'goal.run', goalRun: { runId: 'run', goal: 'Write a plan', status: 'working', coordinatorBotId: 'bot', coordinatorName: 'Maus', turnCount: 1, maxTurns: 13, startedAt: 2 } };
   const chat: Message = { id: 'chat', at: 3, role: 'user', kind: 'text', text: 'Thanks' };
@@ -55,10 +55,8 @@ test('group discussion cards can be shown or hidden without deleting the origina
     assert.deepEqual(transcriptRows([prompt], detail), []);
   }
   assert.deepEqual(messages.map(message => message.id), ['prompt', 'card', 'chat']);
-  card.goalRun!.election = { phase: 'proposing', rounds: [], sourceMessageId: prompt.id };
   for (const detail of ['off', 'summary', 'full'] as const) {
     assert.deepEqual(transcriptRows(messages, detail, true).map(message => message.id), ['prompt', 'card', 'chat']);
-    assert.deepEqual(transcriptRows(messages, detail, true, false).map(message => message.id), ['prompt', 'chat']);
     assert.deepEqual(transcriptRows([prompt], detail, true), [prompt]);
   }
   assert.deepEqual(messages.map(message => message.id), ['prompt', 'card', 'chat']);

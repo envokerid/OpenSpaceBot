@@ -42,9 +42,6 @@ export class EventBus {
   }
 
   publish(event: RuntimeEvent) {
-    // Private election sessions have their own collector. Never leak their
-    // prose, tools, permissions or completion into chat, SSE or work handlers.
-    if (event.threadId.startsWith("election-private-")) return;
     const pendingWarning = this.pendingLogWarnings.get(event.threadId);
     const persistedEvents = pendingWarning ? [pendingWarning, redactSecrets(event)] : [redactSecrets(event)];
     try {

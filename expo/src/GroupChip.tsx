@@ -1,9 +1,10 @@
 import React from 'react';
-import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import type { Bot } from './core/types';
 import type { Client } from './core/client';
 import { GroupAvatar } from './GroupAvatar';
 import { Label, useTheme } from './ui';
+import { UnreadLight } from './UnreadLight';
 
 export function GroupChip({ name, bots, client, onPress, onMenu, label, expanded, unread = false, style }: {
   name: string; bots: Bot[]; client: Client; onPress: () => void; label: string;
@@ -20,7 +21,7 @@ export function GroupChip({ name, bots, client, onPress, onMenu, label, expanded
     onPress={onPress} style={({ pressed }) => [styles.chip, { backgroundColor: c.chrome, opacity: pressed ? 0.7 : 1 }, style]}>
     <GroupAvatar bots={bots} client={client} name={name} size={38} />
     <Label size={15} bold numberOfLines={1} style={{ flexShrink: 1 }}>{name}</Label>
-    {unread && <View accessibilityLabel="Unread messages" style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: c.mine, flexShrink: 0 }} />}
+    {unread && <UnreadLight />}
   </Pressable>;
 }
 

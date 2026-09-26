@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { BOT_AVATAR_CROPS, botAvatarCropSchema, botAvatarUrlSchema } from "../shared/bot-avatar.ts";
+import { MAUS_COLOR_NAMES, normalizeState } from "../shared/mascot-appearance.ts";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
 import { MASCOT_BODY_IDS, mascotBodySchema } from "../shared/mascot-bodies.ts";
 
@@ -30,6 +31,8 @@ export const BOT_PROFILE_PATCH_FIELDS = [
   "avatarUrl",
   "avatarCrop",
   "mascotBody",
+  "color",
+  "mascotExpression",
   "voice",
   "speakReplies",
 ] as const;
@@ -64,6 +67,8 @@ const profilePatchSchema = z.object({
     .optional(),
   avatarCrop: botAvatarCropSchema.optional(),
   mascotBody: mascotBodySchema.optional(),
+  color: z.enum(MAUS_COLOR_NAMES).optional(),
+  mascotExpression: z.string().refine(value => normalizeState(value) !== null, { error: "mascotExpression must be a known expression or null" }).nullable().optional(),
   voice: z
     .string({ error: "voice must be a string" })
     .max(BOT_PROFILE_LIMITS.voice, { error: "voice must be at most 200 characters" })
@@ -84,6 +89,8 @@ export type BotProfilePatch = Partial<
     | "avatarUrl"
     | "avatarCrop"
     | "mascotBody"
+    | "color"
+    | "mascotExpression"
     | "voice"
     | "speakReplies"
   >

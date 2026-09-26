@@ -33,6 +33,36 @@ Capture the returned channel ID from `new-channel`. The wait result must be
 - A confirmation card produces `needs-user`; it is not a timeout.
 - This first map does not claim to verify channel layout or sidebar UI.
 
+## Original group routing regression
+
+Normal messages use the saved default responder: one member, everyone in
+sequence, or mentions only. Explicit @mentions override that default. Replies
+appear directly in the shared transcript. There are no private proposals,
+votes, judges, typing bots, or verdict drafts. The optional Finish together
+mode uses the original bounded goal coordinator.
+
+```sh
+pnpm exec vitest run server/group-chat.e2e.test.ts server/room-coordination.e2e.test.ts server/group-goal-run.e2e.test.ts server/group-goal-wait-cap.e2e.test.ts
+```
+
+The routing test launches the isolated control fixture and retains its exact
+commands, waits, and transcripts in the printed `.log.group-chat.json` file.
+It checks member routing, mention overrides, everyone in sequence, mentions
+only, and the absence of discussion/verdict receipts in normal chat. The other
+fixtures check handoffs, queueing, approval waits, cancellation, and goal runs.
+These use scripted engines; visual verification remains with the user.
+
+Verified on 2026-09-24: the restored routing fixture passed against the real
+isolated server, with exactly six provider turns for the six expected public
+replies. The 46 coordination/goal checks passed (one existing todo), along
+with 192 direct-chat, communication, auth, and companion checks. In total,
+504 focused server, desktop, and Expo tests passed. Desktop, server, and Expo
+typechecks and focused lint passed. The documentation suite could not load
+because this checkout lacks `enterprise/server/workspace-access.ts`.
+Routing evidence:
+`/tmp/openmausbot-verification-evidence/server-1790226428399-146101.log.group-chat.json`.
+The fixture home was removed on exit; its server log and bounded evidence remain.
+
 ## Editing an existing group's members
 
 On desktop, open the group and choose **Manage members** in its header. In

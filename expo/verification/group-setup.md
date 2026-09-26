@@ -4,6 +4,52 @@ Expo creates groups with completed setup in the same request. The first chosen
 bot is the default responder, matching the server's existing default; the
 creation form explains how to mention other members.
 
+New group includes optional multiline **Group instructions**, using the same
+shared field and settings styling as the existing group's editor. Instructions
+are sent in `setup.bulletin` during creation, with a 12,000-character limit.
+Back discards the draft; failed creation keeps the name, instructions and
+selected bots for retry. The header uses the same Back label and side spacing
+as the group editor.
+
+The New group sheet slides in and can be dragged downward from its top handle
+or header. A pull over 100 points, or a downward flick over 24 points at more
+than 0.6 points/ms, dismisses it; shorter pulls return it to place and retain
+the draft. The form remains independently scrollable. Swipe dismissal is
+disabled during creation. Back and outside dismissal also animate downward;
+reduced-motion preferences skip settling/entrance/exit animations.
+
+Swipe verification used the disposable React Native Web fixture at
+`/tmp/omb-new-group-swipe-d98_f3wg/`. `swipe-results.json` records header tracking,
+snap-back, ignored horizontal/upward gestures, independent form scrolling,
+handle/title dismissal, fast flicks, draft reset, busy/error recovery and
+reduced motion. `new-results.json` and `results.json` record the creation and
+existing editor regression checks. The mid-drag screenshot `dragging.png` was
+visually inspected. Expo TypeScript and lint passed; fixture processes were
+stopped. These checks used simulated pointer gestures, not a native device.
+
+The initial browser-only verification above missed an Android touch failure.
+The header now claims the initial native touch and keeps a concrete native
+view for its drag area. The fix also enables swipe dismissal on group details.
+See [native sheet swipe verification](group-sheet-swipes.md) for the reproduced
+failure and Android checks of the final code.
+
+## Group instructions creation verification (2026-09-22)
+
+- Expo TypeScript, changed-file lint and whitespace checks passed.
+- The real isolated server/companion recipe passed creation with multiline
+  Unicode instructions, persistence after fleet reload, optional empty
+  instructions, and the new group's first message. Evidence:
+  `/tmp/openmausbot-verification-evidence/server-1790077159172-1245889.log.expo.json`.
+- A disposable React Native Web fixture mounted the real Roster, NewGroupSheet,
+  Chat and GroupMembers components. It checked creation, member order, opening
+  saved instructions, Back/reset, failed-creation retry, optional instructions,
+  the length limit, and existing group edit flows. Light/dark screenshots were
+  visually inspected. Evidence: `/tmp/omb-new-group-instructions-eex4apoi/`
+  (`check-new.cjs`, `check-existing.cjs`, `new-results.json`, `results.json`,
+  `new-group-light.png`, `new-group-dark.png`).
+- All fixture processes were stopped. Native keyboard/device rendering was not
+  exercised for this change.
+
 Older unfinished groups show **Start chatting** before the first message.
 This calls the existing setup endpoint with `action: skip`, preserving the
 group's members, default responder, instructions, folder and thread. Both the

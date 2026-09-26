@@ -11,27 +11,27 @@ import {
   approvalHeldReason,
   approvalModeForOrigin,
   autoVerdict,
-  deliverFullAccessApproval,
+  deliverAutomaticApproval,
   delegationInheritsFullAccess,
 } from "./auto-approve.ts";
 
-describe("Full access delivery", () => {
+describe("automatic approval delivery", () => {
   it.each(["allowed-once", "rejected", "unavailable"] as const)("preserves %s without interrupting or inventing an approval", async outcome => {
     const adapter = { respondToRequest: vi.fn().mockResolvedValue(outcome), interruptTurn: vi.fn() };
-    expect(await deliverFullAccessApproval(adapter, "thread", "request", "turn")).toBe(outcome);
+    expect(await deliverAutomaticApproval(adapter, "thread", "request", "turn")).toBe(outcome);
     expect(adapter.respondToRequest).toHaveBeenCalledWith("thread", "request", { behavior: "allow" });
     expect(adapter.interruptTurn).not.toHaveBeenCalled();
   });
   it("reports transport failure and interrupts only the failed turn", async () => {
     const adapter = { respondToRequest: vi.fn().mockRejectedValue(new Error("connection lost")), interruptTurn: vi.fn().mockResolvedValue(undefined) };
-    expect(await deliverFullAccessApproval(adapter, "thread", "request", "original-turn", () => true)).toBe("failed");
+    expect(await deliverAutomaticApproval(adapter, "thread", "request", "original-turn", () => true)).toBe("failed");
     expect(adapter.interruptTurn).toHaveBeenCalledWith("thread", "original-turn");
     adapter.interruptTurn.mockClear();
-    expect(await deliverFullAccessApproval(adapter, "thread", "request")).toBe("failed");
+    expect(await deliverAutomaticApproval(adapter, "thread", "request")).toBe("failed");
     expect(adapter.interruptTurn).not.toHaveBeenCalled();
-    expect(await deliverFullAccessApproval(adapter, "thread", "request", "old-turn", () => false)).toBe("failed");
+    expect(await deliverAutomaticApproval(adapter, "thread", "request", "old-turn", () => false)).toBe("failed");
     expect(adapter.interruptTurn).not.toHaveBeenCalled();
-    expect(await deliverFullAccessApproval(undefined, "thread", "request")).toBe("failed");
+    expect(await deliverAutomaticApproval(undefined, "thread", "request")).toBe("failed");
   });
 });
 
@@ -47,6 +47,21 @@ describe("autoVerdict", () => {
   it("leaves an Auto or Custom request with the person as the provider's own reviewer did", () => {
     expect(autoVerdict("auto", "Bash")).toEqual({ approve: null, source: "native-approval" });
     expect(autoVerdict("custom", "Bash")).toEqual({ approve: null, source: "native-approval" });
+  });
+
+  it("honours a standing MCP command approval without widening the provider sandbox", () => {
+    expect(autoVerdict("ask", "composio_multi_execute_tool", { mcpApproved: true })).toEqual({
+      approve: "approved composio_multi_execute_tool (approved command)",
+      source: "approved-command",
+    });
+    expect(autoVerdict("ask", "composio_multi_execute_tool", {
+      mcpApproved: true,
+      requiresExplicitApproval: true,
+    })).toEqual({ approve: null, source: "explicit-approval-block" });
+    expect(autoVerdict("full", "AskUserQuestion", { mcpApproved: true })).toEqual({
+      approve: null,
+      source: "no-grant",
+    });
   });
 
   it("never judges the action itself: Ask and Edits card everything the provider asks about", () => {

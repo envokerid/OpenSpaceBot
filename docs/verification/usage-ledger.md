@@ -20,7 +20,6 @@ cache-hit rate and reporting coverage; see [Expo verification](../../expo/verifi
 The API exposes `cacheReportedInput` and `cacheReportedTurns` for each group.
 Only rows reporting a finite nonnegative cache count enter that denominator.
 Unknown cache counts remain blank in CSV rather than being exported as zero.
-Proposal, vote and judge calls retain the driver's cached-input count too.
 
 ## Driving it
 

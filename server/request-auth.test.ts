@@ -163,6 +163,8 @@ describe("resolveRequestAuth", () => {
       ["POST", "/api/bots/b/read"], ["POST", "/api/bots/b/respond"],
       ["POST", "/api/bots/b/secret-cards/card/provide"],
       ["GET", "/api/events"], ["PATCH", "/api/bots/b/profile"],
+      ["POST", "/api/bots/b/connector-accounts/gmail/ca_work"],
+      ["DELETE", "/api/bots/b/connector-accounts/gmail/ca_work"],
     ]) expect(check(method, path).auth?.kind, path).toBe("loopback");
     const forged: Record<string, string>[] = [
       { "x-openmausbot-companion-auth": "" },
@@ -180,6 +182,17 @@ describe("resolveRequestAuth", () => {
       ["POST", "/api/internal/anything"], ["GET", "/api/auth/sessions"],
       ["POST", "/api/not-yet-supported"],
     ]) expect(check(method, path).auth, path).toBeNull();
+    const settingsGrant = { "x-openmausbot-companion-settings": "1" };
+    for (const [method, path] of [["PATCH", "/api/config"], ["GET", "/api/usage"], ["POST", "/api/workspace-backup/export"], ["POST", "/api/auth/pairing"]]) {
+      expect(check(method, path, settingsGrant).auth?.kind, path).toBe("loopback");
+      // Local reads without a relay credential retain the existing owner path.
+      for (const overrides of forged) {
+        if (method === "GET" && overrides["x-openmausbot-companion-auth"] === "") continue;
+        expect(check(method, path, { ...settingsGrant, ...overrides }).auth, path).toBeNull();
+      }
+    }
+    expect(check("POST", "/api/internal/anything", settingsGrant).auth).toBeNull();
+    expect(check("PATCH", "/api/config", { "x-openmausbot-companion-settings": "true" }).auth).toBeNull();
   });
 
   function pairedToken(scopes: Array<"admin" | "client"> = ["admin", "client"]): string {

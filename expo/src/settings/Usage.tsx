@@ -1,121 +1,44 @@
 import React, { useState } from "react";
-import { Alert } from "react-native";
-import { Button, Choice, ErrorNotice, Label, Section } from "../ui";
+import { ActivityIndicator, Alert, View } from "react-native";
+import { Button, ErrorNotice, Label, useTheme } from "../ui";
 import { shareResponse } from "../attachments";
-import { Form, options, useResource, type SettingsProps } from "./shared";
-interface UsageRow {
-  key: string;
-  label: string;
-  turns: number;
-  input: number;
-  output: number;
-  cachedInput: number;
-  costUsd: number | null;
-  billableUsd?: number | null;
+import { Form, useResource, type SettingsProps } from "./shared";
+import { usageGroupings, usagePeriods, usageRange, type UsageGrouping, type UsagePeriod, type UsageSummary } from "../core/usage";
+import { UsageBreakdown, UsageOverview, UsageTabs } from "./UsageStats";
+
+export function UsageSettings(props: SettingsProps) {
+  const [group, setGroup] = useState<UsageGrouping>("bot");
+  const [period, setPeriod] = useState<UsagePeriod>("month");
+  const range = usageRange(period);
+  const query = new URLSearchParams({ ...range, groupBy: group }).toString();
+  return <>
+    <UsageTabs label="Period" value={period} options={usagePeriods} onChange={setPeriod} />
+    <Label muted size={12}>{range.from} – {range.to} · UTC</Label>
+    <UsagePeriodContent key={query} {...props} query={query} group={group} setGroup={setGroup} />
+  </>;
 }
-interface UsageSummary {
-  groups: UsageRow[];
-  total: UsageRow;
-  budget?: { spentUsd: number; monthlyUsd: number; percent: number };
-  billing?: { currency: string };
-}
-const money = (value: number | null | undefined) =>
-  typeof value === "number" ? `$${value.toFixed(2)}` : "Not reported";
-export function UsageSettings({ client, config, reload }: SettingsProps) {
-  const [group, setGroup] = useState("bot");
-  const [period, setPeriod] = useState("month");
-  const now = new Date();
-  const end =
-    period === "lastMonth"
-      ? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0))
-      : now;
-  const start =
-    period === "days30"
-      ? new Date(now.getTime() - 29 * 86400000)
-      : new Date(
-          Date.UTC(
-            now.getUTCFullYear(),
-            now.getUTCMonth() - (period === "lastMonth" ? 1 : 0),
-            1,
-          ),
-        );
-  const query = new URLSearchParams({
-    from: start.toISOString().slice(0, 10),
-    to: end.toISOString().slice(0, 10),
-    groupBy: group,
-  });
-  const { data, load, action } = useResource<UsageSummary>(
-    client,
-    `/api/usage?${query}`,
-  );
+
+// Remount the resource on filter changes: never show a previous period under
+// new labels or let a late response replace the currently selected period.
+function UsagePeriodContent({ client, config, reload, query, group, setGroup }: SettingsProps & {
+  query: string; group: UsageGrouping; setGroup: (group: UsageGrouping) => void;
+}) {
+  const c = useTheme();
+  const { data, load, action } = useResource<UsageSummary>(client, `/api/usage?${query}`);
   return (
     <>
-      <Choice
-        label="Period"
-        value={period}
-        options={[
-          { id: "month", label: "This month" },
-          { id: "lastMonth", label: "Last month" },
-          { id: "days30", label: "Last 30 days" },
-        ]}
-        onChange={setPeriod}
-      />
-      <Choice
-        label="Group by"
-        value={group}
-        options={options("bot", "model", "user", "day", "engine")}
-        onChange={setGroup}
-      />
       <ErrorNotice error={action.error} />
-      <Button
-        title="Refresh usage"
-        disabled={action.busy}
-        onPress={() => void action.run(load)}
-      />
-      {data && (
-        <Section title="Total">
-          <Label bold>{money(data.total.costUsd)}</Label>
-          <Label>
-            {data.total.turns} turns ·{" "}
-            {(data.total.input + data.total.output).toLocaleString()} tokens
-          </Label>
-          <Label muted>
-            {data.total.cachedInput.toLocaleString()} cached input tokens
-          </Label>
-          {data.budget && (
-            <Label>
-              {money(data.budget.spentUsd)} of {money(data.budget.monthlyUsd)}{" "}
-              monthly budget ({Math.round(data.budget.percent)}%)
-            </Label>
-          )}
-        </Section>
-      )}
-      {data?.groups.map((row) => (
-        <Section key={row.key} title={row.label}>
-          <Label>
-            {row.turns} turns · {(row.input + row.output).toLocaleString()}{" "}
-            tokens · {money(row.costUsd)}
-          </Label>
-          {row.billableUsd != null && (
-            <Label muted>
-              Billable: {data.billing?.currency ?? "USD"}{" "}
-              {row.billableUsd.toFixed(2)}
-            </Label>
-          )}
-        </Section>
-      ))}
-      <Button
-        title="Export usage CSV"
-        disabled={action.busy}
-        onPress={() =>
-          void action.run(async () =>
-            shareResponse(
-              await client.response(`/api/usage.csv?${query}`),
-              "usage.csv",
-            ),
-          )
-        }
-      />
+      {!data && !action.error && <View accessibilityLabel="Loading usage" style={{ padding: 24, alignItems: "center", gap: 10 }}>
+        <ActivityIndicator color={c.text} /><Label muted>Loading usage…</Label>
+      </View>}
+      {data && <UsageOverview data={data} />}
+      <UsageTabs label="Breakdown by" value={group} options={usageGroupings} onChange={setGroup} />
+      {data && <UsageBreakdown data={data} group={group} />}
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        <Button title={action.busy ? "Refreshing…" : "Refresh usage"} disabled={action.busy} onPress={() => void action.run(load)} style={{ flexGrow: 1 }} />
+        <Button title="Export CSV" disabled={action.busy || !data?.groups.length} style={{ flexGrow: 1 }} onPress={() =>
+          void action.run(async () => shareResponse(await client.response(`/api/usage.csv?${query}`), "usage.csv"))} />
+      </View>
       {config.edition?.features.includes("budgets") && (
         <Form
           title="Monthly budget"

@@ -83,24 +83,3 @@ test('group turn completions and delayed digests cannot hide a newer speaker', (
   state = fold(state, message({ ...reply, id: 'reply-b', turnId: 'b' }));
   assert.equal(isTyping(state, 'thread', true), false);
 });
-
-
-test('room selection shows dots through proposal and judge phases without public runtime events', () => {
-  const card = (phase: NonNullable<NonNullable<Message['goalRun']>['election']>['phase'], status: NonNullable<Message['goalRun']>['status'] = 'working'): Message => ({
-    id: 'discussion', role: 'bot', kind: 'goal.run', at: 1,
-    goalRun: { runId: 'run', goal: 'Answer', status, coordinatorBotId: 'A', coordinatorName: 'Members', turnCount: 1, maxTurns: 10, startedAt: 1,
-      election: { phase, rounds: [], sourceMessageId: 'user' } },
-  });
-  let state = fold(initialState(), message(card('proposing')));
-  state = fold(state, message({ ...reply, parentId: 'discussion' }));
-  assert.equal(state.typing.thread, false);
-  for (const phase of ['proposing', 'voting', 'judging'] as const) {
-    state = fold(state, { kind: 'message.patch', threadId: 'thread', message: card(phase) });
-    assert.equal(isTyping(state, 'thread', true), true, phase);
-    assert.equal(isTyping(state, 'thread', false), false);
-  }
-  for (const phase of ['completed', 'paused', 'stopped'] as const) {
-    state = fold(state, { kind: 'message.patch', threadId: 'thread', message: card(phase, phase) });
-    assert.equal(isTyping(state, 'thread', true), false, phase);
-  }
-});

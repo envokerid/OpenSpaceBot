@@ -35,6 +35,19 @@ directory/history guards, removal, malformed-account repair, and admin-only
 mutations. Updating an idle sibling must preserve the busy bot's process and
 subsequent events. No real provider login is required.
 
+## Codex speed
+
+Run the offline Codex driver and HTTP fixture checks:
+
+```sh
+pnpm exec vitest run server/drivers/codex.test.ts server/codex-fast-mode.e2e.test.ts
+```
+
+The fixture starts a disposable server and fake Codex app-server. It checks
+that Fast is the default, Standard persists through the instance settings API,
+and launches request the selected service tier for new and resumed personal
+turns. Company and local provider routes do not inherit the ChatGPT tier.
+
 For a renderer check, open the isolated launcher's app in a browser, dismiss
 onboarding, and go to **Settings → Engines**. Add Work and Personal, inspect
 their distinct sign-in commands, and select one account per bot from the model

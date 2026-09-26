@@ -37,7 +37,7 @@ export function RosterBotPressable({ children, name, onPress, onMenu }: React.Pr
 
   return <Animated.View style={{ transform: [{ scale }] }}>
     <Pressable accessibilityRole="button" accessibilityLabel={`Chat with ${name}`}
-      accessibilityHint={onMenu ? 'Hold to edit, rename or delete this bot' : undefined}
+      accessibilityHint={onMenu ? 'Hold to edit, rename, move to a section or delete this bot' : undefined}
       accessibilityActions={onMenu ? [{ name: 'longpress', label: 'Show bot actions' }] : undefined}
       onAccessibilityAction={event => { if (event.nativeEvent.actionName === 'longpress') showMenu({ x: 24, y: 160 }); }}
       onPressIn={() => {

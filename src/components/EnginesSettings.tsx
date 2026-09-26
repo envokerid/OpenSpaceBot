@@ -15,6 +15,7 @@ import { t } from "@/lib/i18n";
 import { EngineSetup, EngineUpdateNotice, EngineWarningNotice } from "./EngineSetup";
 import { AddClaudeAccount, ClaudeAccountSettings } from "./ClaudeAccountSettings";
 import { CodexAccountSettings } from "./CodexAccountSettings";
+import { Switch } from "./SettingsPrimitives";
 
 interface ProbeResult {
   ok: boolean;
@@ -203,6 +204,8 @@ function EngineRow({ instance }: { instance: InstanceInfo }) {
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [speedSaving, setSpeedSaving] = useState(false);
+  const [speedError, setSpeedError] = useState<string | null>(null);
   const [updatedVersion, setUpdatedVersion] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const wasOpenFor = useRef<string | null>(null);
@@ -268,6 +271,30 @@ function EngineRow({ instance }: { instance: InstanceInfo }) {
           : instance.authentication?.method === "paste-code" && !instance.claudeAccount && (
             <p className="flex items-center gap-1.5 text-[12px] text-success"><Check size={13} />{t("engineSetup.claude.connectedAccount")}</p>
           )
+      )}
+      {instance.driverKind === "codex" && (
+        <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-hairline/40 px-3 py-2.5">
+          <div>
+            <div className="text-[13px] font-medium text-ink">{t("engines.codexFastMode")}</div>
+            <p className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">{t("engines.codexFastModeHint")}</p>
+            {speedError && <p role="alert" className="mt-1 text-[12px] text-danger">{speedError}</p>}
+          </div>
+          <Switch
+            aria-label={t("engines.codexFastMode")}
+            checked={instance.fastMode !== false}
+            disabled={speedSaving || switching || updating}
+            onClick={() => {
+              setSpeedSaving(true);
+              setSpeedError(null);
+              void api(`/api/instances/${encodeURIComponent(instance.instanceId)}`, {
+                method: "PATCH",
+                body: JSON.stringify({ fastMode: instance.fastMode === false }),
+              }).then(() => Promise.resolve(refreshInstances()).catch(() => {}))
+                .catch((error) => setSpeedError(error.message))
+                .finally(() => setSpeedSaving(false));
+            }}
+          />
+        </div>
       )}
       <details className="mt-3 rounded-xl border border-hairline/40 px-3 py-2.5">
         <summary className="cursor-pointer text-[12px] font-medium text-ink-secondary hover:text-ink">{t("engines.library.advanced")}</summary>

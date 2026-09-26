@@ -89,7 +89,7 @@ describe("composer hint, in the reader's language", () => {
     setLocale("en");
   });
 
-  it("translates shared-room elections regardless of legacy responder settings", () => {
+  it("translates every routing case and keeps the lead's own name", () => {
     const members = [
       { id: "first", name: "Juniper" },
       { id: "lead", name: "Atlas" },
@@ -98,15 +98,15 @@ describe("composer hint, in the reader's language", () => {
       ({ defaultResponder, dm: false }) as Parameters<typeof groupComposerHint>[0];
 
     setLocale("pt-br");
-    expect(groupComposerHint(room({ kind: "everyone" }), members)).toBe("todos preparam uma resposta; o juiz escolhe qual publicar");
-    expect(groupComposerHint(room({ kind: "mentions" }), members)).toBe("todos preparam uma resposta; o juiz escolhe qual publicar");
+    expect(groupComposerHint(room({ kind: "everyone" }), members)).toBe("todos respondem");
+    expect(groupComposerHint(room({ kind: "mentions" }), members)).toBe("@ para chamar um bot");
     // Select the non-first member so fallback routing cannot satisfy the assertion.
-    expect(groupComposerHint(room({ kind: "member", botId: "lead" }), members)).toBe("todos preparam uma resposta; o juiz escolhe qual publicar");
+    expect(groupComposerHint(room({ kind: "member", botId: "lead" }), members)).toBe("Atlas responde");
     expect(groupComposerHint({ dm: true } as Parameters<typeof groupComposerHint>[0], members)).toBe(
       "continuar a conversa",
     );
 
     setLocale("ja");
-    expect(groupComposerHint(room({ kind: "everyone" }), members)).toBe("全員が返信案を作成し、判定役が投稿する返信を選びます");
+    expect(groupComposerHint(room({ kind: "everyone" }), members)).toBe("全員が応答します");
   });
 });

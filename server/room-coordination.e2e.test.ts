@@ -42,20 +42,15 @@ it("refuses a disallowed peer without starting the recipient", () => withRooms(a
   expect(await f.messages(f.destination.activeTaskId)).toEqual([]);
 }), 45_000);
 
-it("delivers room-destined work to its main conversation even when another is selected", () => withRooms(async f => {
+it("runs room-destined work in the room's own conversation, opening no thread on the recipient", () => withRooms(async f => {
   const tasksOf = async (botId: string) => (await f.api("/api/bots")).bots.find((bot: any) => bot.id === botId).tasks ?? [];
   const before = await tasksOf(f.target.id);
-  const other = await f.tool("create_task", { target_type: "channel", target_id: f.destination.id, title: "Selected history" });
-  expect(other.success).toBe(true);
   await f.start(); expect((await f.wait()).status).toBe("settled");
-  // Selecting another conversation does not redirect coordinated delivery.
+  // a room is already a destination: pair conversations are for the
+  // direct case only and must not appear beside one
   const node = f.nodes().find((n: any) => n.botId === f.target.id);
   expect(node.groupId).toBe(f.destination.id);
   expect(node.threadId).toBe(f.destination.activeTaskId);
-  const group = (await f.api("/api/bots")).groups.find((g: any) => g.id === f.destination.id);
-  expect(group.mainThreadId).toBe(f.destination.activeTaskId);
-  expect(group.threadId).not.toBe(group.mainThreadId);
-  expect(await f.messages(group.threadId)).toEqual([]);
   const after = await tasksOf(f.target.id);
   expect(after.map((task: any) => task.threadId)).toEqual(before.map((task: any) => task.threadId));
   expect(after.some((task: any) => task.openedBy)).toBe(false);

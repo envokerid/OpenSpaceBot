@@ -142,6 +142,42 @@ describe("bot⇄bot mirrors and the badge", () => {
     expect(store.group(channel.id)?.unread).toBe(true);
   });
 
+  it("records a compact reply notice in the original thread after selection changes", () => {
+    const { store, from, target, channel, bus } = pair();
+    const sourceThreadId = from.threadId;
+    mirrorExchange(bus, from, target, "Check the deploy", channel, sourceThreadId);
+    const other = store.createTask(from.id, "Unrelated conversation")!;
+    mirrorReply(bus, target, "Private deploy details", channel, undefined, sourceThreadId);
+
+    const messages = store.messagesFor(sourceThreadId);
+    expect(messages.at(-1)).toMatchObject({
+      kind: "activity", tool: { name: "Received message from @Quarry", ok: true },
+      comm: { groupId: channel.id, withBotId: target.id },
+    });
+    expect(messages.some(m => m.text?.includes("Private deploy details"))).toBe(false);
+    expect(store.messagesFor(other.threadId)).toEqual([]);
+    expect(store.messagesFor(channel.threadId).at(-1)?.text).toBe("Private deploy details");
+    expect(store.group(channel.id)?.unread).toBe(false);
+  });
+
+  it("does not recreate a deleted source or announce an empty reply", () => {
+    const { store, from, target, channel, bus } = pair();
+    const sourceThreadId = from.threadId;
+    const before = store.messagesFor(sourceThreadId);
+    mirrorReply(bus, target, " ", channel, undefined, sourceThreadId);
+    expect(store.messagesFor(sourceThreadId)).toEqual(before);
+    store.deleteTask(from.id, sourceThreadId);
+    mirrorReply(bus, target, "Late reply", channel, undefined, sourceThreadId);
+    expect(store.messagesFor(sourceThreadId)).toEqual([]);
+  });
+
+  it("does not add a redundant notice beside the reply in its own channel", () => {
+    const { store, target, channel, bus } = pair(false);
+    mirrorReply(bus, target, "Room reply", channel, undefined, channel.threadId);
+    expect(store.messagesFor(channel.threadId)).toHaveLength(1);
+    expect(store.messagesFor(channel.threadId)[0].text).toBe("Room reply");
+  });
+
   it("lets a caller ask for the badge on a pair channel anyway", () => {
     const { store, from, target, channel, bus } = pair();
     mirrorExchange(bus, from, target, "heads up", channel, from.threadId, true);

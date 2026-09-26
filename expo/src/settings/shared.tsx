@@ -10,6 +10,8 @@ import {
   Row,
   Section,
   useAction,
+  useTheme,
+  useSettingsStyle,
 } from "../ui";
 
 export interface WorkspaceConfig {
@@ -96,11 +98,33 @@ export function Toggle({
   disabled?: boolean;
   onChange: (value: boolean) => void;
 }) {
+  const c = useTheme();
+  const settings = useSettingsStyle();
   return (
-    <Row style={{ justifyContent: "space-between", flexWrap: "nowrap" }}>
+    <Row
+      style={{
+        justifyContent: "space-between",
+        flexWrap: "nowrap",
+        ...(settings
+          ? {
+              borderBottomWidth: 1,
+              borderBottomColor: c.line,
+              paddingHorizontal: 2,
+              paddingVertical: 9,
+              minHeight: 62,
+              marginVertical: -5,
+            }
+          : {}),
+      }}
+    >
       <Label style={{ flex: 1 }}>{title}</Label>
       <Switch
         accessibilityLabel={title}
+        trackColor={{
+          true: settings ? (c.dark ? "#707070" : "#111111") : c.accent,
+          false: c.line,
+        }}
+        thumbColor={settings ? "#FFFFFF" : undefined}
         value={value}
         disabled={disabled}
         onValueChange={onChange}

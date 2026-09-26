@@ -1,5 +1,8 @@
 **Group chat: how bots read and take turns**
 
+> Historical design, retired on 2026-09-24. Group chats again use default
+> responders and @mentions; see `docs/verification/channels.md`.
+
 Research date: 23 September 2026. This describes the current working tree, including local changes. It is a source-code review; no server was launched, runtime behavior tested, or live data accessed.
 
 The server assigns speaking turns. Room membership alone does not run a bot or continuously feed it new messages. When selected, a bot receives room context, runs with its own identity and capabilities, and writes into the shared transcript. Speakers within one room run sequentially; independent conversations can run concurrently.

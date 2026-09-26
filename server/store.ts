@@ -897,7 +897,7 @@ export class Store {
     );
   }
 
-  patchGroup(id: string, patch: Partial<Pick<GroupRecord, "name" | "memberIds" | "defaultResponder" | "electionOffset" | "judgeModelSelection" | "bulletin" | "unread" | "busyBotId" | "cwd" | "pinnedMessageId" | "section" | "setupCompletedAt" | "setupSkippedAt">>): GroupRecord | null {
+  patchGroup(id: string, patch: Partial<Pick<GroupRecord, "name" | "memberIds" | "defaultResponder" | "bulletin" | "unread" | "busyBotId" | "cwd" | "pinnedMessageId" | "section" | "setupCompletedAt" | "setupSkippedAt">>): GroupRecord | null {
     const group = this.group(id);
     if (!group) return null;
     if (Object.prototype.hasOwnProperty.call(patch, "section")) {
@@ -999,7 +999,6 @@ export class Store {
         text: `Goal ${state}: ${resolution.detail}`,
         goalRun: {
           ...hit.message.goalRun,
-          ...(hit.message.goalRun.election ? { election: { ...hit.message.goalRun.election, phase: "paused" as const } } : {}),
           status: resolution.status,
           detail: resolution.detail,
           finishedAt: resolution.finishedAt,

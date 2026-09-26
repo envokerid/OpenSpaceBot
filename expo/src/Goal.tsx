@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, AppState, Easing, Platform, StyleSheet, Pressable, View } from 'react-native';
+import { AccessibilityInfo, Animated, AppState, Easing, Platform, StyleSheet, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import type { GroupGoalRunCardData, GroupGoalRunStatus } from '../../shared/group-goal-run';
 import { Label } from './ui';
@@ -51,35 +51,14 @@ const statuses: Record<GroupGoalRunStatus, string> = {
 };
 
 export function GoalHeading({ run }: { run?: GroupGoalRunCardData }) {
-  return <Label size={13} bold style={{ color: '#FFFFFF', marginBottom: 2 }}>{run?.election ? "Discussion" : "Goal"}{run ? ` · ${run.election && run.status === 'completed' ? 'Complete' : statuses[run.status]}` : ''}</Label>;
+  return <Label size={13} bold style={{ color: '#FFFFFF', marginBottom: 2 }}>Goal{run ? ` · ${statuses[run.status]}` : ''}</Label>;
 }
 
-export function GoalProgress({ run, onResume }: { run: GroupGoalRunCardData; onResume?: () => void }) {
-  const [expanded, setExpanded] = useState(false);
+export function GoalProgress({ run }: { run: GroupGoalRunCardData }) {
   const turn = Math.min(run.maxTurns, run.turnCount + (run.status === 'working' ? 1 : 0));
   return <View style={{ gap: 6 }}>
     <Label size={17} selectable style={{ color: '#FFFFFF' }}>{run.goal}</Label>
     {!!run.detail && <Label size={14} selectable style={{ color: '#FFFFFF' }}>{run.detail}</Label>}
-    <Label size={12} style={{ color: '#FFFFFF', opacity: 0.85 }}>{run.election ? `${run.turnCount} replies · ${run.election.phase}` : `${run.coordinatorName} coordinating · Turn ${turn} of ${run.maxTurns}`}</Label>
-    {run.election && <>
-      <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpanded(value => !value)}><Label size={14} bold style={{ color: '#FFFFFF' }}>Proposals and judge {expanded ? '▴' : '▾'}</Label></Pressable>
-      {expanded && run.election.rounds.map(round => {
-        const name = (id: string) => id === 'task_complete' ? 'Task complete' : round.members.find(m => m.id === id)?.name ?? id;
-        return <View key={round.round} style={{ gap: 6, paddingVertical: 6 }}>
-          <Label bold size={14} style={{ color: '#FFFFFF' }}>Round {round.round}{round.superseded ? ' · Superseded' : round.winner ? ` · ${name(round.winner)}` : ''}</Label>
-          {(['proposals', 'votes'] as const).filter(phase => phase === 'proposals' || round.votes.length > 0).map(phase => <View key={phase} style={{ gap: 4 }}>
-            <Label bold size={13} style={{ color: '#FFFFFF' }}>{phase === 'proposals' ? 'Proposals' : 'Votes'}</Label>
-            {round[phase].map(choice => <View key={choice.botId}><Label size={13} bold style={{ color: '#FFFFFF' }}>{name(choice.botId)} → {name(choice.candidate)}</Label>{choice.reason && <Label size={13} selectable style={{ color: '#FFFFFF' }}>{choice.reason}</Label>}</View>)}
-          </View>)}
-          {round.judge && <View style={{ gap: 4 }}>
-            <Label bold style={{ color: '#FFFFFF' }}>Judge · {round.judge.selection.model}</Label>
-            <Label style={{ color: '#FFFFFF' }}>{round.judge.candidate ? `Selected: ${name(round.judge.candidate)}` : 'Awaiting decision'}</Label>
-            {!!round.judge.reason && <Label selectable style={{ color: '#FFFFFF' }}>{round.judge.reason}</Label>}
-          </View>}
-          {!!round.constrainedChoices && <Label size={12} style={{ color: '#FFFFFF' }}>Final vote restricted to prevent a tie.</Label>}
-        </View>;
-      })}
-      {onResume && !run.election.resumedBy && ['paused', 'blocked', 'limit-reached', 'failed', 'stopped'].includes(run.status) && <Pressable accessibilityRole="button" onPress={onResume}><Label bold style={{ color: '#FFFFFF' }}>Resume discussion</Label></Pressable>}
-    </>}
+    <Label size={12} style={{ color: '#FFFFFF', opacity: 0.85 }}>{`${run.coordinatorName} coordinating · Turn ${turn} of ${run.maxTurns}`}</Label>
   </View>;
 }

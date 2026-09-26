@@ -416,8 +416,6 @@
   "composer.placeholder.goal": "Descreva o que {name} deve concluir junto",
   "composer.placeholder.group": "Mensagem para {name} — {hint}",
   "composer.placeholder.bot": "Mensagem para {name}",
-  "composer.hint.election": "todos preparam uma resposta; o juiz escolhe qual publicar",
-  "room.hint.election": "Os membros preparam respostas; o juiz escolhe a próxima mensagem a publicar.",
   "composer.hint.dm": "continuar a conversa",
   "composer.hint.everyone": "todos respondem",
   "composer.hint.mentions": "@ para chamar um bot",

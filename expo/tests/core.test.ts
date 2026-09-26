@@ -229,3 +229,22 @@ test('reduced activity keeps failures visible and never merges steps across mess
   assert.equal(messages[0].id,'a');
   assert.deepEqual(transcriptRows(messages,'off'),[text]);
 });
+
+test('home previews retain the last visible message and date through hidden digest updates', async () => {
+  const { transcriptRows } = await import('../src/core/transcript.ts');
+  const reply: Message = { id: 'reply', at: 1, role: 'bot', kind: 'text', text: 'Your report is ready.' };
+  const digest: Message = { id: 'digest', parentId: reply.id, at: 2, role: 'bot', kind: 'digest', text: 'Internal work summary' };
+  const brief: Message = { id: 'brief', parentId: digest.id, at: 3, role: 'bot', kind: 'activity', tool: { name: "Atlas's recent-work brief covers 2 private chats with you", ok: true } };
+  assert.equal(transcriptRows([reply, digest, brief]).at(-1), reply);
+  assert.equal(transcriptRows([digest, brief]).at(-1), undefined);
+
+  let state = initialState();
+  for (const message of [reply, digest, brief]) state = fold(state, { kind: 'message', threadId: 'thread', message });
+  state = fold(state, { kind: 'message.patch', threadId: 'thread', message: { ...digest, text: 'Updated internal summary' } });
+  assert.equal(transcriptRows(visibleMessages(state.pages.thread)).at(-1), reply);
+
+  const followup: Message = { id: 'followup', parentId: brief.id, at: 4, role: 'user', kind: 'text', text: 'Thanks!' };
+  state = fold(state, { kind: 'message', threadId: 'thread', message: followup });
+  assert.equal(transcriptRows(visibleMessages(state.pages.thread)).at(-1), followup);
+  assert.equal(transcriptRows(visibleMessages({ ...state.pages.thread, activeLeafId: reply.id })).at(-1), reply);
+});
