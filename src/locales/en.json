@@ -2283,5 +2283,19 @@
   "engines.icon.formatError": "Upload a PNG, JPEG, or WebP image.",
   "engines.icon.sizeError": "Provider icons must be 128 KB or smaller.",
   "engines.icon.invalidError": "Upload a complete PNG, JPEG, or WebP image up to 128 KB and {dimension} × {dimension} pixels.",
-  "engines.icon.dimensionError": "Provider icons must be at most {dimension} × {dimension} pixels."
+  "engines.icon.dimensionError": "Provider icons must be at most {dimension} × {dimension} pixels.",
+  "nativeAgent.description": "Connect your provider accounts to use OpenMausBot’s built-in agent, tools, and approvals.",
+  "nativeAgent.provider": "Provider",
+  "nativeAgent.saved": "saved",
+  "nativeAgent.accountSaved": "{name} account saved on this server",
+  "nativeAgent.connect": "Connect {name}",
+  "nativeAgent.disconnect": "Disconnect",
+  "nativeAgent.open": "Open {name} sign-in",
+  "nativeAgent.waiting": "Enter the code at the provider’s page. Waiting for approval…",
+  "nativeAgent.apiKey": "API key",
+  "nativeAgent.code": "Authorization code shown by the provider",
+  "nativeAgent.save": "Save account",
+  "nativeAgent.failed": "Sign-in could not be completed. Please try again.",
+  "nativeAgent.disconnectTitle": "Disconnect {name}?",
+  "nativeAgent.disconnectHint": "This removes this provider’s credentials from OpenMausBot. Finish or stop tasks using this provider first."
 }

@@ -61,7 +61,7 @@ try {
   assert.deepEqual(Buffer.from(await (await client.response(bot.avatarUrl)).arrayBuffer()), png);
   for (const avatarCrop of ['circle', 'rounded', 'square', 'mascot'] as const) assert.equal((await saveAvatar(client, id, { avatarCrop })).avatarCrop, avatarCrop);
   bot = await saveAvatar(client, id, RESET_MASCOT);
-  assert.equal(bot.color, 'green'); assert.equal(bot.mascotExpression, null); assert.equal(bot.mascotBody, 'cursor'); assert.ok(bot.avatarUrl);
+  assert.equal(bot.color, 'white'); assert.equal(bot.mascotExpression, null); assert.equal(bot.mascotBody, 'cursor'); assert.ok(bot.avatarUrl);
   bot = await saveAvatar(client, id, { avatarUrl: null, avatarCrop: 'mascot' });
   assert.ok(!bot.avatarUrl);
   evidence.push({ action: 'All colors, expressions, bodies, crops, upload, authenticated image read, reset and removal', passed: true, colors: MAUS_COLOR_NAMES, expressions: PICKABLE_STATES, bodies: MASCOT_BODY_IDS, reset: { color: bot.color, mascotExpression: bot.mascotExpression, mascotBody: bot.mascotBody, avatarCrop: bot.avatarCrop, avatarUrl: bot.avatarUrl } });

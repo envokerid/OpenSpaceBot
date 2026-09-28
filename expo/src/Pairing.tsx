@@ -7,6 +7,7 @@ import { fetch as expoFetch } from 'expo/fetch';
 import { pair } from './core/client';
 import { endpoint, manualInvite, parseInvite, protectedRoute } from './core/pairing';
 import type { Connection, Invite } from './core/types';
+import { OrbAvatar } from './OrbAvatar';
 import { Icon } from './Icon';
 import { Button, ErrorNotice, Input, Label, Row, Section, useAction, useTheme } from './ui';
 
@@ -18,6 +19,7 @@ export function Pairing({ onPaired, onCancel, initialLink }: { onPaired: (connec
  const acceptLink = (url: string) => action.run(async () => { setInvite(parseInvite(url)); setManual(false); attempt.current = randomUUID(); setScanning(false); });
  useEffect(() => { if (initialLink) { void acceptLink(initialLink); return; } const sub = Linking.addEventListener('url', e => { if (e.url.startsWith('openmausbot://pair')) void acceptLink(e.url); }); return () => sub.remove(); }, [initialLink]);
  return <><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 24, gap: 24 }}><Row style={{ flexWrap: 'nowrap', gap: 0 }}><Label large bold style={{ flex: 1 }}>Pair with a computer</Label><Button title="Not now" text style={{ minHeight: 48, paddingHorizontal: 12 }} disabled={action.busy} onPress={() => onCancel?.()} /></Row>
+ <View style={{ alignItems: 'center' }}><OrbAvatar size={104} color="blue" state={action.busy ? 'loading' : invite ? 'happy' : 'curious'} /></View>
  {invite ? <Section title="Confirm computer"><View style={{ height: 2 }} /><Label size={17} bold>{invite.name}</Label><Row style={{ justifyContent: 'space-between' }}><Label muted>Address</Label><Label style={{ fontFamily: 'monospace' }}>{invite.endpoints[0].url}</Label></Row><Label size={13} muted>{manual ? 'Enter the 6-digit code shown on your desktop:' : protectedRoute(invite.endpoints[0]) ? 'This connection is protected by HTTPS or your Tailscale network.' : 'This connection uses your local network. Only pair with a computer you trust.'}</Label>
  {manual && <Input accessibilityLabel="Pairing code" placeholder="000000" keyboardType="number-pad" value={code} autoCorrect={false} onChangeText={setCode} style={{ fontSize: 24, textAlign: 'center', fontFamily: 'monospace' }} />}
  <Button primary style={{ marginVertical: 4 }} disabled={action.busy || (manual && code.length < 6)} title={action.busy ? 'Connecting…' : manual ? 'Connect' : 'Pair with this computer'} onPress={() => void action.run(async () => { const selected = manual ? manualInvite(address, code) : invite; const result = await pair(selected, Platform.OS === 'ios' ? 'iPhone' : 'Android phone', attempt.current, expoFetch as typeof fetch); await onPaired(result.connection, result.token); })} /><Button title="Choose a different computer" disabled={action.busy} style={{ marginVertical: 4 }} onPress={() => { setInvite(undefined); setCode(''); action.clearError(); }} /></Section> : <>

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+agents_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+export HERMES_HOME="$agents_dir/hermes/state"
+export UV_CACHE_DIR="$agents_dir/cache/uv"
+export UV_PYTHON_INSTALL_DIR="$agents_dir/hermes/python"
+exec "$agents_dir/hermes/source/.hermes/bin/hermes" "$@"

@@ -159,3 +159,11 @@ describe("server device-code sign-in", () => {
     expect(markup).toContain("npm install");
   });
 });
+
+it("offers native provider accounts from model-picker setup", () => {
+  const engine: InstanceInfo = { ...instance({ state: "available", authenticated: false }), instanceId: "native", driverKind: "nativeAgent", displayName: "OpenMaus Agent", nativeAccounts: [] };
+  const markup = renderToStaticMarkup(createElement(StoreProvider, null, createElement(EngineSetup, { instance: engine })));
+  expect(markup).toContain("Connect ChatGPT");
+  expect(markup).toContain("OpenRouter");
+  expect(markup).not.toContain("not ready");
+});

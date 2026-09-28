@@ -6,6 +6,7 @@
 // URL and credentials never pass through its transcript.
 //
 // stdout is the MCP transport. Never log there.
+import { turnToken } from "./turn-token.ts";
 import readline from "node:readline";
 import { randomUUID } from "node:crypto";
 
@@ -15,7 +16,8 @@ const UPSTREAM = process.env.OMB_CONNECTOR_UPSTREAM_URL ?? "";
 const HARNESS = process.env.OMB_HARNESS_URL ?? "http://127.0.0.1:8799";
 const BOT_ID = process.env.OMB_BOT_ID ?? "";
 const THREAD_ID = process.env.OMB_THREAD_ID ?? "";
-const TOKEN = process.env.OMB_CONNECTOR_TOKEN ?? process.env.OMB_COMMS_TOKEN ?? "";
+const currentToken = () => turnToken(process.env, process.env.OMB_CONNECTOR_TOKEN_FILE || process.env.OMB_CONNECTOR_TOKEN !== undefined
+  ? "OMB_CONNECTOR_TOKEN" : "OMB_COMMS_TOKEN");
 const MAX_RESPONSE_BYTES = 20 * 1024 * 1024;
 const INITIALIZE_RELAY_TIMEOUT_MS = 1_000;
 const RELAY_TIMEOUT_MS = 10 * 60_000;
@@ -96,7 +98,7 @@ function parseUpstream(text: string, id: unknown): Json | null {
   return frames.findLast((frame) => frame.id === id) ?? frames.at(-1) ?? null;
 }
 
-async function relay(message: Json, timeoutMs = RELAY_TIMEOUT_MS): Promise<Json | null> {
+async function relay(message: Json, timeoutMs = RELAY_TIMEOUT_MS, token = currentToken()): Promise<Json | null> {
   if (!UPSTREAM) throw new Error("connected apps are unavailable");
   const response = await fetch(UPSTREAM, {
     method: "POST",
@@ -104,6 +106,7 @@ async function relay(message: Json, timeoutMs = RELAY_TIMEOUT_MS): Promise<Json 
       "content-type": "application/json",
       accept: "application/json, text/event-stream",
       ...upstreamHeaders,
+      ...(process.env.OMB_CONNECTOR_TOKEN_FILE ? { authorization: `Bearer ${token}` } : {}),
       ...(upstreamSessionId ? { "mcp-session-id": upstreamSessionId } : {}),
     },
     body: JSON.stringify(message),
@@ -152,10 +155,10 @@ function connectorAdds(args: unknown): ConnectorRequest[] {
   return requests;
 }
 
-async function showConnectorCards(items: ConnectorRequest[]): Promise<void> {
+async function showConnectorCards(items: ConnectorRequest[], token: string): Promise<void> {
   const response = await fetch(`${HARNESS}/api/internal/connectors/request`, {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${TOKEN}` },
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
     body: JSON.stringify({ botId: BOT_ID, threadId: THREAD_ID, items, resumeKey: randomUUID() }),
     signal: AbortSignal.timeout(30_000),
   });
@@ -166,6 +169,7 @@ async function showConnectorCards(items: ConnectorRequest[]): Promise<void> {
 }
 
 async function handle(message: Json): Promise<void> {
+  const token = currentToken();
   const id = message.id;
   const method = String(message.method ?? "");
   // OpenCode (and other MCP clients) mark a stdio server failed unless
@@ -174,7 +178,7 @@ async function handle(message: Json): Promise<void> {
   // upstream URL never reached the child env — all of which previously
   // surfaced as a tools/call-shaped {content,isError} payload.
   if (method === "notifications/initialized" || method === "initialized") {
-    if (UPSTREAM) void relay(message).catch(() => {});
+    if (UPSTREAM) void relay(message, RELAY_TIMEOUT_MS, token).catch(() => {});
     return;
   }
   if (method === "initialize") {
@@ -184,7 +188,7 @@ async function handle(message: Json): Promise<void> {
         // never let a stalled provider prevent the local MCP client from
         // mounting the connector tools. The client sends initialized only
         // after this bounded attempt and the local initialize response.
-        await relay(message, INITIALIZE_RELAY_TIMEOUT_MS);
+        await relay(message, INITIALIZE_RELAY_TIMEOUT_MS, token);
       } catch {
         // Best-effort session setup. The client still needs a valid result.
       }
@@ -200,7 +204,7 @@ async function handle(message: Json): Promise<void> {
     const name = String(params.name ?? "");
     const requests = /MANAGE_CONNECTIONS$/i.test(name) ? connectorAdds(params.arguments) : [];
     if (requests.length) {
-      await showConnectorCards(requests);
+      await showConnectorCards(requests, token);
       const labels = requests.map((r) => (r.alias ? `${r.slug} (${r.alias})` : r.slug)).join(", ");
       send(textResult(
         id,
@@ -214,7 +218,7 @@ async function handle(message: Json): Promise<void> {
     }
   }
   try {
-    const response = await relay(message);
+    const response = await relay(message, RELAY_TIMEOUT_MS, token);
     if (response && id !== undefined) send(response);
   } catch (error) {
     if (id === undefined) return;

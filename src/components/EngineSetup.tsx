@@ -8,6 +8,7 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { CodexDeviceSignIn } from "./CodexDeviceSignIn";
 import { ClaudeSignIn } from "./ClaudeSignIn";
+import { NativeAccountSettings } from "./NativeAccountSettings";
 
 type Platform = "darwin" | "win32" | "linux";
 
@@ -398,6 +399,11 @@ export function EngineSetup({
   /** The containing engine disclosure already supplies the card surface. */
   unframed?: boolean;
 }) {
+  if (instance.nativeAccounts) return (
+    <div className={cn(!unframed && "rounded-xl border border-hairline/40 bg-control/30 p-3", className)}>
+      <NativeAccountSettings instance={instance} />
+    </div>
+  );
   const install = instance.install;
   const installCommand = installCommandFor(install);
   const signInCommand = install?.signInCommand;

@@ -372,6 +372,15 @@ export function autoLocalVmAttachable(status: ContainerComputerStatus): boolean 
   return status.ready === true || localVmRecreatableOnDemand(status);
 }
 
+/** Safe to expose through a lazy control gate. This verifies container
+ * identity and isolation, not desktop health; the first action must still
+ * run the full readiness check before acquiring computer authority. */
+export function localVmMountable(status: ContainerComputerStatus): boolean {
+  return Boolean(status.runtime) && status.daemonUp && status.image &&
+    status.container === "running" && status.imageMatches && status.managed &&
+    status.network === "loopback" && status.security === "hardened" && status.persistence === "durable";
+}
+
 function statusProblem(status: ContainerComputerStatus): string | null {
   if (!status.runtime) return "Install a supported container runtime first";
   if (!status.daemonUp) return `Start ${status.runtime} first`;
@@ -486,6 +495,7 @@ export async function containerComputerStatus(
   runner: CommandRunner = sh,
   platform: NodeJS.Platform = process.platform,
   target: LocalVmTarget = SHARED_LOCAL_VM_TARGET,
+  options: { probeDesktop?: boolean } = {},
 ): Promise<ContainerComputerStatus> {
   const status = emptyStatus(platform, target);
   const runtimeStatus = await containerRuntimeStatus(runner, platform);
@@ -591,13 +601,7 @@ export async function containerComputerStatus(
     // No container with this name.
   }
 
-  const canProbe =
-    status.container === "running" &&
-    status.imageMatches &&
-    status.managed &&
-    status.network === "loopback" &&
-    status.security === "hardened" &&
-    status.persistence === "durable";
+  const canProbe = options.probeDesktop !== false && localVmMountable(status);
   if (canProbe) {
     try {
       const expected = `cua-driver ${CUA_DRIVER_VERSION}`;
@@ -1139,7 +1143,7 @@ type ContainerMcpLaunch = {
 
 export function containerComputerMcp(
   runtime: Runtime,
-  control?: { url: string; token: string },
+  control?: { url: string; token: string; tokenFile?: string },
   target: LocalVmTarget = SHARED_LOCAL_VM_TARGET,
 ): ContainerMcpLaunch {
   return {
@@ -1150,6 +1154,7 @@ export function containerComputerMcp(
     env: {
       ELECTRON_RUN_AS_NODE: "1",
       ...(control ? { OMB_CONTROL_URL: control.url, OMB_CONTROL_TOKEN: control.token } : {}),
+      ...(control?.tokenFile ? { OMB_CONTROL_TOKEN_FILE: control.tokenFile } : {}),
     },
   };
 }
@@ -1207,4 +1212,3 @@ export function setupCommands(
     view: target.viewerPort ? `http://127.0.0.1:${target.viewerPort}/vnc.html` : "",
   };
 }
-

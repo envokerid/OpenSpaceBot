@@ -1181,7 +1181,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
             aria-label={t("chat.openProfileAria", { name: bot.name })}
           >
             <BotAvatar
-              bot={bot}
+              bot={{ ...bot, messages, typing: !!streaming, reasoning: !!reasoning }}
               state={stateForBot({ ...bot, messages })}
               size={28}
               motion={mascotMotion?.kind ?? "none"}
@@ -1420,7 +1420,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
               // BotAvatar, not a bare MausAvatar: an uploaded profile image
               // (and a chosen mascot body) must match the sidebar row.
               <BotAvatar
-                bot={bot}
+                bot={{ ...bot, messages, typing: !!streaming, reasoning: !!reasoning }}
                 state={toolInFlight ? "working" : "thinking"}
                 size={36}
                 forward={false}

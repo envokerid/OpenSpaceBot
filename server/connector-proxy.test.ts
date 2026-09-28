@@ -3,8 +3,11 @@ import { once } from "node:events";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { mkdtempSync, writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import readline from "node:readline";
 import { afterEach, describe, expect, it } from "vitest";
+import { removeTempDir } from "./testing/cleanup.ts";
 
 const ENTRY = join(dirname(fileURLToPath(import.meta.url)), "connector-proxy.ts");
 let child: ChildProcessWithoutNullStreams | null = null;
@@ -43,6 +46,36 @@ afterEach(async () => {
 });
 
 describe("connector MCP bridge", () => {
+  it("refreshes both relay and connection-card credentials without restarting", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "omb-connector-token-"));
+    const path = join(directory, "turn.token");
+    const received: Array<string | undefined> = [];
+    const harness = await listen((request, response) => {
+      received.push(request.headers.authorization);
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ jsonrpc: "2.0", id: 1, result: {} }));
+    });
+    try {
+      writeFileSync(path, "first-turn");
+      const lines = start({ OMB_HARNESS_URL: harness, OMB_CONNECTOR_UPSTREAM_URL: harness,
+        OMB_CONNECTOR_UPSTREAM_HEADERS: JSON.stringify({ authorization: "Bearer old-launch-token" }),
+        OMB_CONNECTOR_TOKEN: "old-launch-token", OMB_CONNECTOR_TOKEN_FILE: path });
+      const call = async (params: unknown) => {
+        const reply = nextJson(lines);
+        child!.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params }) + "\n");
+        await reply;
+      };
+      await call({ name: "ordinary_tool", arguments: {} });
+      expect(received.at(-1)).toBe("Bearer first-turn");
+      writeFileSync(path, "second-turn");
+      await call({ name: "COMPOSIO_MANAGE_CONNECTIONS", arguments: { toolkits: ["gmail"] } });
+      expect(received.at(-1)).toBe("Bearer second-turn");
+      unlinkSync(path);
+      await call({ name: "ordinary_tool", arguments: {} });
+      expect(received.at(-1)?.trim()).toBe("Bearer");
+      expect(received).not.toContain("Bearer old-launch-token");
+    } finally { await removeTempDir(directory); }
+  });
   it("turns agent connection requests into authenticated chat-card requests", async () => {
     let received: any = null;
     const harness = await listen((request, response) => {

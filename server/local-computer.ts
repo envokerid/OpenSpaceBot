@@ -31,7 +31,7 @@ export type LocalComputerConnection = {
  * when the first actual tool call reaches the shared stdio gate. */
 export function gatedLocalComputer(
   connection: LocalComputerConnection,
-  control: { url: string; token: string },
+  control: { url: string; token: string; tokenFile?: string },
 ): LocalComputerConnection {
   return {
     ...connection,
@@ -47,6 +47,7 @@ export function gatedLocalComputer(
       OMB_CUA_ARGS: JSON.stringify(connection.args),
       OMB_CONTROL_URL: control.url,
       OMB_CONTROL_TOKEN: control.token,
+      ...(control.tokenFile ? { OMB_CONTROL_TOKEN_FILE: control.tokenFile } : {}),
     },
   };
 }

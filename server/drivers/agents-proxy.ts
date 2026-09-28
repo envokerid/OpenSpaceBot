@@ -44,11 +44,22 @@ import readline from "node:readline";
 
 import { availableTools, catalogProfileFromEnv } from "./agents-catalog.ts";
 import { callTool, capResult, toolCallContextFromEnv } from "./agents-call.ts";
-import type { Json } from "./agents-client.ts";
+import { agentsEnvironmentForCall, type Json } from "./agents-client.ts";
 
 const AVAILABLE_TOOLS = availableTools(catalogProfileFromEnv(process.env));
-// One proxy process serves one turn, so its per-turn guards start here.
-const CONTEXT = toolCallContextFromEnv(process.env);
+// Retained engines keep this proxy alive. Snapshot credentials and reset
+// local budgets at the start of a new turn; calls already in flight keep
+// their original context and cannot borrow a later turn's authority.
+let contextToken: string | undefined;
+let context = toolCallContextFromEnv(agentsEnvironmentForCall(process.env));
+const currentContext = () => {
+  const env = agentsEnvironmentForCall(process.env);
+  if (env.OMB_COMMS_TOKEN !== contextToken) {
+    contextToken = env.OMB_COMMS_TOKEN;
+    context = toolCallContextFromEnv(env);
+  }
+  return context;
+};
 
 const send = (msg: Json) => process.stdout.write(JSON.stringify(msg) + "\n");
 const ok = (id: unknown, result: unknown) => send({ jsonrpc: "2.0", id, result });
@@ -79,6 +90,7 @@ async function handle(msg: Json) {
       ok(id, { tools: AVAILABLE_TOOLS });
       return;
     case "tools/call": {
+      const CONTEXT = currentContext();
       const name = params.name as string;
       if (!AVAILABLE_TOOLS.some((t) => t.name === name)) return rpcErr(id, -32602, `Unknown tool: ${name}`);
       try {

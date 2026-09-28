@@ -8,6 +8,7 @@ const {
   OMB_CUA_ARGS: encodedArgs,
   OMB_CONTROL_URL: url,
   OMB_CONTROL_TOKEN: token,
+  OMB_CONTROL_TOKEN_FILE: tokenFile,
   ...childEnv
 } = process.env;
 
@@ -17,7 +18,7 @@ try {
   const endpoint = new URL(url ?? "");
   if (!command?.trim() || command.includes("\0") ||
       !Array.isArray(parsed) || !parsed.every((arg) => typeof arg === "string" && !arg.includes("\0")) ||
-      !token || !["http:", "https:"].includes(endpoint.protocol) ||
+      (!token && !tokenFile) || !["http:", "https:"].includes(endpoint.protocol) ||
       !["127.0.0.1", "localhost", "[::1]"].includes(endpoint.hostname) || endpoint.username || endpoint.password) {
     throw new Error("invalid connection");
   }
@@ -32,5 +33,5 @@ runMcpBridge({
   args,
   env: { ...childEnv, PATH: augmentedPath() },
   label: "Local Cua Driver",
-  gate: { url: url!, token: token! },
+  gate: { url: url!, token: token ?? "", tokenFile },
 });

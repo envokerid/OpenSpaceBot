@@ -147,3 +147,11 @@ checks prove and what still needs native device acceptance.
 The npm lockfile isolates mobile React and Expo versions from the desktop's
 pnpm workspace. Metro watches shared sources but resolves native dependencies
 from `expo/node_modules`, preventing two React copies in the app.
+
+## 3D mascot
+
+The default mascot uses Three.js and Expo GL, sharing its geometry and emotion
+animations with desktop. Avatar settings offer ten colors and an emotion
+preview. Rebuild an existing development client after installing `expo-gl`;
+small icons and unavailable GL surfaces retain a matching vector portrait.
+See [the mascot implementation and verification notes](../docs/mascot-3d.md).

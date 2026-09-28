@@ -7,12 +7,16 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { mkdtempSync, writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { ToolResults } from "../tool-results.ts";
-import { waitForExit } from "../testing/cleanup.ts";
+import { removeTempDir, waitForExit } from "../testing/cleanup.ts";
 
 const PROXY = join(dirname(fileURLToPath(import.meta.url)), "agents-proxy.ts");
 const TOKEN = "test-comms-token";
+const tokenDirectory = mkdtempSync(join(tmpdir(), "omb-agents-token-"));
+const tokenPath = join(tokenDirectory, "turn.token");
 
 // scripted harness stub
 let stub: Server;
@@ -158,6 +162,7 @@ function rpc(method: string, params?: unknown): Promise<any> {
 const callTool = (name: string, args: unknown) => rpc("tools/call", { name, arguments: args });
 
 beforeAll(async () => {
+  writeFileSync(tokenPath, TOKEN, { mode: 0o600 });
   stub = createServer((req, res) => {
     lastAuth = req.headers.authorization;
     if (req.headers.authorization !== `Bearer ${TOKEN}`) {
@@ -403,6 +408,7 @@ beforeAll(async () => {
       OMB_BOT_ID: "bot-asker",
       OMB_THREAD_ID: "thread-asker-routine",
       OMB_COMMS_TOKEN: TOKEN,
+      OMB_COMMS_TOKEN_FILE: tokenPath,
       OMB_TURN_DEPTH: "0",
       OMB_SKILL_AUTHORING_ENABLED: "1",
       OMB_SHARED_COMPUTERS_ENABLED: "1",
@@ -425,11 +431,27 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  child?.kill();
+  if (child) await waitForExit(child, { signal: "SIGTERM" });
   await new Promise<void>((r) => stub.close(() => r()));
+  await removeTempDir(tokenDirectory);
 });
 
 describe("agents-proxy MCP surface", () => {
+  it("refreshes credentials on a retained proxy and never falls back after revocation", async () => {
+    try {
+      writeFileSync(tokenPath, "first-turn-token");
+      await rpc("tools/call", { name: "list_bots", arguments: {} });
+      expect(lastAuth).toBe("Bearer first-turn-token");
+      writeFileSync(tokenPath, "second-turn-token");
+      await rpc("tools/call", { name: "list_bots", arguments: {} });
+      expect(lastAuth).toBe("Bearer second-turn-token");
+      unlinkSync(tokenPath);
+      await rpc("tools/call", { name: "list_bots", arguments: {} });
+      expect(lastAuth?.trim()).toBe("Bearer");
+    } finally {
+      writeFileSync(tokenPath, TOKEN);
+    }
+  });
   it("describes all configuration tools as result-aware without changing credential requirements", async () => {
     const list = await rpc("tools/list");
     for (const tool of new Set(proposalCases.map(entry => entry.tool))) {

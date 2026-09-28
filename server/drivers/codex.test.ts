@@ -49,6 +49,10 @@ describe("CodexDriver.decodeConfig", () => {
     expect(CodexDriver.decodeConfig({ fullAuto: "yes" }).fullAuto).toBe(false);
     expect(CodexDriver.decodeConfig({ fastMode: false }).fastMode).toBe(false);
     expect(CodexDriver.decodeConfig({ fastMode: "false" }).fastMode).toBe(true);
+    expect(CodexDriver.decodeConfig({ nativeApps: false, disabledUserMcpServers: ["slow", "slow"] }))
+      .toMatchObject({ nativeApps: false, disabledUserMcpServers: ["slow"] });
+    expect(() => CodexDriver.decodeConfig({ disabledUserMcpServers: ["bad.name"] })).toThrow();
+    expect(() => CodexDriver.decodeConfig({ nativeApps: "false" })).toThrow();
   });
 
   it("allows Company endpoints over HTTPS, and over HTTP only on loopback", () => {
@@ -91,7 +95,7 @@ describe("CodexDriver turns (fake app-server)", () => {
   let scratch: string;
 
   const create = async (
-    opts: { mode?: string; fullAuto?: boolean; fastMode?: boolean; environment?: Record<string, string>; managed?: boolean } = {},
+    opts: { mode?: string; fullAuto?: boolean; fastMode?: boolean; nativeApps?: boolean; disabledUserMcpServers?: string[]; environment?: Record<string, string>; managed?: boolean } = {},
   ) => {
     if (opts.mode) process.env.FAKE_CODEX_MODE = opts.mode;
     instance = await CodexDriver.create({
@@ -106,6 +110,8 @@ describe("CodexDriver turns (fake app-server)", () => {
         cli: FAKE_CLI,
         fullAuto: opts.fullAuto ?? false,
         fastMode: opts.fastMode ?? true,
+        nativeApps: opts.nativeApps,
+        disabledUserMcpServers: opts.disabledUserMcpServers,
         ...(opts.managed ? { managed: { url: "http://127.0.0.1:1/v1", models: ["company-codex-model"] } } : {}),
       },
     });
@@ -151,6 +157,56 @@ describe("CodexDriver turns (fake app-server)", () => {
     await removeTempDir(scratch);
   });
 
+  it("updates changing task context without repeating standing instructions or restarting", async () => {
+    const dump = join(scratch, "context-deltas.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    await create({ mode: "resume" });
+    let pid: number | undefined;
+    for (const context of ["MEMORY_ONE", "MEMORY_TWO", "MEMORY_TWO", ""]) {
+      const { turnId } = await instance.adapter.sendTurn({ threadId: "context-deltas", text: "continue",
+        system: "STANDING_RULES" + context, systemStable: "STANDING_RULES", systemVolatile: context });
+      await expect(recorder.until(e => e.type === "turn.completed" && e.turnId === turnId)).resolves.toMatchObject({ ok: true });
+      const seen = JSON.parse(readFileSync(dump, "utf8"));
+      pid ??= seen.pid;
+      expect(seen.pid).toBe(pid);
+    }
+    const calls = JSON.parse(readFileSync(dump, "utf8")).calls as any[];
+    expect(calls.filter(call => call.method === "initialize")).toHaveLength(1);
+    const initial = calls.find(call => call.method === "thread/start").params.developerInstructions;
+    expect(initial).toContain("STANDING_RULES");
+    expect(initial).toContain("MEMORY_ONE");
+    expect(initial).not.toContain("MEMORY_TWO");
+    const resumes = calls.filter(call => call.method === "thread/resume");
+    expect(resumes).toHaveLength(3);
+    expect(resumes.every(call => call.params.excludeTurns === true)).toBe(true);
+    expect(resumes[0].params.developerInstructions).toContain("MEMORY_TWO");
+    expect(resumes[2].params.developerInstructions).toBe("STANDING_RULES");
+    const updates = calls.filter(call => call.method === "thread/inject_items");
+    expect(updates).toHaveLength(2);
+    expect(JSON.stringify(updates)).not.toContain("STANDING_RULES");
+    expect(JSON.stringify(updates[1])).toContain("No additional task context remains.");
+  });
+
+  it("retains unchanged task context when standing rules replace an initial combined block", async () => {
+    const dump = join(scratch, "standing-rule-update.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    process.env.FAKE_CODEX_INSTRUCTIONS = "NATIVE_PRIORITY";
+    await create({ mode: "resume" });
+    for (const rules of ["OLD_RULES", "NEW_RULES"]) {
+      const { turnId } = await instance.adapter.sendTurn({ threadId: "rule-update", text: "continue",
+        systemStable: rules, systemVolatile: "CURRENT_CONTEXT" });
+      await recorder.until(e => e.type === "turn.completed" && e.turnId === turnId);
+    }
+    const calls = JSON.parse(readFileSync(dump, "utf8")).calls as any[];
+    const updates = calls.filter(call => call.method === "thread/inject_items");
+    expect(updates).toHaveLength(2);
+    expect(JSON.stringify(updates[0])).toContain("NEW_RULES");
+    expect(JSON.stringify(updates[1])).toContain("CURRENT_CONTEXT");
+    const resumed = calls.findLast(call => call.method === "thread/resume").params.developerInstructions;
+    expect(resumed).toContain("CURRENT_CONTEXT");
+    expect(resumed).toMatch(/NATIVE_PRIORITY$/);
+  });
+
   it("names the signed-in ChatGPT account from Codex's protocol and offers sign-out", async () => {
     const codexHome = join(scratch, ".codex");
     mkdirSync(codexHome, { recursive: true });
@@ -172,6 +228,225 @@ describe("CodexDriver turns (fake app-server)", () => {
   it.each(["api-key", "none", "unsupported", "error"])("omits ChatGPT identity when Codex account/read reports %s", async (mode) => {
     await create({ environment: { HOME: scratch, CODEX_HOME: join(scratch, ".codex"), FAKE_CODEX_ACCOUNT_MODE: mode } });
     expect(await instance.snapshot()).not.toHaveProperty("account");
+  });
+
+  it.each([false, true])("keeps a waiting runtime across turns with correct usage, explicit cursor: %s", async (explicitCursor) => {
+    const dump = join(scratch, "waiting-runtime.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    await create();
+    const first = await instance.adapter.sendTurn({ threadId: "waiting", text: "one" });
+    await recorder.until(e => e.type === "turn.completed" && e.turnId === first.turnId);
+    const pid = JSON.parse(readFileSync(dump, "utf8")).pid;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try { await vi.advanceTimersByTimeAsync(24 * 60 * 60_000); }
+    finally { vi.useRealTimers(); }
+    expect(processIsAlive(pid)).toBe(true);
+    expect(instance.adapter.hasSession("waiting")).toBe(true);
+    const second = await instance.adapter.sendTurn({ threadId: "waiting", text: "two",
+      ...(explicitCursor ? { resumeCursor: "codex-thread-1" } : {}) });
+    await expect(recorder.until(e => e.type === "turn.completed" && e.turnId === second.turnId))
+      .resolves.toMatchObject({ ok: true, usage: { input: 7, output: 3, cachedInput: 4 } });
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.pid).toBe(pid);
+    expect(seen.calls.filter((call: any) => call.method === "initialize")).toHaveLength(1);
+    expect(seen.calls.filter((call: any) => call.method === "thread/start")).toHaveLength(1);
+    expect(seen.calls.filter((call: any) => call.method === "turn/start")).toHaveLength(2);
+    await instance.adapter.stopAll();
+    expect(processIsAlive(pid)).toBe(false);
+    expect(instance.adapter.hasSession("waiting")).toBe(false);
+  });
+
+  it("prepares a native session without a chat turn, then preserves it for the real message", async () => {
+    const dump = join(scratch, "prepared-runtime.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    await create();
+    const tokenPath = join(scratch, "prepared-token");
+    const agents = { command: process.execPath, args: ["agents-proxy.ts"], env: {
+      OMB_COMMS_TOKEN: "inactive", OMB_COMMS_TOKEN_FILE: tokenPath,
+    } };
+    await instance.adapter.prepareSession!({ threadId: "prepared", systemStable: "Standing rules", systemVolatile: "Current context", approvalMode: "full", integrations: { agents } });
+    expect(recorder.events).toEqual([]);
+    const prepared = JSON.parse(readFileSync(dump, "utf8"));
+    expect(prepared.calls.map((call: any) => call.method)).not.toContain("turn/start");
+    expect(instance.adapter.hasSession("prepared")).toBe(true);
+    writeFileSync(tokenPath, "real-turn-token");
+    const turn = await instance.adapter.sendTurn({ threadId: "prepared", text: "Real user message", systemStable: "Standing rules", systemVolatile: "Current context", approvalMode: "ask",
+      integrations: { agents: { ...agents, env: { ...agents.env, OMB_COMMS_TOKEN: "real-turn-token" } } } });
+    await recorder.until(e => e.type === "turn.completed" && e.turnId === turn.turnId);
+    const sent = JSON.parse(readFileSync(dump, "utf8"));
+    expect(sent.pid).toBe(prepared.pid);
+    expect(sent.calls.filter((call: any) => call.method === "thread/start")).toHaveLength(1);
+    expect(sent.calls.filter((call: any) => call.method === "thread/resume")).toHaveLength(1);
+    expect(sent.calls.filter((call: any) => call.method === "turn/start")).toHaveLength(1);
+    expect(sent.calls.find((call: any) => call.method === "turn/start").params)
+      .toMatchObject({ approvalPolicy: "on-request", sandboxPolicy: { type: "workspaceWrite" } });
+    expect(recorder.events.filter(e => e.type === "turn.started")).toHaveLength(1);
+  });
+
+  it("awaits preparation when the real send arrives during setup", async () => {
+    await create();
+    const preparation = instance.adapter.prepareSession!({ threadId: "preparing" });
+    const send = instance.adapter.sendTurn({ threadId: "preparing", text: "Real message" });
+    await preparation;
+    const turn = await send;
+    await expect(recorder.until(e => e.type === "turn.completed" && e.turnId === turn.turnId)).resolves.toMatchObject({ ok: true });
+  });
+
+  it("retires an unused prepared session without chat events", async () => {
+    const dump = join(scratch, "unused-preparation.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    await create();
+    // Only timeouts are virtual: native pipes and child termination stay real.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await instance.adapter.prepareSession!({ threadId: "unused-preparation" });
+      await vi.advanceTimersByTimeAsync(120_000);
+    } finally { vi.useRealTimers(); }
+    await expect.poll(() => instance.adapter.hasSession("unused-preparation")).toBe(false);
+    expect(recorder.events).toEqual([]);
+  });
+
+  it("lets a real turn retry after preparation fails", async () => {
+    await create();
+    process.env.FAKE_CODEX_START_ERROR = JSON.stringify({ code: -1, message: "synthetic setup failure" });
+    await expect(instance.adapter.prepareSession!({ threadId: "prepare-failed" })).rejects.toThrow("synthetic setup failure");
+    expect(recorder.events).toEqual([]);
+    delete process.env.FAKE_CODEX_START_ERROR;
+    const turn = await instance.adapter.sendTurn({ threadId: "prepare-failed", text: "Retry the real request" });
+    await expect(recorder.until(e => e.type === "turn.completed" && e.turnId === turn.turnId)).resolves.toMatchObject({ ok: true });
+  });
+
+  it("preserves an existing conversation's instructions when preparation supplies no replacement", async () => {
+    const dump = join(scratch, "preparation-existing-rules.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    await create();
+    const first = await instance.adapter.sendTurn({ threadId: "prepared-existing", text: "First message", systemStable: "Keep these bot rules" });
+    await recorder.until(e => e.type === "turn.completed" && e.turnId === first.turnId);
+    const eventCount = recorder.events.length;
+    await instance.adapter.prepareSession!({ threadId: "prepared-existing" });
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.calls.findLast((call: any) => call.method === "thread/resume").params).not.toHaveProperty("developerInstructions");
+    expect(seen.calls.some((call: any) => call.method === "thread/inject_items")).toBe(false);
+    expect(recorder.events).toHaveLength(eventCount);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try { await vi.advanceTimersByTimeAsync(24 * 60 * 60_000); }
+    finally { vi.useRealTimers(); }
+    expect(processIsAlive(seen.pid)).toBe(true);
+    const second = await instance.adapter.sendTurn({ threadId: "prepared-existing", text: "Continue", systemStable: "Keep these bot rules" });
+    await recorder.until(e => e.type === "turn.completed" && e.turnId === second.turnId);
+    expect(JSON.parse(readFileSync(dump, "utf8")).calls.some((call: any) => call.method === "thread/inject_items")).toBe(false);
+  });
+
+  it("rejects preparation with a live app tool credential or an unrevocable bridge", async () => {
+    await create();
+    const tokenPath = join(scratch, "active-token");
+    writeFileSync(tokenPath, "active-token");
+    const bridge = { command: process.execPath, args: [], env: { OMB_COMMS_TOKEN_FILE: tokenPath } };
+    await expect(instance.adapter.prepareSession!({ threadId: "active-credential", integrations: { agents: bridge } }))
+      .rejects.toThrow("inactive, revocable");
+    await expect(instance.adapter.prepareSession!({ threadId: "unrevocable", integrations: { agents: { ...bridge, env: {} } } }))
+      .rejects.toThrow("inactive, revocable");
+    expect(recorder.events).toEqual([]);
+    expect(instance.adapter.hasSession("active-credential")).toBe(false);
+  });
+
+  it("refuses a native permission request during preparation even in Full Access", async () => {
+    const dump = join(scratch, "preparation-permission.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    await create({ mode: "startup-approval" });
+    await instance.adapter.prepareSession!({ threadId: "prepare-permission", approvalMode: "full" });
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.decision).toMatchObject({ error: { message: "OpenMausBot: session preparation cannot grant permissions" } });
+    expect(recorder.events).toEqual([]);
+  });
+
+  it("stops preparation and a waiting real send without starting a user turn", async () => {
+    const dump = join(scratch, "stopped-preparation.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    await create({ mode: "startup-wait" });
+    const preparation = instance.adapter.prepareSession!({ threadId: "prepare-stop" });
+    const rejectedPreparation = expect(preparation).rejects.toMatchObject({ name: "AbortError" });
+    const send = instance.adapter.sendTurn({ threadId: "prepare-stop", text: "Must not run after Stop" });
+    const rejectedSend = expect(send).rejects.toMatchObject({ name: "AbortError" });
+    await expect.poll(() => {
+      try { return JSON.parse(readFileSync(dump, "utf8")).calls.some((call: any) => call.method === "thread/start"); }
+      catch { return false; }
+    }).toBe(true);
+    await instance.adapter.interruptTurn("prepare-stop");
+    await rejectedPreparation;
+    await rejectedSend;
+    expect(recorder.events).toEqual([]);
+    expect(instance.adapter.hasSession("prepare-stop")).toBe(false);
+    expect(JSON.parse(readFileSync(dump, "utf8")).calls.some((call: any) => call.method === "turn/start")).toBe(false);
+  });
+
+  it("honors Stop between preparation completion and a waiting send", async () => {
+    await create();
+    const preparation = instance.adapter.prepareSession!({ threadId: "prepare-stop-boundary" });
+    const stopped = preparation.then(() => instance.adapter.interruptTurn("prepare-stop-boundary"));
+    const send = instance.adapter.sendTurn({ threadId: "prepare-stop-boundary", text: "Must stay stopped" });
+    await expect(send).rejects.toMatchObject({ name: "AbortError" });
+    await stopped;
+    expect(recorder.events).toEqual([]);
+    expect(instance.adapter.hasSession("prepare-stop-boundary")).toBe(false);
+  });
+
+  it("restarts after an idle crash and a context reset without reusing the abandoned cursor", async () => {
+    const dump = join(scratch, "waiting-crash.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    await create();
+    const first = await instance.adapter.sendTurn({ threadId: "waiting-crash", text: "one" });
+    await recorder.until(e => e.type === "turn.completed" && e.turnId === first.turnId);
+    const oldPid = JSON.parse(readFileSync(dump, "utf8")).pid;
+    process.kill(oldPid, "SIGTERM");
+    await expect.poll(() => instance.adapter.hasSession("waiting-crash")).toBe(false);
+    expect(recorder.events.some(e => e.type === "runtime.error")).toBe(false);
+    const second = await instance.adapter.sendTurn({ threadId: "waiting-crash", text: "replacement",
+      sessionReset: true, resumeCursor: "abandoned-native-thread" });
+    await expect(recorder.until(e => e.type === "turn.completed" && e.turnId === second.turnId)).resolves.toMatchObject({ ok: true });
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.pid).not.toBe(oldPid);
+    expect(seen.calls.some((call: any) => call.method === "thread/resume")).toBe(false);
+  });
+
+  it("replaces a live runtime for context reset and keeps conversations isolated", async () => {
+    const dump = join(scratch, "waiting-isolation.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    await create();
+    const send = async (threadId: string, text: string, reset = false) => {
+      const result = await instance.adapter.sendTurn({ threadId, text, sessionReset: reset,
+        ...(reset ? { resumeCursor: "abandoned-thread" } : {}) });
+      await recorder.until(e => e.type === "turn.completed" && e.turnId === result.turnId);
+      return JSON.parse(readFileSync(dump, "utf8"));
+    };
+    const first = await send("isolated-one", "one");
+    const other = await send("isolated-two", "other");
+    expect(other.pid).not.toBe(first.pid);
+    expect((await send("isolated-one", "follow-up")).pid).toBe(first.pid);
+    const replacement = await send("isolated-one", "replacement", true);
+    expect(replacement.pid).not.toBe(first.pid);
+    expect(replacement.calls.some((call: any) => call.method === "thread/resume")).toBe(false);
+    expect(processIsAlive(first.pid)).toBe(false);
+    expect(processIsAlive(other.pid)).toBe(true);
+  });
+
+  it.each([
+    [false, "agents", "OMB_COMMS_TOKEN"], [true, "agents", "OMB_COMMS_TOKEN"],
+    [false, "localComputer", "OMB_CONTROL_TOKEN"], [true, "localComputer", "OMB_CONTROL_TOKEN"],
+  ] as const)("reuses only integrations with a credential refresh file: %s %s", async (refreshable, kind, tokenName) => {
+    const dump = join(scratch, "waiting-credentials.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    await create({ mode: "resume" });
+    const integration = (token: string) => ({ [kind]: { command: process.execPath, args: ["proxy.js"], env: {
+      [tokenName]: token, ...(refreshable ? { [`${tokenName}_FILE`]: join(scratch, "turn.token") } : {}),
+    } } });
+    const first = await instance.adapter.sendTurn({ threadId: "waiting-credentials", text: "one", integrations: integration("one") });
+    await recorder.until(e => e.type === "turn.completed" && e.turnId === first.turnId);
+    const oldPid = JSON.parse(readFileSync(dump, "utf8")).pid;
+    const second = await instance.adapter.sendTurn({ threadId: "waiting-credentials", text: "two", integrations: integration("two"), resumeCursor: "codex-thread-1" });
+    await recorder.until(e => e.type === "turn.completed" && e.turnId === second.turnId);
+    const pid = JSON.parse(readFileSync(dump, "utf8")).pid;
+    expect(pid === oldPid).toBe(refreshable);
   });
 
   it("runs the handshake and normalizes a full turn", async () => {
@@ -235,7 +510,7 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true, usage: { input: 7, output: 3, cachedInput: 4 } });
 
     const seen = JSON.parse(readFileSync(dump, "utf8"));
-    expect(processIsAlive(seen.pid)).toBe(false);
+    expect(processIsAlive(seen.pid)).toBe(true);
     expect(seen.env.OPENAI_API_KEY).toBeUndefined();
     expect(seen.env.BOX_TOKEN).toBeUndefined();
     expect(seen.env.OMB_TTS_KEY).toBeUndefined();
@@ -261,7 +536,7 @@ describe("CodexDriver turns (fake app-server)", () => {
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     expect(seen.argv).toContain(tier);
     expect(seen.argv).toContain("features.fast_mode=true");
-    expect(seen.calls.find((call: { method: string }) => call.method === "turn/start").params.serviceTier)
+    expect(seen.calls.findLast((call: { method: string }) => call.method === "turn/start").params.serviceTier)
       .toBe(fastMode ? "fast" : "default");
   });
 
@@ -274,8 +549,8 @@ describe("CodexDriver turns (fake app-server)", () => {
     });
     await recorder.until((event) => event.type === "turn.completed");
     const calls = JSON.parse(readFileSync(dump, "utf8")).calls as Array<{ method: string; params: Record<string, unknown> }>;
-    expect(calls.find((call) => call.method === "thread/resume")?.params.threadId).toBe("codex-thread-1");
-    expect(calls.find((call) => call.method === "turn/start")?.params.serviceTier).toBe("default");
+    expect(calls.findLast((call) => call.method === "thread/resume")?.params.threadId).toBe("codex-thread-1");
+    expect(calls.findLast((call) => call.method === "turn/start")?.params.serviceTier).toBe("default");
   });
 
   it("ignores requests received after turn completion", async () => {
@@ -343,12 +618,12 @@ describe("CodexDriver turns (fake app-server)", () => {
         method: string;
         params: Record<string, unknown>;
       }>;
-      expect(calls.find((call) => call.method === "thread/start")?.params).toMatchObject({
+      expect(calls.findLast((call) => call.method === "thread/start")?.params).toMatchObject({
         approvalPolicy,
         approvalsReviewer: approvalMode === "auto" ? "auto_review" : "user",
         sandbox,
       });
-      expect(calls.find((call) => call.method === "turn/start")?.params).toMatchObject({
+      expect(calls.findLast((call) => call.method === "turn/start")?.params).toMatchObject({
         approvalPolicy,
         approvalsReviewer: approvalMode === "auto" ? "auto_review" : "user",
         sandboxPolicy: { type: turnSandbox },
@@ -382,13 +657,13 @@ describe("CodexDriver turns (fake app-server)", () => {
           method: string;
           params: Record<string, unknown>;
         }>;
-        expect(calls.find((call) => call.method === (resumed ? "thread/resume" : "thread/start"))?.params).toMatchObject({
+        expect(calls.findLast((call) => call.method === (resumed ? "thread/resume" : "thread/start"))?.params).toMatchObject({
           ...(resumed ? { threadId: "codex-thread-1" } : { model }),
           approvalPolicy,
           approvalsReviewer: approvalMode === "auto" ? "auto_review" : "user",
           sandbox,
         });
-        expect(calls.find((call) => call.method === "turn/start")?.params).toMatchObject({
+        expect(calls.findLast((call) => call.method === "turn/start")?.params).toMatchObject({
           approvalPolicy,
           approvalsReviewer: approvalMode === "auto" ? "auto_review" : "user",
           sandboxPolicy: { type: turnSandbox },
@@ -415,17 +690,17 @@ describe("CodexDriver turns (fake app-server)", () => {
       method: string;
       params: Record<string, unknown>;
     }>;
-    expect(calls.find((call) => call.method === "config/read")?.params).toMatchObject({
+    expect(calls.findLast((call) => call.method === "config/read")?.params).toMatchObject({
       cwd: expect.any(String),
       includeLayers: false,
     });
-    expect(calls.find((call) => call.method === "thread/resume")?.params).toMatchObject({
+    expect(calls.findLast((call) => call.method === "thread/resume")?.params).toMatchObject({
       threadId: "codex-thread-custom",
       approvalPolicy: "never",
       approvalsReviewer: "auto_review",
       sandbox: "read-only",
     });
-    expect(calls.find((call) => call.method === "turn/start")?.params).toMatchObject({
+    expect(calls.findLast((call) => call.method === "turn/start")?.params).toMatchObject({
       approvalPolicy: "never",
       approvalsReviewer: "auto_review",
       sandboxPolicy: { type: "readOnly" },
@@ -460,17 +735,17 @@ describe("CodexDriver turns (fake app-server)", () => {
       method: string;
       params: Record<string, unknown>;
     }>;
-    expect(calls.find((call) => call.method === "initialize")?.params).toMatchObject({
+    expect(calls.findLast((call) => call.method === "initialize")?.params).toMatchObject({
       capabilities: { experimentalApi: true },
     });
-    const threadParams = calls.find((call) => call.method === threadMethod)?.params;
+    const threadParams = calls.findLast((call) => call.method === threadMethod)?.params;
     expect(threadParams).toMatchObject({
       permissions: "private-operator-profile",
       approvalPolicy: "on-request",
       approvalsReviewer: "user",
     });
     expect(threadParams).not.toHaveProperty("sandbox");
-    const turnParams = calls.find((call) => call.method === "turn/start")?.params;
+    const turnParams = calls.findLast((call) => call.method === "turn/start")?.params;
     expect(turnParams).toMatchObject({
       permissions: "private-operator-profile",
       approvalPolicy: "on-request",
@@ -504,7 +779,7 @@ describe("CodexDriver turns (fake app-server)", () => {
       approvalsReviewer: "user",
       sandbox: "read-only",
     });
-    expect(calls.find((call) => call.method === "turn/start")?.params).toMatchObject({
+    expect(calls.findLast((call) => call.method === "turn/start")?.params).toMatchObject({
       approvalPolicy: "on-request",
       approvalsReviewer: "user",
       sandboxPolicy: { type: "readOnly" },
@@ -548,7 +823,7 @@ describe("CodexDriver turns (fake app-server)", () => {
     await recorder.until((event) => event.type === "turn.completed");
 
     const seen = JSON.parse(readFileSync(dump, "utf8"));
-    const turnStart = seen.calls.find((call: { method: string }) => call.method === "turn/start");
+    const turnStart = seen.calls.findLast((call: { method: string }) => call.method === "turn/start");
     expect(turnStart.params.input).toEqual([
       { type: "text", text: "describe this" },
       { type: "localImage", path: imagePath },
@@ -613,6 +888,31 @@ describe("CodexDriver turns (fake app-server)", () => {
     await recorder.until((event) => event.type === "turn.completed");
 
     expect(JSON.parse(readFileSync(dump, "utf8")).env.CODEX_HOME).toBe(codexHome);
+  });
+
+  it("opts out of selected personal tools without editing config or disabling app tools", async () => {
+    const home = join(scratch, ".codex");
+    mkdirSync(home);
+    const path = join(home, "config.toml");
+    const original = '[mcp_servers.slow]\ncommand="slow-server"\n[mcp_servers.agents]\ncommand="old-agents"\n';
+    writeFileSync(path, original);
+    const dump = join(scratch, "tool-opt-out.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    await create({ environment: { CODEX_HOME: home }, nativeApps: false,
+      disabledUserMcpServers: ["slow", "agents", "absent"] });
+    await instance.adapter.sendTurn({ threadId: "tool-opt-out", text: "hi", integrations: {
+      agents: { command: process.execPath, args: ["agents.js"], env: {} },
+      custom: { slow: { command: process.execPath, args: ["selected.js"], env: {} } },
+    } });
+    await recorder.until(e => e.type === "turn.completed");
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.argv).toContain('mcp_servers.slow.enabled=false');
+    expect(seen.argv).toContain("features.apps=false");
+    expect(seen.argv).not.toContain('mcp_servers.agents.enabled=false');
+    expect(seen.argv).not.toContain('mcp_servers.absent.enabled=false');
+    expect(seen.argv.join(" ")).toContain("mcp_servers.slow_openmausbot.command");
+    expect(seen.argv.join(" ")).toContain("mcp_servers.agents.command");
+    expect(readFileSync(path, "utf8")).toBe(original);
   });
 
   it("mounts connected apps without placing credential values in argv", async () => {
@@ -831,7 +1131,7 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(seen.argv.join(" ")).not.toContain("browser-capability-secret");
     expect(seen.env.OMB_BROWSER_TOKEN).toBe("browser-capability-secret");
     for (const method of ["thread/start", "turn/start"]) {
-      expect(seen.calls.find((call: { method: string }) => call.method === method)?.params).toMatchObject({
+      expect(seen.calls.findLast((call: { method: string }) => call.method === method)?.params).toMatchObject({
         approvalPolicy: "on-request",
         approvalsReviewer: approvalMode === "auto" ? "auto_review" : "user",
       });
@@ -884,7 +1184,7 @@ describe("CodexDriver turns (fake app-server)", () => {
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     expect(seen.argv).toContain("model_providers.unsloth.base_url=\"http://127.0.0.1:8888/v1\"");
     expect(seen.argv.join(" ")).not.toContain("service_tier=");
-    expect(seen.calls.find((call: { method: string }) => call.method === "turn/start").params.serviceTier).toBeUndefined();
+    expect(seen.calls.findLast((call: { method: string }) => call.method === "turn/start").params.serviceTier).toBeUndefined();
     expect(JSON.stringify(seen.argv)).not.toContain("unsloth-secret");
     expect(seen.env.OPENMAUSBOT_LOCAL_UNSLOTH_API_KEY).toBe("unsloth-secret");
   });
@@ -929,12 +1229,12 @@ describe("CodexDriver turns (fake app-server)", () => {
     const methods = calls.map((call) => call.method);
     expect(methods).toContain("thread/resume");
     expect(methods).not.toContain("thread/start");
-    expect(calls.find((call) => call.method === "thread/resume")?.params).toMatchObject({
+    expect(calls.findLast((call) => call.method === "thread/resume")?.params).toMatchObject({
       approvalPolicy: "never",
       approvalsReviewer: "user",
       sandbox: "danger-full-access",
     });
-    expect(calls.find((call) => call.method === "turn/start")?.params).toMatchObject({
+    expect(calls.findLast((call) => call.method === "turn/start")?.params).toMatchObject({
       approvalPolicy: "never",
       approvalsReviewer: "user",
       sandboxPolicy: { type: "dangerFullAccess" },
@@ -984,18 +1284,18 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(seen.calls.map((call: { method: string }) => call.method)).toEqual([
       "initialize", "initialized", "config/read", "thread/resume", "thread/start", "turn/start",
     ]);
-    expect(seen.calls.find((call: { method: string }) => call.method === "thread/start").params).toMatchObject({
+    expect(seen.calls.findLast((call: { method: string }) => call.method === "thread/start").params).toMatchObject({
       model: "company-codex-model", modelProvider: "openmaus_company", cwd: scratch,
       developerInstructions: expect.stringContaining("Keep current bot rules."),
       approvalPolicy: "never", sandbox: "danger-full-access", ephemeral: false,
     });
-    expect(seen.calls.find((call: { method: string }) => call.method === "turn/start").params).toMatchObject({
+    expect(seen.calls.findLast((call: { method: string }) => call.method === "turn/start").params).toMatchObject({
       threadId: "codex-thread-1",
       input: [{ type: "text", text: recoveryText }, { type: "localImage", path: imagePath }],
     });
     expect(seen.argv).toContain('model_provider="openmaus_company"');
     expect(seen.argv.join(" ")).not.toContain("service_tier=");
-    expect(seen.calls.find((call: { method: string }) => call.method === "turn/start").params.serviceTier).toBeUndefined();
+    expect(seen.calls.findLast((call: { method: string }) => call.method === "turn/start").params.serviceTier).toBeUndefined();
     expect(JSON.stringify(seen.argv)).not.toContain("synthetic-company-fixture");
     expect(recorder.events.filter((event) => event.type === "session.started")).toMatchObject([{ sessionId: "codex-thread-1", rebuilt: true }]);
   });
@@ -1009,7 +1309,7 @@ describe("CodexDriver turns (fake app-server)", () => {
     await expect(recorder.until((e) => e.type === "turn.completed")).resolves.toMatchObject({ ok: true });
     const calls = JSON.parse(readFileSync(dump, "utf8")).calls;
     expect(calls.map((call: { method: string }) => call.method)).toContain("thread/start");
-    expect(calls.find((call: { method: string }) => call.method === "turn/start").params.input).toEqual([{ type: "text", text: recoveryText }]);
+    expect(calls.findLast((call: { method: string }) => call.method === "turn/start")!.params.input).toEqual([{ type: "text", text: recoveryText }]);
     expect(recorder.events.filter((e) => e.type === "session.started")).toMatchObject([{ rebuilt: true }]);
   });
 
@@ -1038,7 +1338,7 @@ describe("CodexDriver turns (fake app-server)", () => {
     await expect(recorder.until((event) => event.type === "turn.completed")).resolves.toMatchObject({ ok: true });
     const calls = JSON.parse(readFileSync(dump, "utf8")).calls;
     expect(calls.map((call: { method: string }) => call.method)).not.toContain("thread/start");
-    expect(calls.find((call: { method: string }) => call.method === "turn/start").params.input).toEqual([{ type: "text", text: "Continue" }]);
+    expect(calls.findLast((call: { method: string }) => call.method === "turn/start")!.params.input).toEqual([{ type: "text", text: "Continue" }]);
   });
 
   it.each([undefined, "", "  \n"])("does not replace missing Company native history without canonical recovery text (%j)", async (recoveryText) => {
@@ -1178,11 +1478,13 @@ describe("CodexDriver turns (fake app-server)", () => {
         ...(index > 0 ? { resumeCursor: "codex-thread-1" } : {}),
       });
       await expect(recorder.until((event) => event.type === "turn.completed" && event.turnId === turnId)).resolves.toMatchObject({ ok: true });
-      const calls = JSON.parse(readFileSync(dump, "utf8")).calls;
-      const threadCall = calls.find((call: { method: string }) => call.method === (index ? "thread/resume" : "thread/start"));
-      expect(threadCall.params.developerInstructions).toBe(`${system || "No OpenMausBot bot-specific instructions remain."}\n\nPrivate native rules.`);
+      const allCalls = JSON.parse(readFileSync(dump, "utf8")).calls as Array<{ method: string; params: any }>;
+      const previousTurn = allCalls.findLastIndex(call => call.method === "turn/start" && call.params.input?.[0]?.text === `message-${index - 1}`);
+      const calls = allCalls.slice(previousTurn + 1);
+      const threadCall = calls.findLast((call: { method: string }) => call.method === (index ? "thread/resume" : "thread/start"));
+      expect(threadCall!.params.developerInstructions).toBe(`${system || "No OpenMausBot bot-specific instructions remain."}\n\nPrivate native rules.`);
       expect(calls.filter((call: { method: string }) => call.method === "thread/inject_items")).toHaveLength(index === 1 ? 1 : 0);
-      expect(calls.find((call: { method: string }) => call.method === "turn/start").params.input).toEqual([{ type: "text", text: `message-${index}` }]);
+      expect(calls.findLast((call: { method: string }) => call.method === "turn/start")!.params.input).toEqual([{ type: "text", text: `message-${index}` }]);
     }
     const nativeLog = readFileSync(join(NATIVE_DIR, `${threadId}.ndjson`), "utf8");
     expect(nativeLog).toContain("[effective config omitted]");
@@ -1533,7 +1835,9 @@ describe("CodexDriver turns (fake app-server)", () => {
     await instance.adapter.respondToRequest("t-codex-steer", opened.requestId!, { behavior: "deny" });
     await expect(recorder.until((e) => e.type === "turn.completed")).resolves.toMatchObject({ ok: true });
     expect(recorder.events.some((e) => e.type === "runtime.error")).toBe(false);
-    await expect.poll(() => processIsAlive(snapshot.pid), { timeout: 5_000 }).toBe(false);
+    expect(processIsAlive(snapshot.pid)).toBe(true);
+    await instance.adapter.releaseSession!("t-codex-steer");
+    expect(processIsAlive(snapshot.pid)).toBe(false);
   }, 20_000);
 
   it("reports an explicitly refused steer as refused so the caller queues, and keeps the child alive", async () => {
@@ -1570,14 +1874,12 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(processIsAlive(turnPid)).toBe(true);
     await instance.adapter.respondToRequest("t-codex-queue-nokill", opened.requestId!, { behavior: "deny" });
     await expect(recorder.until((e) => e.type === "turn.completed")).resolves.toMatchObject({ ok: true });
-    // the drained queue runs as its own turn: fresh child, still no mid-turn kill
-    await instance.adapter.sendTurn({ threadId: "t-codex-queue-nokill", text: "queued words" });
+    // The drained queue runs on the same waiting runtime.
+    const second = await instance.adapter.sendTurn({ threadId: "t-codex-queue-nokill", text: "queued words" });
     await recorder.until((e) => e.type === "turn.started");
-    // the fresh app-server writes its dump pid only once it serves a message.
-    // Take the pid from inside the wait: a second, un-polled read here raced
-    // the fake's next rewrite of the dump and blew up on Windows.
-    let drainPid = turnPid;
-    await expect.poll(() => (drainPid = JSON.parse(readFileSync(dump, "utf8")).pid), { timeout: 5_000 }).not.toBe(turnPid);
+    await recorder.until(e => e.type === "request.opened" && e.turnId === second.turnId);
+    const drainPid = JSON.parse(readFileSync(dump, "utf8")).pid;
+    expect(drainPid).toBe(turnPid);
     expect(killed(drainPid)).toBe(false);
     expect(processIsAlive(drainPid)).toBe(true);
     expect(recorder.events.some((e) => e.type === "runtime.error")).toBe(false);
@@ -1644,7 +1946,7 @@ describe("CodexDriver turns (fake app-server)", () => {
   }, 20_000);
 
   it.each([false, true])("keeps ownership after an uncertain stop even when root close arrives (before failure: %s)", async (closeFirst) => {
-    await create();
+    await create({ mode: "unauthorized" });
     const stopping = vi.spyOn(procs, "killCliTree").mockImplementation(async (child) => {
       if (closeFirst && child.exitCode === null && child.signalCode === null) {
         const closed = once(child, "close");

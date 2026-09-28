@@ -220,6 +220,12 @@ export interface SendTurnInput {
   mcpFromUserConfig?: boolean;
 }
 
+/** Session setup without a user message or model turn. App-owned tool bridges
+ * must have absent, revocable token files until a real turn is admitted. */
+export type PrepareSessionInput = Pick<SendTurnInput,
+  "threadId" | "botId" | "approvalMode" | "model" | "effort" | "resumeCursor" |
+  "system" | "systemStable" | "systemVolatile" | "integrations" | "cwd">;
+
 /** An MCP server this machine starts and talks to over stdio. */
 export interface StdioMcpSpec {
   command: string;
@@ -307,6 +313,10 @@ export interface ProviderAdapter {
     hooks?: boolean;
   };
   sendTurn(input: SendTurnInput): Promise<TurnStartResult>;
+  /** Optional early setup. Emits no conversation events and grants no
+   * permission requests. Success means native setup was acknowledged, not
+   * that all provider-side background preparation has finished. */
+  prepareSession?(input: PrepareSessionInput): Promise<void>;
   interruptTurn(threadId: ThreadId, turnId?: TurnId): Promise<void>;
   /** Dispose an idle pooled session after a temporary private turn. Drivers
    * that terminate their process with every turn need no implementation. */
@@ -467,13 +477,14 @@ export interface ProviderInstance {
   readonly refreshModels?: () => Promise<void>;
   /** Optional first-party runtime installation and account setup. */
   readonly installRuntime?: () => Promise<void>;
-  readonly startAuthentication?: () => Promise<ProviderAuthenticationStart>;
+  readonly startAuthentication?: (provider?: string) => Promise<ProviderAuthenticationStart>;
   readonly getAuthentication?: (flowId: string) => Promise<ProviderAuthenticationStatus>;
   readonly completeAuthentication?: (flowId: string, callbackUrl: string) => Promise<void>;
   readonly cancelAuthentication?: () => Promise<void>;
-  /** Remove the sign-in the provider CLI stores on this server, so a
-   * different account can connect. Never touches another instance's home. */
-  readonly signOut?: () => Promise<void>;
+  /** Remove the selected provider sign-in stored on this server, so a
+   * different account can connect. Never touches another instance's accounts. */
+  readonly signOut?: (provider?: string) => Promise<void>;
+  readonly nativeAccounts?: import("../shared/native-providers.ts").NativeAccountInfo[];
   readonly adapter: ProviderAdapter;
   snapshot(): Promise<ProviderSnapshot>;
   /** Cheap one-shot text call (upstream TextGeneration) — titles, summaries.

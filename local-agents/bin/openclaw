@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+agents_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+export OPENCLAW_HOME="$agents_dir/openclaw/home"
+export OPENCLAW_STATE_DIR="$agents_dir/openclaw/state"
+export OPENCLAW_CONFIG_PATH="$OPENCLAW_STATE_DIR/openclaw.json"
+exec "$agents_dir/openclaw/runtime/bin/openclaw" "$@"

@@ -1,7 +1,9 @@
 import React, { memo, useEffect, useId, useMemo, useState } from 'react';
 import { Image } from 'react-native';
 import Svg, { ClipPath, Defs, G, LinearGradient, Path, Polygon, Stop, parse } from 'react-native-svg';
-import { MAUS_COLORS } from '../../shared/mascot-appearance';
+import { OrbAvatar } from './OrbAvatar';
+import { MAUS_COLORS, mascotEyeColor, type MascotState } from '../../shared/mascot-appearance';
+import { useMascotAnimation } from '../../shared/use-mascot-animation';
 import { automaticAvatarState } from './core/avatarAnimation';
 import { MASCOT_BODIES } from '../../shared/mascot-bodies';
 import { botAvatarProfile } from '../../shared/bot-avatar';
@@ -12,19 +14,24 @@ import { useAvatarMotion } from './AvatarMotion';
 import { useAuthenticatedImage } from './images';
 
 type AvatarProps = {
-  bot: { name: string; color: string } & Partial<Pick<Bot, 'title' | 'description' | 'busy' | 'unread' | 'messages' | 'activity' | 'mascotExpression' | 'mascotBody' | 'avatarCrop' | 'avatarUrl'>>;
-  client: Client; size?: number; happy?: boolean; animated?: boolean;
+  bot: { name: string; color: string } & Partial<Pick<Bot, 'id' | 'threadId' | 'waitingForTeammates' | 'title' | 'description' | 'busy' | 'unread' | 'messages' | 'activity' | 'mascotExpression' | 'mascotBody' | 'avatarCrop' | 'avatarUrl'>> & { typing?: boolean; reasoning?: boolean };
+  client: Client; size?: number; happy?: boolean; animated?: boolean; state?: MascotState;
 };
 // Bot objects also change for messages, tasks and other profile settings.
 // None of those should rebuild the static body thumbnails in the picker.
-export const Avatar = memo(function Avatar({ bot, client, size = 52, happy = false, animated = true }: AvatarProps) {
+export const Avatar = memo(function Avatar({ bot, client, size = 52, happy = false, animated = true, state }: AvatarProps) {
+  const mood = useMascotAnimation(bot, state ?? automaticAvatarState(bot, happy), animated && state === undefined);
   const profile = useMemo(() => botAvatarProfile(bot), [bot.avatarCrop, bot.avatarUrl]);
   const { uri } = useAuthenticatedImage(client, profile.avatarCrop === 'mascot' ? undefined : profile.avatarUrl);
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [uri]);
   if (uri && !failed && profile.avatarCrop !== 'mascot') return <Image onError={() => setFailed(true)} accessibilityLabel={`${bot.name} avatar`} source={{ uri }} style={{ width: size, height: size, borderRadius: profile.avatarCrop === 'circle' ? size / 2 : profile.avatarCrop === 'rounded' ? size / 5 : 0 }} />;
-  return <Mascot name={bot.name} color={bot.color} bodyId={bot.mascotBody ?? 'cursor'} state={automaticAvatarState(bot, happy)} size={size} animated={animated} />;
-}, (a, b) => a.client === b.client && a.size === b.size && a.happy === b.happy && a.animated === b.animated
+  if (!bot.mascotBody || bot.mascotBody === 'cursor' || !Object.hasOwn(MASCOT_BODIES, bot.mascotBody)) return <OrbAvatar name={bot.name} color={bot.color} state={mood} size={size} animated={animated} />;
+  return <Mascot name={bot.name} color={bot.color} bodyId={bot.mascotBody ?? 'cursor'} state={mood} size={size} animated={animated} />;
+}, (a, b) => a.state === b.state && a.client === b.client && a.size === b.size && a.happy === b.happy && a.animated === b.animated
+  && a.bot.busy === b.bot.busy
+  && a.bot.id === b.bot.id && a.bot.threadId === b.bot.threadId && a.bot.messages === b.bot.messages
+  && a.bot.waitingForTeammates === b.bot.waitingForTeammates && a.bot.typing === b.bot.typing && a.bot.reasoning === b.bot.reasoning
   && a.bot.name === b.bot.name && a.bot.color === b.bot.color && a.bot.mascotBody === b.bot.mascotBody
   && automaticAvatarState(a.bot, a.happy) === automaticAvatarState(b.bot, b.happy) && a.bot.avatarCrop === b.bot.avatarCrop
   && a.bot.avatarUrl === b.bot.avatarUrl && a.bot.activity === b.bot.activity);
@@ -59,12 +66,12 @@ const Mascot = memo(function Mascot({ name, color, bodyId, state, size, animated
     {definitions}
     <G transform={animation.transform}>
       {silhouette}
-      <G clipPath={`url(#${clipId})`}><G transform={face} fill="white">
+      <G clipPath={`url(#${clipId})`}><G transform={face} fill={mascotEyeColor(color)}>
         {eyes.map((ring, index) => {
           const cy = ring.reduce((n, point) => n + point[1], 0) / ring.length;
           return <Polygon key={index} points={ring.map(([x, y]) => `${x},${cy + (y - cy) * animation.blink}`).join(' ')} />;
         })}
-        <Path d={mouth} fill="none" stroke="white" strokeWidth={7.5} strokeLinecap="round" />
+        <Path d={mouth} fill="none" stroke={mascotEyeColor(color)} strokeWidth={7.5} strokeLinecap="round" />
       </G></G>
     </G>
   </Svg>;

@@ -4,7 +4,7 @@ import type { Bot } from './types.ts';
 import { routeId, type Client } from './client.ts';
 
 export type AvatarPatch = Partial<Pick<Bot, 'avatarUrl' | 'avatarCrop' | 'color' | 'mascotExpression' | 'mascotBody'>>;
-export const RESET_MASCOT: AvatarPatch = { avatarCrop: 'mascot', color: 'green', mascotExpression: null, mascotBody: 'cursor' };
+export const RESET_MASCOT: AvatarPatch = { avatarCrop: 'mascot', color: 'white', mascotExpression: null, mascotBody: 'cursor' };
 export function uploadedAvatar(path: string, crop: BotAvatarCrop): AvatarPatch {
   const avatarUrl = botAvatarUrlFromStoredPath(path);
   if (!avatarUrl) throw new Error('Choose a PNG, JPEG, GIF, or WebP image.');

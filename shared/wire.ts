@@ -55,7 +55,7 @@ export type CloudBackend = "box" | "vps";
 export type Surface = "cloud" | "vm" | "local" | "browser";
 
 export type MausColor =
-  | "green" | "blue" | "red" | "orange" | "purple" | "cyan" | "pink"
+  | "white" | "green" | "blue" | "red" | "orange" | "purple" | "cyan" | "pink"
   | "yellow" | "teal" | "coral";
 
 /** The face a bot rests on, as one of the engine's state names. Kept as a

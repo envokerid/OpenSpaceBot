@@ -1,3 +1,5 @@
+import { turnToken } from "../turn-token.ts";
+
 // The agents tools' only way to the harness: JSON over HTTP to the
 // loopback-only /api/internal/* routes, carrying the capability token the
 // harness minted for this turn (or the standing one of an external runtime).
@@ -39,4 +41,11 @@ export function createHarnessClient(baseUrl: string, token: string): HarnessClie
  *   OMB_COMMS_TOKEN  the capability token for the internal endpoints */
 export function harnessClientFromEnv(env: NodeJS.ProcessEnv): HarnessClient {
   return createHarnessClient(env.OMB_HARNESS_URL ?? "http://127.0.0.1:8799", env.OMB_COMMS_TOKEN ?? "");
+}
+
+/** Snapshot the current turn's credential before handling a tool call. A
+ * missing file means no active turn; never fall back to the launch token. */
+export function agentsEnvironmentForCall(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (!env.OMB_COMMS_TOKEN_FILE) return env;
+  return { ...env, OMB_COMMS_TOKEN: turnToken(env, "OMB_COMMS_TOKEN"), OMB_COMMS_TOKEN_FILE: undefined };
 }

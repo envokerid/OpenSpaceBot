@@ -162,7 +162,7 @@ function StackedMauses({ members, density }: { members: Bot[]; density: SidebarD
     const b = members[0];
     return (
       <div className={cn("flex shrink-0 items-center justify-center", slotSize)}>
-        {b ? <BotAvatar bot={b} state="happy" size={singleSize} animated={false} /> : <Users size={24} className="text-ink-secondary" />}
+        {b ? <BotAvatar bot={b} state="happy" size={singleSize} animated /> : <Users size={24} className="text-ink-secondary" />}
       </div>
     );
   }
@@ -172,7 +172,7 @@ function StackedMauses({ members, density }: { members: Bot[]; density: SidebarD
     <div className={cn("flex shrink-0 items-center justify-center", slotSize)}>
       <div className="flex items-center -space-x-2.5">
         {shown.map((b) => (
-          <BotAvatar key={b.id} bot={b} state="happy" size={iconOnly ? 30 : 20} animated={false} />
+          <BotAvatar key={b.id} bot={b} state="happy" size={iconOnly ? 30 : 20} animated />
         ))}
         {extra > 0 && (
           <span className="z-10 flex size-4 items-center justify-center rounded-full border border-hairline/40 bg-raised text-[9px] font-medium text-ink-secondary">
@@ -1097,16 +1097,14 @@ export function BotListItem({
           avatar and makes the row taller than before the presence dot */}
       <span className="relative flex shrink-0">
         <BotAvatar
-          bot={bot}
+          bot={{ ...bot, messages: visible }}
           state={stateForBot({ ...bot, messages: visible })}
           size={avatarSize}
           motion={mascotMotion?.kind ?? "none"}
           motionKey={mascotMotion?.nonce ?? 0}
-          // Motion means something is happening. A resting bot holds a resting
-          // pose — N idle rows bobbing at display rate was most of the app's
-          // visible-idle CPU (states are keyword-derived, so "working" can be
-          // decorative; busy/unread/motion are the real signals).
-          animated={Boolean(bot.busy) || Boolean(bot.unread) || (mascotMotion?.kind ?? "none") !== "none"}
+          // The shared renderer pauses rows outside the viewport; visible orbs
+          // float at rest and can react when a new message arrives.
+          animated
         />
         {working && (
           // presence dot: green while the bot is working, ringed in the row's

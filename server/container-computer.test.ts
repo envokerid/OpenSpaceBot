@@ -26,6 +26,7 @@ import {
   containerRunArgs,
   dockerSecurityIsHardened,
   localVmRecreatableOnDemand,
+  localVmMountable,
   managedImageDockerfile,
   perBotLocalVmTarget,
   podmanSecurityIsHardened,
@@ -467,6 +468,26 @@ describe("containerComputerStatus", () => {
 
     expect(status.runtime).toBeNull();
     expect(fake.calls).not.toContain("where.exe container");
+  });
+
+  it("discovers a lazy VM without probing or capturing its desktop, retaining isolation checks", async () => {
+    const fake = runner({
+      "/usr/bin/which docker": "docker\n",
+      "/usr/bin/which podman": new Error("missing"),
+      "docker info --format {{.ServerVersion}}": "29\n",
+      [`docker image inspect ${IMAGE}`]: preparedImageInspect(),
+      [`docker inspect ${CONTAINER}`]: readyInspect(),
+    });
+    const status = await containerComputerStatus(fake.run, "linux", SHARED_LOCAL_VM_TARGET, { probeDesktop: false });
+    expect(localVmMountable(status)).toBe(true);
+    expect(status.ready).toBe(false);
+    expect(status.desktopReady).toBe(false);
+    expect(fake.calls.some(call => call.startsWith("docker exec"))).toBe(false);
+    for (const patch of [{ managed: false }, { imageMatches: false }, { image: false },
+      { security: "unsafe" as const }, { persistence: "unsafe" as const }, { network: "unsafe" as const },
+      { container: "stopped" as const }, { daemonUp: false }]) {
+      expect(localVmMountable({ ...status, ...patch })).toBe(false);
+    }
   });
 
   it("reports ready only after the exact image, limits, network, version and daemon pass", async () => {

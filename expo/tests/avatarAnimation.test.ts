@@ -9,6 +9,9 @@ test('mobile chooses activity and profile moods automatically, ignoring old emot
   assert.equal(automaticAvatarState({ name: 'Helper', mascotExpression: 'sleeping', activity: 'working' }), 'working');
   assert.equal(automaticAvatarState({ name: 'Helper', busy: true, activity: 'waiting-on-you' }), 'listening');
   assert.equal(automaticAvatarState({ name: 'Research assistant' }), 'searching');
+  assert.equal(automaticAvatarState({ name: 'Helper', waitingForTeammates: true }), 'orbit');
+  assert.equal(automaticAvatarState({ name: 'Helper', busy: true, typing: true }), 'writing');
+  assert.equal(automaticAvatarState({ name: 'Helper', busy: true, reasoning: true }), 'thinking');
   assert.equal(automaticAvatarState({ name: 'Designer' }), 'playful');
   assert.equal(automaticAvatarState({ name: 'Helper', unread: true }), 'notifying');
   assert.equal(automaticAvatarState({ name: 'Helper', messages: [{ kind: 'options' }, { kind: 'digest' }] }), 'curious');

@@ -5,6 +5,14 @@ import { parseBotPackage, renderBotPackageMarkdown } from "./bot-package.ts";
 import type { BotRecord } from "./store.ts";
 
 describe("package export", () => {
+  it("round-trips the default white avatar color", () => {
+    const exported = createBotPackageExport({
+      name: "White team", groups: [], routines: [],
+      bots: [{ id: "b1", threadId: "t1", name: "Lead", color: "white", createdAt: 1 } as BotRecord],
+    });
+    expect(parseBotPackage(renderBotPackageMarkdown(exported)).package.agents[0]?.appearance.color).toBe("white");
+  });
+
   it("preserves the exact cron and timezone through export and import", () => {
     const schedule = { type: "cron" as const, expression: "0 9 L * *", timeZone: "America/New_York" };
     const exported = createBotPackageExport({

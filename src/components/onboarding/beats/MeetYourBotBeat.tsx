@@ -31,7 +31,7 @@ export function MeetYourBotBeat({
   onFinish: () => void;
 }) {
   const [name, setName] = useState(bot?.name ?? "");
-  const [color, setColor] = useState<MausColor>(bot?.color ?? "green");
+  const [color, setColor] = useState<MausColor>(bot?.color ?? "white");
   const [line, setLine] = useState("");
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -114,7 +114,7 @@ export function MeetYourBotBeat({
               }}
               className={cn(
                 "size-7 rounded-full border-2 transition-transform duration-150 hover:scale-110 active:scale-95",
-                c === color ? "border-ink" : "border-transparent",
+                c === color ? "border-ink" : c === "white" ? "border-hairline/60" : "border-transparent",
               )}
               style={{ backgroundColor: MAUS_COLORS[c] }}
             />

@@ -1,12 +1,10 @@
 import { POOLS, type MascotState } from '../../../shared/mascot-appearance.ts';
 import { BLINK, EXPR_CADENCE, MOTION, bodyTransform } from '../../../shared/mascot-motion.ts';
-import { automaticStateForBot, type MascotBotProfile } from '../../../shared/mascot-state.ts';
+import { automaticStateForBot, liveStateForBot, type MascotBotProfile } from '../../../shared/mascot-state.ts';
 import { EXPRESSIONS, GAZE, MOUTHS, type Ring } from '../../../src/components/cursor-face-data.ts';
 
 export function automaticAvatarState(bot: MascotBotProfile & { activity?: string }, happy = false): MascotState {
-  if (bot.activity === 'waiting-on-you') return 'listening';
-  if (bot.activity === 'working' || bot.busy) return 'working';
-  return happy ? 'happy' : automaticStateForBot(bot);
+  return liveStateForBot(bot) ?? (happy ? 'happy' : automaticStateForBot(bot));
 }
 export interface AvatarFrame { eyes: Ring[]; mouth: number[]; blink: number; transform: string }
 const rings = (expression: number): Ring[] => EXPRESSIONS[expression].map(ring => ring.map(([x, y]) => [x + GAZE[expression][0] * .35, y + GAZE[expression][1] * .35]));

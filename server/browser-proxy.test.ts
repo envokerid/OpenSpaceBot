@@ -1,8 +1,13 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { fileURLToPath } from "node:url";
+import { mkdtempSync, writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createInterface } from "node:readline";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { browserProxyRequest } from "./browser-proxy.ts";
+import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 
 let server: Server;
 let url = "";
@@ -27,6 +32,37 @@ const connection = () => ({ url, token: "scoped-capability" });
 const frame = (method: string, params: unknown = {}) => ({ jsonrpc: "2.0", id: 1, method, params });
 
 describe("browser capability proxy", () => {
+  it("refreshes a retained proxy's credential and refuses calls between turns", async () => {
+    status = 200;
+    payload = { result: { tools: [] } };
+    const directory = mkdtempSync(join(tmpdir(), "omb-browser-token-"));
+    const path = join(directory, "turn.token");
+    writeFileSync(path, "first-turn");
+    const child = spawn(process.execPath, ["--experimental-strip-types", fileURLToPath(new URL("./browser-proxy.ts", import.meta.url))], {
+      env: { OMB_HARNESS_URL: url, OMB_BROWSER_TOKEN: "old-launch-token", OMB_BROWSER_TOKEN_FILE: path },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const lines = createInterface({ input: child.stdout });
+    const call = () => new Promise<any>(resolve => {
+      lines.once("line", line => resolve(JSON.parse(line)));
+      child.stdin.write(JSON.stringify(frame("tools/list")) + "\n");
+    });
+    try {
+      await call();
+      expect(requests.at(-1)?.auth).toBe("Bearer first-turn");
+      writeFileSync(path, "second-turn");
+      await call();
+      expect(requests.at(-1)?.auth).toBe("Bearer second-turn");
+      unlinkSync(path);
+      const count = requests.length;
+      await expect(call()).resolves.toHaveProperty("error");
+      expect(requests.length).toBe(count);
+    } finally {
+      lines.close();
+      await waitForExit(child, { signal: "SIGTERM" });
+      await removeTempDir(directory);
+    }
+  });
   it("answers initialize/ping locally and ignores notifications", async () => {
     const count = requests.length;
     await expect(browserProxyRequest(frame("initialize"), connection())).resolves.toMatchObject({ result: { capabilities: { tools: {} } } });

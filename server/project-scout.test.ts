@@ -101,6 +101,7 @@ describe("suggestTeam", () => {
     expect(suggestion.manifest.team.members.map((member) => member.key)).toEqual(["lead", "frontend", "testing"]);
     expect(suggestion.reasons.frontend).toContain("react");
     expect(suggestion.manifest.team.description).toBe(profile.summary);
+    expect(suggestion.manifest.team.members.every(member => member.appearance?.color === "white")).toBe(true);
     const frontend = suggestion.manifest.team.members[1]!;
     expect(frontend.description).toContain("Maus Tracker");
     expect(frontend.description).toContain("react, vite");
@@ -109,6 +110,7 @@ describe("suggestTeam", () => {
   it("adds a generalist when nothing was detected", () => {
     const suggestion = suggestTeam({ name: "Mystery", summary: "", stacks: [], signals: [] });
     expect(suggestion.manifest.team.members.map((member) => member.key)).toEqual(["lead", "builder"]);
+    expect(suggestion.manifest.team.members.every(member => member.appearance?.color === "white")).toBe(true);
   });
 
   it("caps the lineup at a lead plus five specialists", () => {

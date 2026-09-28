@@ -244,6 +244,7 @@ export const POOLS = {
 } satisfies Record<MascotState, number[]>
 
 export const MAUS_COLOR_NAMES = [
+  "white",
   "green",
   "blue",
   "red",
@@ -259,6 +260,7 @@ export const MAUS_COLOR_NAMES = [
 export type MausColor = (typeof MAUS_COLOR_NAMES)[number];
 
 export const MAUS_COLORS = {
+  white: "#FFFFFF",
   green: "#009957",
   blue: "#377FE6",
   red: "#D94B52",
@@ -270,6 +272,9 @@ export const MAUS_COLORS = {
   teal: "#01A492",
   coral: "#E5634E",
 } satisfies Record<MausColor, string>;
+
+/** White bodies need a darker face to keep the eyes and mouth legible. */
+export const mascotEyeColor = (color: string): string => color === "white" ? "#334155" : "#f5ffff";
 
 interface LegacyStates {
   [state: string]: MascotState;

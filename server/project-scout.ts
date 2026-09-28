@@ -8,7 +8,6 @@ import {
   type TeamManifestMember,
   type TeamManifestV2,
 } from "./team-manifest.ts";
-import type { MausColor } from "./store.ts";
 
 /** What the scout can recognize a project needing. One role becomes one
  * suggested team member; the lead is always added on top. */
@@ -244,7 +243,6 @@ export function scoutProject(cwd: string): ProjectProfile {
 interface RoleTemplate {
   name: string;
   title: string;
-  color: MausColor;
   describe: (profile: ProjectProfile, evidence: string[]) => string;
 }
 
@@ -255,49 +253,42 @@ const ROLE_TEMPLATES: Record<ScoutRole, RoleTemplate> = {
   frontend: {
     name: "Pixel",
     title: "Frontend Builder",
-    color: "pink",
     describe: (profile, evidence) =>
       `You build and refine the user interface of ${profile.name}.${stackLine(profile)} Your turf shows up as ${evidence.join(", ")}. Keep changes small, match the existing component patterns, and check what you built actually renders before calling it done.`,
   },
   backend: {
     name: "Forge",
     title: "Backend Builder",
-    color: "blue",
     describe: (profile, evidence) =>
       `You own the server side of ${profile.name}: endpoints, business logic, and the contracts the frontend relies on.${stackLine(profile)} Your turf shows up as ${evidence.join(", ")}. Change behavior only alongside the tests that prove it.`,
   },
   mobile: {
     name: "Pocket",
     title: "Mobile Builder",
-    color: "coral",
     describe: (profile, evidence) =>
       `You keep ${profile.name} working on phones: screens, navigation, and platform quirks.${stackLine(profile)} Your turf shows up as ${evidence.join(", ")}. Test on both platforms before declaring victory.`,
   },
   data: {
     name: "Schema",
     title: "Data Engineer",
-    color: "teal",
     describe: (profile, evidence) =>
       `You own the data layer of ${profile.name}: models, migrations, and query performance.${stackLine(profile)} Your turf shows up as ${evidence.join(", ")}. Every migration ships with its rollback story.`,
   },
   testing: {
     name: "Probe",
     title: "Test Engineer",
-    color: "green",
     describe: (profile, evidence) =>
       `You guard ${profile.name} with tests: you reproduce bugs before they are fixed and extend coverage where changes land.${stackLine(profile)} Your turf shows up as ${evidence.join(", ")}. A red test you wrote is worth more than a green suite nobody trusts.`,
   },
   infra: {
     name: "Anchor",
     title: "Infra & CI",
-    color: "orange",
     describe: (profile, evidence) =>
       `You keep ${profile.name} buildable, shippable, and observable: CI, containers, and deploy paths.${stackLine(profile)} Your turf shows up as ${evidence.join(", ")}. Prefer boring, reproducible steps over clever ones.`,
   },
   docs: {
     name: "Quill",
     title: "Docs Writer",
-    color: "purple",
     describe: (profile, evidence) =>
       `You keep the documentation of ${profile.name} truthful and current.${stackLine(profile)} Your turf shows up as ${evidence.join(", ")}. When code and docs disagree, you chase down which one is lying.`,
   },
@@ -306,7 +297,6 @@ const ROLE_TEMPLATES: Record<ScoutRole, RoleTemplate> = {
 const LEAD: RoleTemplate = {
   name: "Compass",
   title: "Project Lead",
-  color: "yellow",
   describe: (profile) =>
     `You coordinate work on ${profile.name}: break briefs into tasks for the team, keep the room's bulletin current, and review results before they count as done.${stackLine(profile)}${profile.summary ? ` The project, in its own words: ${profile.summary}` : ""}`,
 };
@@ -329,7 +319,7 @@ export function suggestTeam(profile: ProjectProfile): TeamSuggestion {
       name: LEAD.name,
       title: LEAD.title,
       description: LEAD.describe(profile, []),
-      appearance: { color: LEAD.color },
+      appearance: { color: "white" },
     },
   ];
   for (const signal of profile.signals.slice(0, MAX_SUGGESTED_SPECIALISTS)) {
@@ -339,7 +329,7 @@ export function suggestTeam(profile: ProjectProfile): TeamSuggestion {
       name: template.name,
       title: template.title,
       description: template.describe(profile, signal.evidence),
-      appearance: { color: template.color },
+      appearance: { color: "white" },
     });
     reasons[signal.role] = `Detected via ${signal.evidence.join(", ")}.`;
   }
@@ -350,7 +340,7 @@ export function suggestTeam(profile: ProjectProfile): TeamSuggestion {
       name: "Wrench",
       title: "Builder",
       description: `You do the hands-on work in ${profile.name}: read the folder, make the change, show the result.${stackLine(profile)}`,
-      appearance: { color: "blue" },
+      appearance: { color: "white" },
     });
     reasons.builder = "No specific stack detected — a generalist covers the ground.";
   }

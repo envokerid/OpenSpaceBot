@@ -192,6 +192,34 @@ describe("createGateInterceptor", () => {
     expect(answer.result.content[0].text).toMatch(/taken control/i);
   });
 
+  it("captures queued calls before a later turn rotates authority", async () => {
+    let current = "first";
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => { release = resolve; });
+    const seen: string[] = [];
+    const refused: string[] = [];
+    const forwarded: string[] = [];
+    const intercept = createGateInterceptor({
+      isHeld: async () => { throw new Error("must use snapshot"); },
+      capture: () => {
+        const token = current;
+        return async () => { await barrier; seen.push(token); return token !== current; };
+      },
+      forward: (line) => { forwarded.push(line); },
+      refuse: (line) => { refused.push(line); },
+    });
+    const first = intercept(frame("tools/call", 1));
+    const queued = intercept(frame("tools/call", 2));
+    current = "second";
+    release();
+    await Promise.all([first, queued]);
+    expect(seen).toEqual(["first", "first"]);
+    expect(forwarded).toEqual([]);
+    expect(refused).toHaveLength(2);
+    await intercept(frame("tools/call", 3));
+    expect(forwarded).toEqual([frame("tools/call", 3)]);
+  });
+
   it("preserves protocol order even though the held-check is async", async () => {
     const order: string[] = [];
     let calls = 0;

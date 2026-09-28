@@ -9,7 +9,9 @@
 //
 // resumeCursor is the codex thread id; a later turn tries thread/resume
 // and preserves that history or reports a failed resume.
+import { sessionContract } from "./session-contract.ts";
 import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { codexConfigMcpServerNames, mountedMcpServerName } from "./codex-mcp-names.ts";
 
@@ -26,6 +28,7 @@ import type {
   RuntimeEvent,
   RuntimeEventListener,
   SendTurnInput,
+  PrepareSessionInput,
   SteerOutcome,
 } from "../contracts.ts";
 import { newEventId, newId } from "../contracts.ts";
@@ -35,7 +38,7 @@ import { augmentedPath, splitCliString } from "../env-path.ts";
 import { classifyError, computeBackoff, interruptibleDelay, RETRY_MAX_ATTEMPTS } from "./retry.ts";
 import { appendNative } from "./native.ts";
 import { commandSummary, toolDetailPreview } from "../tool-summary.ts";
-import { codexDeveloperInstructions, syncCodexInstructions } from "./codex-instructions.ts";
+import { codexDeveloperInstructions, codexTurnContextInstructions, syncCodexInstructions, syncCodexTurnContext } from "./codex-instructions.ts";
 import type { ApprovalMode } from "../../shared/approval-mode.ts";
 import { CodexDeviceAuthController } from "./codex-device-auth.ts";
 import { codexAccountEmail } from "./codex-identity.ts";
@@ -122,16 +125,27 @@ export interface CodexConfig {
   fullAuto: boolean;
   /** Fast ChatGPT service tier for personal Codex turns; defaults on. */
   fastMode?: boolean;
+  /** Explicit per-engine opt-outs; never rewrite the user's Codex config. */
+  disabledUserMcpServers?: string[];
+  nativeApps?: boolean;
   /** Ephemeral Company routing, supplied by the trusted desktop parent. */
   managed?: { url: string; models: string[] };
 }
 
 function decodeConfig(raw: unknown): CodexConfig {
   const o = (raw ?? {}) as Record<string, unknown>;
+  if (o.disabledUserMcpServers !== undefined && (!Array.isArray(o.disabledUserMcpServers) ||
+    o.disabledUserMcpServers.length > 64 || o.disabledUserMcpServers.some(name =>
+      typeof name !== "string" || !/^[\w-]{1,100}$/.test(name)))) {
+    throw new Error("Disabled Codex MCP servers must be a list of server names.");
+  }
+  if (o.nativeApps !== undefined && typeof o.nativeApps !== "boolean") throw new Error("Codex nativeApps must be boolean.");
   return {
     cli: typeof o.cli === "string" ? o.cli : "codex",
     fullAuto: o.fullAuto === true,
     fastMode: o.fastMode !== false,
+    ...(Array.isArray(o.disabledUserMcpServers) ? { disabledUserMcpServers: [...new Set(o.disabledUserMcpServers as string[])] } : {}),
+    ...(typeof o.nativeApps === "boolean" ? { nativeApps: o.nativeApps } : {}),
     ...(o.managed && typeof o.managed === "object" ? { managed: decodeManagedCodex(o.managed) } : {}),
   };
 }
@@ -597,7 +611,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     const authentication = new CodexDeviceAuthController({
       cli: config.cli,
       environment: childEnv,
-      onAuthenticated: refreshModels,
+      onAuthenticated: async () => { await stopAll(); await refreshModels(); },
     });
     const listeners = new Set<RuntimeEventListener>();
     interface Turn {
@@ -611,8 +625,47 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       asks: Map<string, (behavior: "allow" | "deny" | "answer", message?: string, source?: "user" | "timeout" | "system") => void>;
     }
     const active = new Map<string, Turn>();
+    // A runtime belongs to one conversation. Its protocol reader stays alive
+    // between turns; only the turn handlers are replaced. Unique RPC ids and
+    // native turn ids keep late output from entering a later turn.
+    interface Session {
+      child: ReturnType<typeof spawnCli>;
+      key: string;
+      initialized: boolean;
+      nextId: number;
+      sensitiveResponseIds: Set<number>;
+      nativeId: string | null;
+      usedByTurn: boolean;
+      preparationTimer?: ReturnType<typeof setTimeout>;
+      usageBaseline?: { input: number; output: number; cachedInput: number };
+      onMessage: (message: any) => void;
+      onError: (error: Error) => void;
+      onStderr: (chunk: Buffer) => void;
+      onClose: (code: number | null, signal: NodeJS.Signals | null) => void;
+    }
+    const sessions = new Map<string, Session>();
+    const preparationWaiters = new Map<string, Set<{ cancelled: boolean }>>();
+    let disposed = false;
+    let stoppingAll: Promise<void> | undefined;
+    const closeSession = async (threadId: string) => {
+      const session = sessions.get(threadId);
+      if (!session) return;
+      clearTimeout(session.preparationTimer);
+      if (await killCliTree(session.child)) {
+        if (sessions.get(threadId) === session) sessions.delete(threadId);
+      } else {
+        throw new Error("codex did not shut down after termination was requested");
+      }
+    };
 
-    const emit = (event: RuntimeEvent) => {
+    const stopAll = (): Promise<void> => stoppingAll ??= (async () => {
+      for (const waiters of preparationWaiters.values()) for (const waiter of waiters) waiter.cancelled = true;
+      await Promise.all([...active.values()].map(({ stop }) => stop()));
+      if (active.size) throw new Error("Codex is still stopping. Retry after its turns have ended.");
+      await Promise.all([...sessions.keys()].map(closeSession));
+    })().finally(() => { stoppingAll = undefined; });
+
+    const publish = (event: RuntimeEvent) => {
       for (const l of Array.from(listeners)) l(event);
     };
     const base = (threadId: string, turnId: string) => ({
@@ -623,7 +676,21 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       createdAt: new Date().toISOString(),
     });
 
-    const sendTurn = async (turn: SendTurnInput) => {
+    const preparations = new Map<string, Promise<void>>();
+    const runTurn = async (turn: SendTurnInput, preparation?: {
+      resolve: () => void;
+      reject: (error: Error) => void;
+    }) => {
+      let preparationError = "Codex session preparation failed";
+      const emit = (event: RuntimeEvent) => {
+        if (!preparation) { publish(event); return; }
+        if (event.type === "runtime.error") preparationError = event.message;
+        if (event.type === "turn.completed") {
+          if (event.ok) preparation.resolve();
+          else preparation.reject(Object.assign(new Error(preparationError), { name: event.stopReason === "interrupted" ? "AbortError" : "Error" }));
+        }
+      };
+      if (disposed || stoppingAll) throw new Error("Codex is shutting down");
       if (config.managed) {
         // One blanket refusal hides which prerequisite broke; name it so the
         // person can fix the actual gap instead of reconnecting blind.
@@ -663,6 +730,10 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       let autoAcceptPermissions = approvalMode === "full";
       if (active.has(threadId)) throw new Error("a turn is already running on this thread");
       const turnId = newId();
+      // Preserve the waiting conversation's cursor across a retry even for
+      // adapter callers that do not explicitly supply a resume cursor.
+      const retainedCursor = turn.sessionReset ? null :
+        typeof turn.resumeCursor === "string" ? turn.resumeCursor : sessions.get(threadId)?.nativeId ?? null;
       // a retry relaunches the whole app-server; the backoff is scaled down in
       // tests so a fake's transient failures don't stall real seconds
       const retryScale = Number(process.env.FAKE_CODEX_RETRY_SCALE ?? "1");
@@ -683,6 +754,20 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             ? ["-c", `service_tier=${JSON.stringify(personalServiceTier)}`, "-c", "features.fast_mode=true"]
             : []),
         ];
+        const declaredInCodexConfig = codexConfigMcpServerNames(env);
+        // Only disable declarations that exist in this account's config.
+        // An enabled=false table with no transport can itself be invalid.
+        // App-mounted tools remain controlled by their bot selections.
+        const appMounted = new Set(["agents", "computer", "browser", "openmausbot_connectors", "openmausbot_phone"]);
+        for (const name of config.disabledUserMcpServers ?? []) {
+          if (declaredInCodexConfig.has(name) && !appMounted.has(name)) {
+            // CLI -c splits dotted paths itself; quoted components become
+            // literal names instead of TOML quoting. Names are validated by
+            // decodeConfig, so this bare component cannot inject a path.
+            appServerArgs.push("-c", `mcp_servers.${name}.enabled=false`);
+          }
+        }
+        if (config.nativeApps === false) appServerArgs.push("-c", "features.apps=false");
         if (turn.integrations?.composio) {
           mountMcpServer(appServerArgs, env, "openmausbot_connectors", turn.integrations.composio);
         }
@@ -701,7 +786,6 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         // be merged with it by the `-c` override — a stdio command over a
         // remote url is "invalid configuration" and kills the turn before the
         // model is asked. Such a server mounts under a name of its own.
-        const declaredInCodexConfig = codexConfigMcpServerNames(env);
         for (const [name, server] of Object.entries(turn.integrations?.custom ?? {})) {
           // codex speaks streamable HTTP to a remote server, not the older
           // SSE transport: such an entry still reaches Claude bots, and is
@@ -726,11 +810,63 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           );
         }
 
-        const child = spawnCli(config.cli, appServerArgs, {
-          cwd: turn.cwd ?? homedir(),
-          env,
-          stdio: ["pipe", "pipe", "pipe"],
-        });
+        // Include credentials in the hash, never in a log. An integration
+        // without a refresh channel must restart when its credentials change.
+        const key = createHash("sha256").update(JSON.stringify({
+          args: appServerArgs, env: sessionContract(env), cwd: turn.cwd ?? homedir(), model: turn.model,
+        })).digest("hex");
+        let session = sessions.get(threadId);
+        if (session && !preparation) clearTimeout(session.preparationTimer);
+        if (session && (session.key !== key || turn.sessionReset ||
+            (turn.resumeCursor && turn.resumeCursor !== session.nativeId) ||
+            session.child.exitCode !== null || session.child.signalCode !== null)) {
+          // Reserve the thread while waiting for the old process to stop.
+          const retiring = closeSession(threadId);
+          active.set(threadId, { turnId, asks: new Map(), stop: async () => {
+            stopRequested = true;
+            stopSignal.abort();
+            await retiring;
+            return true;
+          } });
+          await retiring;
+          session = undefined;
+        }
+        if (stopRequested) {
+          active.delete(threadId);
+          emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "interrupted", cost: null });
+          return;
+        }
+        if (!session) {
+          const child = spawnCli(config.cli, appServerArgs, {
+            cwd: turn.cwd ?? homedir(), env, stdio: ["pipe", "pipe", "pipe"],
+          });
+          session = { child, key, initialized: false, nextId: 1, sensitiveResponseIds: new Set(), nativeId: null, usedByTurn: false,
+            onMessage: () => {}, onError: () => {}, onStderr: () => {}, onClose: () => {} };
+          sessions.set(threadId, session);
+          const created = session;
+          let buffer = "";
+          child.stdout.setEncoding("utf8");
+          child.stdout.on("data", (chunk: string) => {
+            buffer += chunk;
+            let nl;
+            while ((nl = buffer.indexOf("\n")) !== -1) {
+              const line = buffer.slice(0, nl);
+              buffer = buffer.slice(nl + 1);
+              if (!line.trim()) continue;
+              let message: any;
+              try { message = JSON.parse(line); } catch { continue; }
+              created.onMessage(message);
+            }
+          });
+          child.stderr.on("data", (chunk: Buffer) => created.onStderr(chunk));
+          child.on("error", (error) => created.onError(error));
+          child.on("close", (code, signal) => {
+            if (sessions.get(threadId) === created) sessions.delete(threadId);
+            created.onClose(code, signal);
+          });
+        }
+        const liveSession = session;
+        const child = liveSession.child;
 
       let abandoned = false;
       let codexThreadId: string | null = null;
@@ -747,12 +883,11 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         // whatever the process already carried before turn/start (a resumed
         // thread may restore earlier usage), banked on settle.
         usage: undefined as { input: number; output: number; cachedInput?: number } | undefined,
-        usageBaseline: undefined as { input: number; output: number; cachedInput: number } | undefined,
+        usageBaseline: liveSession.usageBaseline,
       };
 
       const asks = new Map<string, (behavior: "allow" | "deny" | "answer", message?: string, source?: "user" | "timeout" | "system") => void>();
-      let nextId = 1;
-      const sensitiveResponseIds = new Set<number>();
+      const sensitiveResponseIds = liveSession.sensitiveResponseIds;
       const rpcPending = new Map<number, {
         resolve: (v: any) => void;
         reject: (e: Error) => void;
@@ -770,7 +905,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       };
       const request = (method: string, params: unknown, timeoutMs = 60_000) =>
         new Promise<any>((resolve, reject) => {
-          const id = nextId++;
+          const id = liveSession.nextId++;
           if (method === "config/read") sensitiveResponseIds.add(id);
           // a wedged app-server can accept stdin and never reply; without this
           // the handshake await hangs forever and the bot stays busy for good
@@ -825,8 +960,8 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       // signal. Killing first surfaced routine stops as "codex exited null
       // (signal SIGTERM) before turn/completed"; the protocol interrupt keeps
       // the session the authority, and the kill below is only escalation for
-      // a server that will not answer. settle() runs with state.settled
-      // already true, so ordinary completion still tears down immediately.
+      // a server that will not answer. A successful completion leaves the
+      // runtime waiting; failed or interrupted turns still reap the process.
       let interruptRequested = false;
       const stop = async () => {
         stopRequested = true;
@@ -844,7 +979,6 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           while (!state.settled && Date.now() < deadline) {
             await new Promise((wake) => setTimeout(wake, 15));
           }
-          if (state.settled) return true;
         }
         const stopped = await terminate();
         if (stopped) completeStoppedTurn?.();
@@ -863,6 +997,27 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason, cost: null, ...(state.usage ? { usage: state.usage } : {}) });
         };
         completeStoppedTurn = complete;
+        if (ok && !stopRequested && child.exitCode === null && child.signalCode === null) {
+          liveSession.nativeId = codexThreadId;
+          if (!preparation) liveSession.usedByTurn = true;
+          if (preparation && !liveSession.usedByTurn) {
+            // A selected chat may never receive a message. Keep speculative
+            // setup bounded; actual conversations retain their normal life.
+            clearTimeout(liveSession.preparationTimer);
+            liveSession.preparationTimer = setTimeout(() => {
+              if (sessions.get(threadId) === liveSession && !active.has(threadId))
+                void closeSession(threadId).catch(() => {});
+            }, 120_000);
+            liveSession.preparationTimer.unref?.();
+          }
+          if (state.usage) liveSession.usageBaseline = {
+            input: (state.usageBaseline?.input ?? 0) + state.usage.input,
+            output: (state.usageBaseline?.output ?? 0) + state.usage.output,
+            cachedInput: (state.usageBaseline?.cachedInput ?? 0) + (state.usage.cachedInput ?? 0),
+          };
+          complete();
+          return;
+        }
         if (!(await stop())) {
           emit({ ...base(threadId, turnId), type: "runtime.error", message: "codex did not shut down after termination was requested" });
         }
@@ -900,6 +1055,13 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       // local-computer-block backstop applies to remembered always-allows.
       const controlsHost = turn.integrations?.localComputer?.scope === "local-computer";
       const handleServerRequest = (msg: any) => {
+        const staleParent = msg.params?.threadId === codexThreadId &&
+          typeof msg.params?.turnId === "string" && codexTurnId !== null && msg.params.turnId !== codexTurnId;
+        if (preparation || state.settled || abandoned || stopRequested || staleParent) {
+          send({ jsonrpc: "2.0", id: msg.id, error: { code: -32000,
+            message: preparation ? "OpenMausBot: session preparation cannot grant permissions" : "OpenMausBot: the turn ended" } });
+          return;
+        }
         const method = msg.method as string;
         const params = msg.params ?? {};
         const legacy = method === "execCommandApproval" || method === "applyPatchApproval";
@@ -1229,41 +1391,24 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         }
       };
 
-      let buf = "";
-      // decode as UTF-8 across chunk boundaries — a raw `buf += chunk` splits
-      // multibyte characters that straddle two reads and corrupts the text
-      child.stdout.setEncoding("utf8");
-      child.stdout.on("data", (chunk) => {
-        if (abandoned || state.settled) return;
-        buf += chunk;
-        let nl;
-        while (!state.settled && (nl = buf.indexOf("\n")) !== -1) {
-          const line = buf.slice(0, nl);
-          buf = buf.slice(nl + 1);
-          if (!line.trim()) continue;
-          let msg: any;
-          try {
-            msg = JSON.parse(line);
-          } catch {
-            continue;
+      liveSession.onMessage = (msg: any) => {
+        if (abandoned) return;
+        stderrSinceOutput = "";
+        const loggedMessage = codexNativeIncomingLogMessage(msg, sensitiveResponseIds);
+        appendNative(threadId, { dir: "in", source: "codex.app-server", msg: loggedMessage });
+        if (msg.id !== undefined && (msg.result !== undefined || msg.error !== undefined)) {
+          const pend = rpcPending.get(msg.id);
+          if (pend) {
+            rpcPending.delete(msg.id);
+            if (msg.error) pend.reject(new CodexRpcError(msg.error));
+            else pend.resolve(msg.result);
           }
-          stderrSinceOutput = "";
-          const loggedMessage = codexNativeIncomingLogMessage(msg, sensitiveResponseIds);
-          appendNative(threadId, { dir: "in", source: "codex.app-server", msg: loggedMessage });
-          if (msg.id !== undefined && (msg.result !== undefined || msg.error !== undefined)) {
-            const pend = rpcPending.get(msg.id);
-            if (pend) {
-              rpcPending.delete(msg.id);
-              if (msg.error) pend.reject(new CodexRpcError(msg.error));
-              else pend.resolve(msg.result);
-            }
-          } else if (msg.id !== undefined && msg.method) {
-            handleServerRequest(msg);
-          } else if (msg.method) {
-            handleNotification(msg);
-          }
+        } else if (msg.id !== undefined && msg.method) {
+          handleServerRequest(msg);
+        } else if (msg.method && !state.settled) {
+          handleNotification(msg);
         }
-      });
+      };
 
       let stderr = "";
       // Stderr that arrived after the last parsed protocol message. The
@@ -1273,23 +1418,24 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       // process). Only this slice can explain an exit; older bytes are
       // context, not cause.
       let stderrSinceOutput = "";
-      child.stderr.on("data", (c) => {
+      liveSession.onStderr = (c) => {
         stderr += c;
         stderrSinceOutput += c;
         if (stderr.length > 8192) stderr = stderr.slice(-8192);
         if (stderrSinceOutput.length > 2048) stderrSinceOutput = stderrSinceOutput.slice(-2048);
-      });
-      child.on("error", (e) => {
-        if (abandoned) return;
+      };
+      liveSession.onError = (e) => {
+        if (abandoned || state.settled) return;
         emit({ ...base(threadId, turnId), type: "runtime.error", ...describeSpawnFailure(e, config.cli) });
         void settle(false, "spawn_error");
-      });
-      child.on("close", (code, signal) => {
+      };
+      liveSession.onClose = (code, signal) => {
         if (abandoned) return;
         if (state.settled) {
           // Root exit alone cannot release a turn after an uncertain stop.
           // Recheck its group; an explicit later Stop can also retry this.
-          void stop();
+          if (active.get(threadId)?.stop === stop) void stop();
+          else void terminate(); // reap MCP descendants after an idle crash
           return;
         }
         // An intentional stop killed (or outlived) the child before the
@@ -1362,7 +1508,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           }`,
         });
         void settle(false, "exit_before_result");
-      });
+      };
 
       active.set(threadId, { stop, turnId, asks, steer: steerActiveTurn });
       // Relaunching the app-server is still the same logical turn. Keep the
@@ -1373,14 +1519,17 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       // one relaunch of the whole app-server after backoff — but only when
       // nothing streamed yet, and never for auth/shape errors or interrupts
       try {
-        await request("initialize", {
-          clientInfo: { name: "openmausbot", version: "1" },
-          // Named permission profiles are an experimental app-server field in
-          // Codex 0.151. Negotiate them explicitly; older servers ignore this
-          // capability and remain on the legacy Custom fallback below.
-          capabilities: { experimentalApi: true },
-        });
-        send({ jsonrpc: "2.0", method: "initialized", params: {} });
+        if (!liveSession.initialized) {
+          await request("initialize", {
+            clientInfo: { name: "openmausbot", version: "1" },
+            // Named permission profiles are an experimental app-server field in
+            // Codex 0.151. Negotiate them explicitly; older servers ignore this
+            // capability and remain on the legacy Custom fallback below.
+            capabilities: { experimentalApi: true },
+          });
+          send({ jsonrpc: "2.0", method: "initialized", params: {} });
+          liveSession.initialized = true;
+        }
         // developerInstructions replaces, rather than appends to, native
         // config. Read it for every approval mode so existing rules survive.
         // request() already redacts config/read responses from native logs.
@@ -1403,7 +1552,16 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
               : "Could not read Codex configuration; cannot safely update bot instructions. Retry after checking Codex.",
           );
         }
-        const developerInstructions = codexDeveloperInstructions(effectiveConfig, turn.system ?? "");
+        const developerInstructions = codexDeveloperInstructions(effectiveConfig, turn.systemStable ?? turn.system ?? "");
+        const preservePreparedInstructions = Boolean(preparation &&
+          turn.system === undefined && turn.systemStable === undefined && turn.systemVolatile === undefined);
+        // The native configuration always carries the complete current
+        // instructions for compaction. Only the receipts/history updates
+        // separate standing policy from changing context.
+        const currentInstructions = turn.systemVolatile
+          ? codexDeveloperInstructions(effectiveConfig,
+            `${turn.systemStable ?? turn.system ?? ""}\n\n${codexTurnContextInstructions(turn.systemVolatile)}`)
+          : developerInstructions;
         let approvalParams: CodexApprovalParams;
         if (approvalMode === "custom") {
           // config/read returns the effective global + project config for this
@@ -1418,10 +1576,10 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         // mode may synthesize approvals; Custom must preserve the sandbox
         // boundary from config.toml (for example never + read-only).
         autoAcceptPermissions = approvalMode === "full";
-        // Each turn launches a new app-server. Reassert current bot instructions
-        // on start AND resume so Codex owns their lifetime through compaction.
+        // Reassert current bot instructions on start AND resume so Codex
+        // owns their lifetime through compaction, even on a retained runtime.
         // Removed bot rules are cleared without dropping native configured rules.
-        const cursor = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
+        const cursor = retainedCursor;
         let startedModel: string | null = null;
         let resumedNativeThread = false;
         let rebuiltFromReplay = false;
@@ -1429,8 +1587,9 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         if (cursor) {
           const resumeThread = () => request("thread/resume", {
             threadId: cursor,
+            excludeTurns: true,
             ...(turn.cwd ? { cwd: turn.cwd } : {}),
-            developerInstructions,
+            ...(!preservePreparedInstructions ? { developerInstructions: currentInstructions } : {}),
             ...approvalParams.thread,
           });
           try {
@@ -1469,8 +1628,12 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         }
         if (!codexThreadId) {
           const selection = config.managed ? { model: turn.model, modelProvider: "openmaus_company" } : decodeCodexSelection(turn.model);
+          // Initial context can travel with thread/start. Injecting it in a
+          // separate RPC forces a history flush before the first turn and
+          // adds a measured ~1s cold-start wait. Keep the standing receipt
+          // separate so later context changes never repeat the full rules.
           const startThread = () => request("thread/start", {
-              developerInstructions,
+              developerInstructions: currentInstructions,
               cwd: turn.cwd ?? homedir(),
               model: selection.model,
               ...(selection.modelProvider ? { modelProvider: selection.modelProvider } : {}),
@@ -1489,8 +1652,20 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           startedModel = started?.model ?? null;
         }
         if (!codexThreadId) throw new Error("Codex did not return a native thread id");
-        await syncCodexInstructions(instanceId, codexThreadId, developerInstructions, resumedNativeThread, request);
+        const rulesUpdated = resumedNativeThread && preservePreparedInstructions ? false :
+          await syncCodexInstructions(instanceId, codexThreadId, developerInstructions, resumedNativeThread, request);
+        if (turn.systemVolatile !== undefined) {
+          // A standing-rule replacement supersedes the initial combined
+          // block too. Reassert even unchanged context after that update.
+          await syncCodexTurnContext(instanceId, codexThreadId, turn.systemVolatile, request, !resumedNativeThread, rulesUpdated);
+        }
         emit({ ...base(threadId, turnId), type: "session.started", sessionId: codexThreadId, model: startedModel ?? turn.model ?? null, ...(rebuiltFromReplay ? { rebuilt: true } : {}) });
+        if (preparation) {
+          // Native thread setup may prepare its transport in the background.
+          // Never submit an empty user turn or grant startup permission asks.
+          await settle(true, null);
+          return;
+        }
         const turnInput = [
           ...(promptText ? [{ type: "text" as const, text: promptText }] : []),
           ...(turn.images ?? []).map((image) => ({ type: "localImage" as const, path: image.path })),
@@ -1572,8 +1747,65 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       }
     };
 
-    void launchAttempt(0).catch(() => {});
+    void launchAttempt(0).catch((error: unknown) => {
+      if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
+      emit({ ...base(threadId, turnId), type: "runtime.error", message: error instanceof Error ? error.message : String(error) });
+      emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "spawn_error", cost: null });
+    });
     return { turnId };
+  };
+
+  const prepareSession = (turn: PrepareSessionInput): Promise<void> => {
+    const pending = preparations.get(turn.threadId);
+    if (pending) return pending;
+    // These bridges read credentials at request admission. A missing file
+    // fails closed; a live token must never become usable during preparation.
+    for (const [name, token] of [
+      ["agents", "OMB_COMMS_TOKEN"], ["composio", "OMB_CONNECTOR_TOKEN"],
+      ["browser", "OMB_BROWSER_TOKEN"], ["localComputer", "OMB_CONTROL_TOKEN"],
+    ] as const) {
+      const bridge = turn.integrations?.[name];
+      if (!bridge) continue;
+      const path = bridge.env[`${token}_FILE`];
+      if (!path || existsSync(path)) return Promise.reject(new Error("Session preparation requires inactive, revocable tool credentials"));
+    }
+    if (turn.integrations?.phone || turn.integrations?.computer || turn.integrations?.hooks)
+      return Promise.reject(new Error("This integration does not support inactive session preparation"));
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    const pendingPreparation = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
+    preparations.set(turn.threadId, pendingPreparation);
+    const clear = () => {
+      if (preparations.get(turn.threadId) === pendingPreparation) preparations.delete(turn.threadId);
+    };
+    void pendingPreparation.then(clear, clear);
+    void runTurn({ ...turn, text: "" }, { resolve, reject }).catch(reject);
+    return pendingPreparation;
+  };
+
+  const sendTurn = async (turn: SendTurnInput) => {
+    // A real request may arrive while the native handshake is finishing.
+    // Failed preparation is only a cache miss; the real turn gets its normal
+    // setup/error handling, with current rules and credentials revalidated.
+    const preparation = preparations.get(turn.threadId);
+    if (preparation) {
+      const waiter = { cancelled: false };
+      const waiters = preparationWaiters.get(turn.threadId) ?? new Set();
+      waiters.add(waiter);
+      preparationWaiters.set(turn.threadId, waiters);
+      try {
+        await preparation.catch((error: unknown) => {
+          if (error instanceof Error && error.name === "AbortError") throw error;
+        });
+        // Stop can arrive during failure cleanup or between setup completion
+        // and this continuation. It must cancel the waiting real send too.
+        if (waiter.cancelled) throw Object.assign(new Error("Codex session preparation was stopped"), { name: "AbortError" });
+      } finally {
+        waiters.delete(waiter);
+        if (!waiters.size) preparationWaiters.delete(turn.threadId);
+      }
+    }
+    return runTurn(turn);
   };
 
   const snapshot = async (): Promise<ProviderSnapshot> => {
@@ -1616,7 +1848,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     startAuthentication: () => authentication.start(),
     getAuthentication: (flowId) => authentication.get(flowId),
     cancelAuthentication: () => authentication.cancel(),
-    signOut: () => authentication.signOut(),
+    signOut: async () => { await stopAll(); return authentication.signOut(); },
     snapshot,
     adapter: {
       provider: DRIVER_KIND,
@@ -1636,8 +1868,12 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         strictResume: true,
       },
       sendTurn,
+      prepareSession,
       interruptTurn: async (threadId) => {
-        await active.get(threadId)?.stop();
+        for (const waiter of preparationWaiters.get(threadId) ?? []) waiter.cancelled = true;
+        const turn = active.get(threadId);
+        if (turn) await turn.stop();
+        else await closeSession(threadId);
       },
       steer: async (threadId, text) => {
         const turn = active.get(threadId);
@@ -1650,18 +1886,18 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         finish(decision.behavior, decision.message, "user");
         return decision.behavior === "allow" ? "allowed-once" : decision.behavior === "answer" ? "answered" : "rejected";
       },
-      hasSession: (threadId) => active.has(threadId),
-      stopAll: async () => {
-        await Promise.all([...active.values()].map(({ stop }) => stop()));
-      },
+      hasSession: (threadId) => active.has(threadId) || sessions.has(threadId),
+      releaseSession: closeSession,
+      stopAll,
       onEvent: (listener) => {
         listeners.add(listener);
         return () => listeners.delete(listener);
       },
     },
     dispose: async () => {
+      disposed = true;
       await authentication.dispose();
-      await Promise.all([...active.values()].map(({ stop }) => stop()));
+      await stopAll();
       listeners.clear();
     },
   };

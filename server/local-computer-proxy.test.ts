@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createInterface } from "node:readline";
 import { createRequire } from "node:module";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { delimiter, dirname, join } from "node:path";
@@ -53,6 +53,8 @@ describe("local computer proxy (isolated child and control endpoint)", () => {
     const control = { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/control`, token: "isolated-control-token" };
     let connection = gatedLocalComputer(original, control);
     const home = mkdtempSync(join(tmpdir(), "omb-cua-launch-"));
+    const tokenFile = join(home, "computer.token");
+    writeFileSync(tokenFile, control.token, { mode: 0o600 });
     let child: ChildProcess | undefined;
     try {
       if (runtime === "electron") {
@@ -75,6 +77,7 @@ describe("local computer proxy (isolated child and control endpoint)", () => {
         expect(pathToFileURL(connection.command).href).toBe(pathToFileURL(electron).href);
       }
       expect(connection.env.ELECTRON_RUN_AS_NODE).toBe("1");
+      connection.env.OMB_CONTROL_TOKEN_FILE = tokenFile;
       child = spawn(connection.command, connection.args, { env: { ...process.env, ...connection.env,
         HOME: home, USERPROFILE: home, OMB_EXTRA_PATH: dirname(process.execPath), PATH: "",
       }, stdio: ["pipe", "pipe", "pipe"] });
@@ -111,13 +114,20 @@ describe("local computer proxy (isolated child and control endpoint)", () => {
       unavailable = true;
       expect((await rpc("tools/call", { name: "click" })).result.isError).toBe(true);
       unavailable = false;
+      expect(auth.every((header) => header === "Bearer isolated-control-token")).toBe(true);
+      unlinkSync(tokenFile);
+      const readsBeforeRevoked = reads;
+      expect((await rpc("tools/call", { name: "click" })).result.isError).toBe(true);
+      expect(reads).toBe(readsBeforeRevoked);
+      writeFileSync(tokenFile, "next-turn-control-token", { mode: 0o600 });
       const exited = once(child, "exit");
       const final = await rpc("tools/call", { name: "screenshot", large: true }, true);
       expect(final.result.calls).toBe(2);
       expect(final.result.tail).toHaveLength(150_000);
       expect(await exited).toEqual([0, null]);
-      expect(auth.every((header) => header === "Bearer isolated-control-token")).toBe(true);
+      expect(auth.at(-1)).toBe("Bearer next-turn-control-token");
       expect(stderr).not.toContain("isolated-control-token");
+      expect(stderr).not.toContain("next-turn-control-token");
     } finally {
       if (child && child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
       await new Promise<void>((resolve) => server.close(() => resolve()));

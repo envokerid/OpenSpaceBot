@@ -20,8 +20,12 @@ const renderBot = (bot: Partial<BotAvatarProps["bot"]>) =>
   );
 
 describe("MausAvatar body", () => {
-  it("wears the cursor when no body is given", () => {
-    expect(render({})).toContain(MASCOT_BODIES.cursor.fit);
+  it("keeps the white orb's eyes visible", () => {
+    expect(render({ color: "white" })).toContain('fill="#334155"');
+  });
+
+  it("uses the reference orb as the default mascot", () => {
+    expect(render({})).toContain('data-mascot="orb-3d"');
   });
 
   it("wears the body it is given", () => {
@@ -29,13 +33,13 @@ describe("MausAvatar body", () => {
     expect(markup).toContain(MASCOT_BODIES.star.fit);
   });
 
-  it("falls back to the cursor for an unknown body", () => {
+  it("falls back to the orb for an unknown body", () => {
     // SAFETY: "hexagram" is deliberately not a valid MascotBodyId — this
     // exercises the runtime schema fallback for a value that could arrive
     // from persisted/streamed data, which the type system would otherwise
     // rule out at this call site.
     expect(render({ bodyId: "hexagram" as MausAvatarProps["bodyId"] })).toContain(
-      MASCOT_BODIES.cursor.fit,
+      'data-mascot="orb-3d"',
     );
   });
 
@@ -101,5 +105,19 @@ describe("resolveBotAvatarOutcome", () => {
     expect(
       resolveBotAvatarOutcome({ avatarCrop: "square", hasUrl: false, imageFailed: false }),
     ).toBe("gradientMascot");
+  });
+});
+
+
+describe("automatic avatar situations", () => {
+  it("lets live typing and teammate waits override a resting expression", () => {
+    const renderLive = (bot: Partial<BotAvatarProps["bot"]>) => renderToStaticMarkup(createElement(BotAvatar, { bot: { name: "Maus", color: "blue", ...bot }, state: "happy" }));
+    expect(renderLive({ typing: true })).toContain('data-state="writing"');
+    expect(renderLive({ waitingForTeammates: true })).toContain('data-state="orbit"');
+    expect(renderLive({ activity: "waiting-on-you" })).toContain('data-state="listening"');
+  });
+  it("keeps explicit situation previews independent from live activity", () => {
+    const markup = renderToStaticMarkup(createElement(BotAvatar, { bot: { name: "Maus", color: "blue", waitingForTeammates: true }, automatic: false, state: "excited" }));
+    expect(markup).toContain('data-state="excited"');
   });
 });

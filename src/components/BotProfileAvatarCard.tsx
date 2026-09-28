@@ -17,6 +17,7 @@ import {
   type BotAvatarCrop,
 } from "../../shared/bot-avatar";
 import { MASCOT_BODIES, MASCOT_BODY_IDS } from "../../shared/mascot-bodies";
+import { MASCOT_SCENARIOS } from "../../shared/mascot-triggers";
 import { BotAvatar, MausAvatar } from "./Avatar";
 import { AvatarImageGenerator } from "./AvatarImageGenerator";
 import { useOrganizationBranding } from "@/lib/use-organization-branding";
@@ -43,6 +44,7 @@ export function BotProfileAvatarCard({
   mascotMotion: { kind: Exclude<MausMotion, "none">; nonce: number } | null;
   onPatch: (patch: AvatarPatch) => void;
 }) {
+  const [preview, setPreview] = useState<MausState | null>(null);
   const { flushBotPatches } = useStore();
   const organization = useOrganizationBranding();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -118,7 +120,7 @@ export function BotProfileAvatarCard({
         <span className="rounded-lg bg-control px-3 py-1.5 text-[14px] font-medium text-ink">Avatar</span>
         <button
           disabled={busy}
-          onClick={() => onPatch({ avatarCrop: "mascot", color: "green", mascotExpression: null, mascotBody: "cursor" })}
+          onClick={() => { setPreview(null); onPatch({ avatarCrop: "mascot", color: "white", mascotExpression: null, mascotBody: "cursor" }); }}
           className="rounded-md px-2 py-1.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink disabled:opacity-50"
         >
           Reset mascot
@@ -138,13 +140,21 @@ export function BotProfileAvatarCard({
         <div className="flex justify-center py-3">
           <BotAvatar
             bot={bot}
-            state={activeState}
+            state={preview ?? activeState}
+            automatic={preview === null}
             size={112}
-            motion={mascotMotion?.kind ?? "none"}
+            motion={preview ? "none" : mascotMotion?.kind ?? "none"}
             motionKey={mascotMotion?.nonce ?? 0}
           />
         </div>
 
+        {crop === "mascot" && <div className="mb-3">
+          <div className="mb-2 text-[12px] text-ink-secondary">Try a situation</div>
+          <div className="flex flex-wrap gap-1.5">
+            <button type="button" aria-pressed={preview === null} onClick={() => setPreview(null)} className="rounded-lg bg-control px-2 py-1.5 text-[12px]">Live activity</button>
+            {MASCOT_SCENARIOS.map(({ label, state }) => <button key={state} type="button" aria-label={`Preview ${label.toLowerCase()}`} aria-pressed={preview === state} onClick={() => setPreview(state)} className={cn("rounded-lg bg-control px-2 py-1.5 text-[12px]", preview === state && "ring-2 ring-accent-border")}>{label}</button>)}
+          </div>
+        </div>}
         <div className="mt-2 flex gap-2">
           <input
             ref={fileRef}
@@ -204,14 +214,19 @@ export function BotProfileAvatarCard({
             <div className="mb-2 mt-4 text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
               Expression
             </div>
+            <button type="button" disabled={busy} aria-pressed={!bot.mascotExpression}
+              onClick={() => { setPreview(null); onPatch({ mascotExpression: null }); }}
+              className="mb-2 rounded-lg bg-control px-3 py-2 text-[12px] text-ink disabled:opacity-50">
+              Follow bot activity
+            </button>
             <div className="grid grid-cols-5 gap-2">
-              {PICKABLE_STATES.map((expression) => (
+              {([...PICKABLE_STATES, "celebrate", "alerting"] as MausState[]).map((expression) => (
                 <button
                   key={expression}
                   type="button"
                   disabled={busy}
                   aria-pressed={activeState === expression}
-                  onClick={() => onPatch({ mascotExpression: expression })}
+                  onClick={() => { setPreview(null); onPatch({ mascotExpression: expression }); }}
                   className={cn(
                     "flex h-[58px] items-center justify-center rounded-xl bg-inset transition-colors hover:bg-control disabled:opacity-50",
                     activeState === expression && "ring-2 ring-accent-border",
@@ -237,6 +252,7 @@ export function BotProfileAvatarCard({
                   onClick={() => onPatch({ color })}
                   className={cn(
                     "size-10 rounded-full border-2 border-transparent transition-transform hover:scale-110 disabled:opacity-50",
+                    color === "white" && "border-hairline/60",
                     bot.color === color && "ring-2 ring-accent-border ring-offset-2 ring-offset-card",
                   )}
                   style={{ backgroundColor: MAUS_COLORS[color] }}
@@ -256,7 +272,7 @@ export function BotProfileAvatarCard({
                   type="button"
                   disabled={busy}
                   aria-pressed={(bot.mascotBody ?? "cursor") === id}
-                  aria-label={`Use the ${MASCOT_BODIES[id].name} body`}
+                  aria-label={`Use the ${id === "cursor" ? "Orb" : MASCOT_BODIES[id].name} body`}
                   onClick={() => onPatch({ mascotBody: id })}
                   className={cn(
                     "flex items-center justify-center rounded-lg py-1.5 disabled:opacity-50",

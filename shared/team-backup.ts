@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAUS_COLOR_NAMES } from "./mascot-appearance.ts";
 
 export const MAX_TEAM_BACKUP_BYTES = 50 * 1024 * 1024;
 export const TEAM_BACKUP_CONTENTS = "Bot profiles, instructions, sections, rooms, playbooks, routines, each bot's memory (MEMORY.md, topic notes and daily logs) and conversation text (all tasks and branches).";
@@ -7,7 +8,7 @@ export const TEAM_BACKUP_EXCLUSIONS = "Files, images, custom avatars, account co
 const key = z.string().min(1).max(200);
 const name = z.string().trim().min(1).max(200);
 const timestamp = z.number().finite().nonnegative();
-const color = z.enum(["green", "blue", "red", "orange", "purple", "cyan", "pink", "yellow", "teal", "coral"]);
+const color = z.enum(MAUS_COLOR_NAMES);
 const message = z.object({
   id: key,
   role: z.enum(["bot", "user"]),

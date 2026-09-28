@@ -3,11 +3,11 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { schemaIssue, type JsonValue } from "./schema.ts";
 import { isSkillName, parseSkillMd, SKILL_FILE_MAX_BYTES } from "./skills.ts";
-import type { MausColor } from "./store.ts";
 import type { TeamManifestMember } from "./team-manifest.ts";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
 import { normalizeCronSchedule } from "../shared/routine-schedule.ts";
 import { cronScheduleLabel } from "../shared/cron-label.ts";
+import { MAUS_COLOR_NAMES } from "../shared/mascot-appearance.ts";
 
 export const BOT_PACKAGE_FORMAT = "openmaus.package" as const;
 export const BOT_PACKAGE_VERSION = 1 as const;
@@ -15,19 +15,6 @@ export const BOTMRR_MARKDOWN_VERSION = 1 as const;
 export const BOT_PACKAGE_SKILLS_VERSION = 1 as const;
 export const BOT_PACKAGE_MAX_SKILLS = 20;
 const BOT_PACKAGE_MARKDOWN_MAX_BYTES = 1_000_000;
-
-const COLORS = [
-  "green",
-  "blue",
-  "red",
-  "orange",
-  "purple",
-  "cyan",
-  "pink",
-  "yellow",
-  "teal",
-  "coral",
-] as const satisfies readonly MausColor[];
 
 const requiredText = (max: number) =>
   z.string({ error: "must be text" }).trim().min(1, { message: "is required" }).max(max, { message: "is too long" });
@@ -154,7 +141,7 @@ const packageSchema = z.object({
         error: "standing instructions must be at most 24000 bytes",
       }).optional(),
       appearance: z.object({
-        color: z.enum(COLORS, { error: "is not supported" }),
+        color: z.enum(MAUS_COLOR_NAMES, { error: "is not supported" }),
         mascotExpression: optionalText(80),
         mascotBody: optionalText(40),
       }),

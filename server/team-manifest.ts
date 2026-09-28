@@ -5,24 +5,12 @@ import type { MausColor } from "./store.ts";
 import { botMascotBody, type MascotBodyId } from "../shared/mascot-bodies.ts";
 import { takeImportName } from "../shared/import-name.ts";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
+import { MAUS_COLOR_NAMES } from "../shared/mascot-appearance.ts";
 
 export const TEAM_MANIFEST_FORMAT = "openmaus.team" as const;
 export const TEAM_MANIFEST_VERSION = 2 as const;
 export const LEGACY_TEAM_MANIFEST_VERSION = 1 as const;
 export const MAX_TEAM_MEMBERS = 200;
-
-const COLORS = [
-  "green",
-  "blue",
-  "red",
-  "orange",
-  "purple",
-  "cyan",
-  "pink",
-  "yellow",
-  "teal",
-  "coral",
-] as const satisfies readonly MausColor[];
 
 const requiredText = (max: number) =>
   z.string({ error: "must be text" }).trim().min(1, { message: "is required" }).max(max, { message: "is too long" });
@@ -51,7 +39,7 @@ const memberSchema = z.object({
     error: "standing instructions must be at most 24000 bytes",
   }).optional(),
   appearance: z.object({
-    color: z.enum(COLORS, { error: "is not supported" }),
+    color: z.enum(MAUS_COLOR_NAMES, { error: "is not supported" }),
     mascotExpression: optionalText(80),
     mascotBody: optionalText(40),
   }),

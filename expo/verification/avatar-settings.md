@@ -1,7 +1,7 @@
 # Expo avatar settings
 
 Open a bot's settings from its chat header, then use **Avatar**. The phone now
-shares the desktop's ten colors, complete body catalog, four crop modes and
+shares the desktop's eleven colors, complete body catalog, four crop modes and
 reset defaults. Expressions animate automatically; there is no emotion picker. Appearance changes save immediately.
 Uploaded/generated images remain available when switching back to the mascot;
 **Remove custom image** deletes the profile reference and selects the mascot.

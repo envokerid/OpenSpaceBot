@@ -30,6 +30,7 @@ import { StringDecoder } from "node:string_decoder";
 import { CONTROL_REFUSAL_PLAIN, createControlClient } from "./control-client.ts";
 import { augmentedPath } from "./env-path.ts";
 import { createToolListNormalizer } from "./mcp-tool-schema.ts";
+import { turnToken } from "./turn-token.ts";
 
 // 45s of TOTAL silence before the bridge even probes. An MCP session is
 // legitimately quiet between tool calls and a slow screenshot can take tens
@@ -139,7 +140,7 @@ export interface BridgeOptions {
   liveness?: BridgeLiveness;
   /** Enables the who-is-driving gate: the harness's loopback control
    * endpoint plus its per-boot token. Absent → fully transparent bridge. */
-  gate?: { url: string; token: string };
+  gate?: { url: string; token: string; tokenFile?: string };
 }
 
 /** Collect a byte stream into complete newline-terminated lines. MCP's
@@ -177,6 +178,8 @@ export function createLineSplitter(onLine: (line: string) => void): {
  * lines that are not JSON — passes through untouched. */
 export function createGateInterceptor(options: {
   isHeld: () => Promise<boolean>;
+  /** Snapshot authority on arrival, before waiting behind another frame. */
+  capture?: () => () => Promise<boolean>;
   forward: (line: string) => void;
   refuse: (line: string) => void;
   refusalText?: string;
@@ -185,6 +188,7 @@ export function createGateInterceptor(options: {
   const refusalText = options.refusalText ?? CONTROL_REFUSAL_PLAIN;
   let queue: Promise<void> = Promise.resolve();
   return (line: string) => {
+    const isHeld = options.capture?.() ?? options.isHeld;
     queue = queue.then(async () => {
       let frame: any = null;
       try {
@@ -197,7 +201,7 @@ export function createGateInterceptor(options: {
         options.forward(line);
         return;
       }
-      const held = await options.isHeld().catch(() => true);
+      const held = await isHeld().catch(() => true);
       if (!held) {
         options.forward(line);
         return;
@@ -222,6 +226,7 @@ export interface McpBridgeInterceptorOptions {
   /** Optional who-is-driving gate; when set, `tools/call` may be refused. */
   gate?: {
     isHeld: () => Promise<boolean>;
+    capture?: () => () => Promise<boolean>;
     refusalText?: string;
     getRefusalReason?: () => string | undefined;
   };
@@ -236,6 +241,7 @@ export function createMcpBridgeInterceptor(
   const afterPing = options.gate
     ? createGateInterceptor({
         isHeld: options.gate.isHeld,
+        capture: options.gate.capture,
         forward: options.forward,
         refuse: options.answer,
         refusalText: options.gate.refusalText,
@@ -271,10 +277,21 @@ export function runMcpBridge(options: BridgeOptions): void {
   child.stdin.on("error", () => {});
   child.stderr.pipe(process.stderr);
 
-  const client = options.gate
-    ? createControlClient({ url: options.gate.url, token: options.gate.token })
-    : null;
   let refusalReason: string | undefined;
+  const captureControl = () => {
+    const gate = options.gate!;
+    const token = turnToken({ OMB_CONTROL_TOKEN: gate.token, OMB_CONTROL_TOKEN_FILE: gate.tokenFile }, "OMB_CONTROL_TOKEN");
+    const client = createControlClient({ url: gate.url, token });
+    return async () => {
+      refusalReason = undefined;
+      // A removed file revokes the turn. Never fall back to a launch token
+      // or to the control client's unconfigured/disengaged behavior.
+      if (!token) return true;
+      const state = await client.state(true);
+      refusalReason = state.blockedReason;
+      return state.held;
+    };
+  };
 
   const answer = (line: string) => process.stdout.write(line + "\n");
   const forward = (line: string) => child.stdin.write(line + "\n");
@@ -284,12 +301,8 @@ export function runMcpBridge(options: BridgeOptions): void {
     ...(options.gate
       ? {
           gate: {
-            isHeld: async () => {
-              refusalReason = undefined;
-              const state = await client!.state(true);
-              refusalReason = state.blockedReason;
-              return state.held;
-            },
+            isHeld: () => captureControl()(),
+            capture: captureControl,
             getRefusalReason: () => refusalReason,
           },
         }

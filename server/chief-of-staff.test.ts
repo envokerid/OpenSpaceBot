@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { chiefOfStaffSystemPrompt } from "./chief-of-staff.ts";
+import { chiefOfStaffPromptParts, chiefOfStaffSystemPrompt } from "./chief-of-staff.ts";
 
 describe("chiefOfStaffSystemPrompt roster caps", () => {
   it("clips oversized persona fields instead of interpolating them whole", () => {
@@ -41,6 +41,19 @@ describe("chiefOfStaffSystemPrompt", () => {
     { id: "hidden", name: "Secret", hidden: true, section: "Work" },
     { id: "personal", name: "Scout", title: "Travel planner", section: "Personal" },
   ];
+
+  it("keeps standing policy stable when teammate availability or runtime status changes", () => {
+    const before = chiefOfStaffPromptParts("chief", bots, true, "STATUS_ONE", true);
+    const after = chiefOfStaffPromptParts("chief", bots.map(bot => ({ ...bot, busy: false })), true, "STATUS_TWO", true);
+    expect(before.instructions).toBe(after.instructions);
+    expect(before.instructions).toContain("coordinate_bots");
+    expect(before.context).toContain("working right now");
+    expect(after.context).not.toContain("working right now");
+    expect(after.context).toContain("STATUS_TWO");
+    expect(after.context).not.toContain("Own the outcome");
+    expect(chiefOfStaffSystemPrompt("chief", bots, true, "STATUS_ONE", true))
+      .toBe(before.instructions + "\n" + before.context);
+  });
 
   it("describes visible teammates, roles, and availability", () => {
     const prompt = chiefOfStaffSystemPrompt("chief", bots, true);

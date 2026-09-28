@@ -19,6 +19,7 @@ if (!container || !/^[a-zA-Z0-9_.-]+$/.test(container) || !socket?.startsWith("/
 // through `ps`, and the token guards a loopback endpoint.
 const controlUrl = process.env.OMB_CONTROL_URL ?? "";
 const controlToken = process.env.OMB_CONTROL_TOKEN ?? "";
+const tokenFile = process.env.OMB_CONTROL_TOKEN_FILE;
 
 runMcpBridge({
   command: runtime,
@@ -26,5 +27,5 @@ runMcpBridge({
   label: "Cua Driver",
   // No liveness watchdog: the runtime CLI talks to a local daemon and fails
   // fast on its own — there is no silent WAN peer to wedge on.
-  ...(controlUrl && controlToken ? { gate: { url: controlUrl, token: controlToken } } : {}),
+  ...(controlUrl && (controlToken || tokenFile) ? { gate: { url: controlUrl, token: controlToken, tokenFile } } : {}),
 });

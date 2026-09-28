@@ -488,11 +488,27 @@ describe("Store", () => {
     expect(reloaded.bot(bot.id)?.connectorAccounts).toEqual({ gmail: ["ca_work", "ca_personal"] });
   });
 
-  it("rotates colors across created bots", () => {
+  it("defaults every new bot to white while preserving chosen colors on reload", () => {
     const store = new Store(selection);
     const first = store.createBot();
+    const custom = store.createBot({ color: "purple" });
     const second = store.createBot();
-    expect(first.color).not.toBe(second.color);
+    expect(first.color).toBe("white");
+    expect(second.color).toBe("white");
+    const reloaded = new Store(selection);
+    expect(reloaded.bot(first.id)?.color).toBe("white");
+    expect(reloaded.bot(custom.id)?.color).toBe("purple");
+    expect(reloaded.createBot().color).toBe("white");
+  });
+
+  it("uses white for bots created through reviewed team setup", () => {
+    const store = new Store(selection);
+    const chief = store.createBot();
+    store.applyTeamSetup({ version: 1, requestId: "white-team", botId: chief.id, threadId: chief.threadId,
+      reason: "Requested", createdAt: 1, requesterRevision: "fixture", newTeams: [], operations: [
+        { action: "create", botId: "white-member", threadId: "white-thread", fields: { name: "New teammate", modelSelection: selection() } },
+      ] });
+    expect(new Store(selection).bot("white-member")?.color).toBe("white");
   });
 
   it("defaults a room to its first member and repairs the lead when membership changes", () => {

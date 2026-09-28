@@ -8,7 +8,7 @@ test('image upload switches a mascot to circle and preserves a chosen image crop
   assert.deepEqual(uploadedAvatar('/tmp/bot-avatar.png', 'mascot'), { avatarUrl: '/api/attachments/bot-avatar.png', avatarCrop: 'circle' });
   for (const crop of ['circle', 'rounded', 'square'] as const) assert.equal(uploadedAvatar('C:\\attachments\\bot-avatar.webp', crop).avatarCrop, crop);
   assert.throws(() => uploadedAvatar('/tmp/avatar.svg', 'circle'));
-  assert.deepEqual(RESET_MASCOT, { avatarCrop: 'mascot', color: 'green', mascotExpression: null, mascotBody: 'cursor' });
+  assert.deepEqual(RESET_MASCOT, { avatarCrop: 'mascot', color: 'white', mascotExpression: null, mascotBody: 'cursor' });
   assert.equal('avatarUrl' in RESET_MASCOT, false, 'reset retains the uploaded image for later reuse');
 });
 
@@ -30,6 +30,7 @@ test('invalid custom connection is rejected before a credential can be saved', (
 test('all desktop picker states and legacy expressions resolve to valid face pools', () => {
   for (const state of PICKABLE_STATES) { assert.equal(normalizeState(state), state); assert.ok(POOLS[state].length); }
   for (const color of MAUS_COLOR_NAMES) assert.match(MAUS_COLORS[color], /^#[\da-f]{6}$/i);
+  assert.equal(MAUS_COLORS.white, '#FFFFFF');
   assert.equal(normalizeState('friendly'), 'happy');
   assert.equal(normalizeState('skeptical'), 'suspicious');
   for (const value of ['invalid', '__proto__', 'constructor', 'toString']) assert.equal(normalizeState(value), null);

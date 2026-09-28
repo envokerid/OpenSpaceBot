@@ -260,6 +260,7 @@ export class ProviderRegistry {
           },
           access: driver?.metadata.access ?? "subscription",
           install: withServerInstall(driver?.install, npmPresent),
+          nativeAccounts: inst.nativeAccounts,
           authentication: inst.startAuthentication
             ? {
                 method: inst.getAuthentication && inst.completeAuthentication

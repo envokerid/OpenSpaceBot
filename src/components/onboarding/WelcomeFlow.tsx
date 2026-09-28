@@ -229,7 +229,7 @@ export function WelcomeFlow({
               <img src={logo} alt="" width={72} height={72} className="h-[72px] w-[72px] object-contain" />
             ) : (
               <MausAvatar
-                color="green"
+                color="blue"
                 state={mascot}
                 motion={motion.kind}
                 motionKey={motion.key}

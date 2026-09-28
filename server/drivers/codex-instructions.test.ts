@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { codexDeveloperInstructions, syncCodexInstructions } from "./codex-instructions.ts";
+import { codexDeveloperInstructions, syncCodexInstructions, syncCodexTurnContext } from "./codex-instructions.ts";
 
 describe("Codex effective developer instructions", () => {
   it("preserves native rules after bot rules, including when bot rules are removed", () => {
@@ -17,6 +17,40 @@ describe("Codex effective developer instructions", () => {
 });
 
 describe("Codex instruction receipts", () => {
+  it("records acknowledged initial context without a separate injection", async () => {
+    const key = randomUUID();
+    const request = vi.fn().mockResolvedValue({});
+    await syncCodexTurnContext(key, "native", "initial context", request, true);
+    await syncCodexTurnContext(key, "native", "initial context", request);
+    expect(request).not.toHaveBeenCalled();
+    await syncCodexTurnContext(key, "native", "changed context", request);
+    expect(request).toHaveBeenCalledTimes(1);
+    await syncCodexTurnContext(key, "native", "changed context", request, false, true);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+  it("updates and clears task context without duplicating standing rules", async () => {
+    const key = randomUUID();
+    const request = vi.fn().mockResolvedValue({});
+    await syncCodexTurnContext(key, "native", "first memory", request);
+    await syncCodexTurnContext(key, "native", "first memory", request);
+    expect(request).toHaveBeenCalledTimes(1);
+    await syncCodexTurnContext(key, "native", "new memory", request);
+    expect(request.mock.calls[1][1].items[0].content[0].text).toContain("new memory");
+    expect(request.mock.calls[1][1].items[0].content[0].text).not.toContain("first memory");
+    await syncCodexTurnContext(key, "native", "", request);
+    expect(request.mock.calls[2][1].items[0].content[0].text).toContain("No additional task context remains.");
+    await syncCodexTurnContext(key, "native", "", request);
+    expect(request).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not persist a failed task-context injection", async () => {
+    const key = randomUUID();
+    const request = vi.fn().mockRejectedValueOnce(new Error("unavailable")).mockResolvedValue({});
+    await expect(syncCodexTurnContext(key, "native", "memory", request)).rejects.toThrow("unavailable");
+    await syncCodexTurnContext(key, "native", "memory", request);
+    await syncCodexTurnContext(key, "native", "memory", request);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
   it("does not repeat unchanged rules, but persists edits and removal", async () => {
     const key = randomUUID();
     const request = vi.fn().mockResolvedValue({});

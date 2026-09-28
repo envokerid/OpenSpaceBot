@@ -2,7 +2,7 @@
 // (upstream rule): the React app dispatches typed commands over HTTP and
 // folds one SSE event stream; every provider process runs here.
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync, rmSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, mkdirSync, unlinkSync } from "node:fs";
 import { writeFileAtomic } from "./atomic.ts";
 import { rm as removeDirectory } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -106,7 +106,7 @@ import {
 } from "./cloud-backend.ts";
 import * as composio from "./composio.ts";
 import { connectorAccountKey } from "../shared/connector-grants.ts";
-import { chiefOfStaffSystemPrompt } from "./chief-of-staff.ts";
+import { chiefOfStaffPromptParts, chiefOfStaffSystemPrompt } from "./chief-of-staff.ts";
 import { canAccessTeam, canReachPeer, peerAllowed, peerName, peerRosterSystemPrompt, peerStatus, peerStatusWords, reachablePeers, resolveTeammate, roomPeerRosterSystemPrompt, roomRosterLine, PEER_ACCESS_HELP } from "./peer-roster.ts";
 import { openMausStatusSystemPrompt } from "./openmaus-status-capsule.ts";
 import {
@@ -118,6 +118,7 @@ import {
   containerComputerStatus,
   containerRuntimeStatus,
   localVmRecreatableOnDemand,
+  localVmMountable,
   perBotLocalVmTarget,
   SHARED_LOCAL_VM_TARGET,
   setupCommands,
@@ -851,6 +852,26 @@ function mintInternalCapability(capability: Omit<InternalCapability, "orphanExpi
   return token;
 }
 
+// Stable paths allow a retained team-tools proxy to read this turn's token.
+// Generation ownership prevents an old completion from clearing a newer one.
+const integrationTokenFiles = new Map<string, { generation: string; paths: Set<string> }>();
+function integrationTokenFile(botId: string, threadId: string, generation: string, kind: string, token: string): string {
+  if (activeInternalGenerationByThread.get(threadId) !== generation) {
+    throw new Error("cannot refresh an integration capability for an inactive turn");
+  }
+  const directory = join(DATA_DIR, "runtime", "turn-tokens");
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const path = join(directory, createHash("sha256").update(JSON.stringify([botId, threadId, kind])).digest("hex") + ".token");
+  writeFileAtomic(path, token, { mode: 0o600 });
+  let record = integrationTokenFiles.get(threadId);
+  if (record?.generation !== generation) {
+    record = { generation, paths: new Set() };
+    integrationTokenFiles.set(threadId, record);
+  }
+  record.paths.add(path);
+  return path;
+}
+
 function revokeInternalCapabilityGeneration(threadId: string, generation: string): void {
   for (const [token, capability] of internalCapabilities) {
     if (capability.threadId === threadId && capability.generation === generation) {
@@ -859,6 +880,11 @@ function revokeInternalCapabilityGeneration(threadId: string, generation: string
   }
   if (activeInternalGenerationByThread.get(threadId) === generation) {
     activeInternalGenerationByThread.delete(threadId);
+    const files = integrationTokenFiles.get(threadId);
+    if (files?.generation === generation) {
+      for (const path of files.paths) { try { unlinkSync(path); } catch {} }
+      integrationTokenFiles.delete(threadId);
+    }
   }
   internalGenerationByProviderTurn.deleteGeneration(threadId, generation);
 }
@@ -986,6 +1012,7 @@ function agentsIntegration(
     roomCoordination,
     ownThreadCreation,
   });
+  const tokenPath = integrationTokenFile(botId, threadId, generation, "agents", token);
   return {
     command: process.execPath,
     args: [agentsProxyPath],
@@ -995,6 +1022,7 @@ function agentsIntegration(
       OMB_BOT_ID: botId,
       OMB_THREAD_ID: threadId,
       OMB_COMMS_TOKEN: token,
+      OMB_COMMS_TOKEN_FILE: tokenPath,
       OMB_TURN_DEPTH: String(depth),
       OMB_ROOM_TURN: roomCoordination ? "1" : "0",
       OMB_OWN_THREAD_CREATION: ownThreadCreation ? "1" : "0",
@@ -1228,6 +1256,11 @@ async function interruptAllDirectThreads(botId: string): Promise<void> {
   }
   await Promise.all(threads.map((task) => interruptDirectThread(botId, task.threadId)));
 }
+
+async function releaseThreadSessions(threadId: string): Promise<void> {
+  revokeInternalCapabilitiesForThread(threadId);
+  await Promise.all(registry.instances().map(instance => instance.adapter.releaseSession?.(threadId)));
+}
 const retiredProviderTurns = new RetiredTurnRegistry();
 const pendingCancelledProviderHandshakes = new PendingTurnCancellations();
 const generatedImagesByTurn = new Map<
@@ -1398,6 +1431,7 @@ async function browserIntegration(botId: string, profile: string | undefined, tu
   return { profile: partitionId, session, spec, integration: {
     command: process.execPath, args: [SPAWNED_PROXIES.browser], env: {
       ...AGENTS_NODE_FLAG, OMB_BROWSER_TOKEN: token, OMB_HARNESS_URL: `http://127.0.0.1:${PORT}`,
+      OMB_BROWSER_TOKEN_FILE: integrationTokenFile(botId, turn.threadId, turn.generation, "browser", token),
     },
   } };
 }
@@ -1421,7 +1455,7 @@ function phoneIntegration() {
   return { command: process.execPath, args: [phoneProxyPath], env };
 }
 
-function connectedAppsIntegration(botId: string, threadId: string, generation: string) {
+async function connectedAppsIntegration(botId: string, threadId: string, generation: string) {
   const token = mintInternalCapability({
     botId,
     threadId,
@@ -1432,12 +1466,14 @@ function connectedAppsIntegration(botId: string, threadId: string, generation: s
     createdBots: 0,
     openedThreads: 0,
   });
-  return composio.mcpIntegration(cfg, {
+  const integration = await composio.mcpIntegration(cfg, {
     harnessUrl: `http://127.0.0.1:${PORT}`,
     commsToken: token,
     botId,
     threadId,
   });
+  if (integration) integration.env.OMB_CONNECTOR_TOKEN_FILE = integrationTokenFile(botId, threadId, generation, "connectors", token);
+  return integration;
 }
 
 // ── computer control (who is driving) ──────────────────────────────────
@@ -1481,9 +1517,7 @@ const routineRequestEnvelopeSchema = z.discriminatedUnion("action", [
 
 /** The loopback endpoint a bot's computer proxy polls before acting. */
 function controlIntegration(botId: string, threadId: string, generation: string, localVmTarget?: LocalVmTarget) {
-  return {
-    url: `http://127.0.0.1:${PORT}/api/internal/computer-control?botId=${encodeURIComponent(botId)}`,
-    token: mintInternalCapability({
+  const token = mintInternalCapability({
       botId,
       threadId,
       generation,
@@ -1494,7 +1528,11 @@ function controlIntegration(botId: string, threadId: string, generation: string,
       skillAuthoring: false,
       createdBots: 0,
       openedThreads: 0,
-    }),
+    });
+  return {
+    url: `http://127.0.0.1:${PORT}/api/internal/computer-control?botId=${encodeURIComponent(botId)}`,
+    token,
+    tokenFile: integrationTokenFile(botId, threadId, generation, "computer", token),
   };
 }
 
@@ -4243,7 +4281,8 @@ async function mountBotVps(
   return {
     integration: {
       ...vpsMcp,
-      env: { ...vpsMcp.env, OMB_CONTROL_URL: vpsControl.url, OMB_CONTROL_TOKEN: vpsControl.token },
+      env: { ...vpsMcp.env, OMB_CONTROL_URL: vpsControl.url, OMB_CONTROL_TOKEN: vpsControl.token,
+        OMB_CONTROL_TOKEN_FILE: vpsControl.tokenFile },
     },
   };
 }
@@ -6255,6 +6294,8 @@ async function startTurn(
   },
 ) {
   workspaceMaintenance.assertAvailable();
+  const preparationStartedAt = performance.now();
+  let preparationStageAt = preparationStartedAt;
   const profile = store.bot(botId);
   if (!profile) throw Object.assign(new Error("no such bot"), { status: 404 });
   const threadId = opts?.threadId ?? profile.threadId;
@@ -6427,6 +6468,13 @@ async function startTurn(
   // hang the HTTP request
   const dispatchClaimId = randomUUID();
   const resourceOwner = { threadId, generation: dispatchClaimId };
+  const preparationStage = (stage: string) => {
+    const now = performance.now();
+    console.info("[turn-latency]", JSON.stringify({ botId, threadId, generation: dispatchClaimId,
+      stage, elapsedMs: Math.round(now - preparationStartedAt), stageMs: Math.round(now - preparationStageAt) }));
+    preparationStageAt = now;
+  };
+  preparationStage("admitted");
   turnResourceOwners.set(threadId, resourceOwner);
   directTurnGenerationByThread.set(threadId, dispatchClaimId);
   let requestMessageId = opts?.cardContinuation ? opts.requestMessageId : userMessage.id;
@@ -6610,6 +6658,7 @@ async function startTurn(
         };
       };
       let dispatchContext = decideContext(plannedConfig);
+      preparationStage("context-ready");
 
       const persona = [
         `You are ${bot.name}, a personal bot in OpenMausBot.`,
@@ -6822,15 +6871,15 @@ async function startTurn(
           // Nothing this process has ever seen for this target, and nobody is
           // relying on an unattended run: do not pay for a runtime probe.
           if (!localVmSeen.has(localVmTarget.key) && !opts?.automationSource) return false;
-          const seen = await containerComputerStatus(undefined, undefined, localVmTarget).catch(() => null);
-          if (!seen || !autoLocalVmAttachable(seen)) return false;
+          const seen = await containerComputerStatus(undefined, undefined, localVmTarget, { probeDesktop: false }).catch(() => null);
+          if (!seen || (!localVmMountable(seen) && !autoLocalVmAttachable(seen))) return false;
           if (localVmImageBusy || localVmModeChangeBusy || localVmLifecycleBusy.has(localVmTarget.key)) return false;
-          if (seen.ready && seen.runtime) lazyReadyVm = { runtime: seen.runtime };
+          if (localVmMountable(seen) && seen.runtime) lazyReadyVm = { runtime: seen.runtime };
         }
         try {
           if (lazyReadyVm) {
-            // Lazy exclusivity (issue #1361): a VM that is ready right now
-            // mounts without claiming — screen-less Auto turns never touch
+            // Lazy readiness and exclusivity: an inspected, isolated VM
+            // mounts without capturing its desktop — screen-less Auto turns never touch
             // the lease, and the first screen tools/call fires the claim
             // through the computer-control gate. A VM that must be created
             // or recreated first keeps the eager claim below: the bridge
@@ -7051,8 +7100,8 @@ async function startTurn(
             sectionPeers,
           )
         : [];
-      const coordinationPrompt = bot.chiefOfStaff
-        ? chiefOfStaffSystemPrompt(
+      const coordinationParts = bot.chiefOfStaff
+        ? chiefOfStaffPromptParts(
             bot.id,
             store.bots,
             Boolean(integrations.agents),
@@ -7064,13 +7113,14 @@ async function startTurn(
           // one generic sentence they got never named a teammate, so the
           // first move of any collaboration was a list_bots round trip the
           // model mostly did not think to make.
-          ? peerRosterSystemPrompt(sectionPeers, boundedCoordination)
-          : "";
+          ? { instructions: "", context: peerRosterSystemPrompt(sectionPeers, boundedCoordination) }
+          : { instructions: "", context: "" };
       const credentialPrompt = integrations.agents ? CREDENTIAL_PROMPT + (boundedCoordination ? "" : THREADS_PROMPT) : "";
       const routinePrompt = integrations.agents ? ROUTINE_PROMPT : "";
       const profilePrompt = integrations.agents ? PROFILE_PROMPT : "";
       const recallPrompt = integrations.agents ? SESSION_SEARCH_SYSTEM_PROMPT : "";
       const learnPrompt = skillAuthoring ? LEARN_PROMPT : "";
+      preparationStage("integrations-ready");
 
       // (activeVpsThreads was already claimed above, before the provision or
       // reuse await, so the backend guards saw this turn the whole time.)
@@ -7089,6 +7139,7 @@ async function startTurn(
       if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) {
         throw new DirectTurnSetupCancelled("turn stopped before dispatch");
       }
+      preparationStage("checkpoint-ready");
       // Mint the browser bearer at the last possible moment. The desktop
       // registration is asynchronous, so validate this exact setup claim
       // again inside browserIntegration before the capability is published.
@@ -7184,7 +7235,8 @@ async function startTurn(
         { id: "composio", label: "Connected apps", text: integrations.composio ? COMPOSIO_PROMPT : "" },
         { id: "mcp", label: "MCP servers", text: customMcpPrompt(Object.keys(integrations.custom ?? {})) },
         { id: "browser", label: "Browser", text: integrations.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
-        { id: "coordination", label: "Team", text: coordinationPrompt ? ` ${coordinationPrompt}` : "" },
+        { id: "coordination-rules", label: "Team rules", text: coordinationParts.instructions ? ` ${coordinationParts.instructions}` : "" },
+        { id: "coordination", label: "Team", text: coordinationParts.context ? `\n${coordinationParts.context}` : "" },
         { id: "assignment", label: "Teammate task", text: coordinationNode ? `\n${coordinationSystemInstructions()}` : "" },
         { id: "outstanding", label: "Outstanding teammate work", text: outstandingAssignmentsPrompt(threadId) },
         { id: "credential", label: "Credentials", text: credentialPrompt },
@@ -7223,6 +7275,7 @@ async function startTurn(
       if (strictResume && !(opts?.cardContinuation && continuingRoutine) && dispatchedConfig !== plannedConfig) dispatchContext = decideContext(dispatchedConfig);
       // Before sendTurn: an adapter may emit the whole turn before it resolves.
       handoffs.dispatching(threadId, dispatchClaimId, dispatchContext.handoff);
+      preparationStage("provider-dispatch");
       const dispatch = await guardTurnDispatch(instance.adapter.sendTurn({
         threadId,
         botId: bot.id,
@@ -7250,6 +7303,7 @@ async function startTurn(
       }), () => !directTurnClaimExists(bot.id, dispatchClaimId, threadId), async () => {
         await instance.adapter.interruptTurn(threadId).catch(() => {});
       });
+      preparationStage("provider-acknowledged");
       if (dispatch.cancelled) {
         retireProviderTurn(dispatch.value.turnId);
         throw new DirectTurnSetupCancelled("turn stopped during provider setup");
@@ -7927,6 +7981,7 @@ async function deleteBotWithLifecycle(botId: string, revalidate: () => void = ()
             revokeInternalCapabilitiesForThread(task.threadId);
           }
           await interruptAllDirectThreads(bot.id);
+          await Promise.all(store.tasks(bot.id).map(task => releaseThreadSessions(task.threadId)));
           // Deletion removes the thread before a late turn.completed can fold
           // staged provider images into a message, so dispose them here.
           for (const task of store.tasks(bot.id)) {
@@ -11010,6 +11065,8 @@ async function describeInstances() {
     if (entry?.driver === "codex") return {
       ...described,
       fastMode: (entry.config as { fastMode?: boolean } | undefined)?.fastMode !== false,
+      nativeApps: (entry.config as { nativeApps?: boolean } | undefined)?.nativeApps !== false,
+      disabledUserMcpServers: (entry.config as { disabledUserMcpServers?: string[] } | undefined)?.disabledUserMcpServers ?? [],
     };
     if (entry?.driver !== "claudeAgent") return described;
     try {
@@ -14606,6 +14663,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const updated = store.deleteGroupTask(group.id, m[2]);
       if (updated) clearTurnDigestState(m[2]);
       if (!updated) return json(res, 400, { error: "a channel keeps at least one task" });
+      await releaseThreadSessions(m[2]);
       rejectDeletedThreadSkillStages(stagedSkillCleanups);
       const fresh = groupWithThread(updated);
       broadcast({ kind: "group", group: fresh });
@@ -14672,6 +14730,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       routines!.disableForGroup(group.id);
       store.deleteGroup(group.id);
+      await Promise.all([...threadIds].map(releaseThreadSessions));
       rejectDeletedThreadSkillStages(stagedSkillCleanups);
       return json(res, 200, { ok: true });
     }
@@ -16886,6 +16945,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       cancelTeamSetupResumesForThread(m[2]);
       const updated = store.deleteTask(m[1], m[2]);
       if (!updated) return json(res, 404, { error: "no such task" });
+      await releaseThreadSessions(m[2]);
       clearTurnDigestState(m[2]);
       handoffs.forget(m[2]);
       settleDirectFollowup(directTurnGenerationByThread.get(m[2]));
@@ -17442,7 +17502,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (action === "auth/start") {
           const instance = registry.get(instanceId);
           if (!instance) return json(res, 404, { error: "unknown instance" });
-          const started = await providerAuthSessions.start(instance, owner);
+          const body = await readBody(req, 4096);
+          const provider = typeof body?.provider === "string" ? body.provider : undefined;
+          const started = await providerAuthSessions.start(instance, owner, provider);
           // Revocation can arrive while the CLI is obtaining a device code.
           if (auth.kind === "session" && !sessions.isLive(auth.session.id)) {
             providerAuthSessions.revokeOwner(owner);
@@ -17453,7 +17515,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (action === "auth/sign-out") {
           const instance = registry.get(instanceId);
           if (!instance) return json(res, 404, { error: "unknown instance" });
-          await providerAuthSessions.signOut(instance, owner);
+          const body = await readBody(req, 4096);
+          const provider = typeof body?.provider === "string" ? body.provider : undefined;
+          await providerAuthSessions.signOut(instance, owner, provider);
           return json(res, 200, { instances: await describeInstances() });
         }
         if (action === "auth/complete") {
@@ -17588,6 +17652,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (body.fastMode !== undefined) {
           if (entry.driver !== "codex") return json(res, 400, { error: "Fast mode is available for Codex instances only." });
           entry.config = { ...entry.config as Record<string, unknown>, fastMode: body.fastMode };
+        }
+        if (body.nativeApps !== undefined || body.disabledUserMcpServers !== undefined) {
+          if (entry.driver !== "codex") return json(res, 400, { error: "Native Codex tool settings are available for Codex instances only." });
+          entry.config = { ...entry.config as Record<string, unknown>,
+            ...(body.nativeApps !== undefined ? { nativeApps: body.nativeApps } : {}),
+            ...(body.disabledUserMcpServers !== undefined ? { disabledUserMcpServers: [...new Set(body.disabledUserMcpServers)] } : {}),
+          };
         }
         if (body.displayName !== undefined) entry.displayName = body.displayName;
         if (body.configDir !== undefined) {

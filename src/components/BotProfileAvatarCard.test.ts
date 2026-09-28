@@ -38,19 +38,24 @@ function renderCard(bot: Bot) {
 }
 
 describe("BotProfileAvatarCard body picker", () => {
+  it("offers white and marks it selected for a white bot", () => {
+    const markup = renderCard(makeBot({ color: "white" }));
+    expect(markup).toMatch(/aria-pressed="true"[^>]*style="background-color:#FFFFFF"[^>]*title="white" aria-label="Use white mascot color"/);
+  });
+
   it("renders one option per body catalog entry, labeled by name", () => {
     const markup = renderCard(makeBot());
 
     expect(markup).toContain(">Body<");
     for (const id of MASCOT_BODY_IDS) {
-      expect(markup).toContain(`aria-label="Use the ${MASCOT_BODIES[id].name} body"`);
+      expect(markup).toContain(`aria-label="Use the ${id === "cursor" ? "Orb" : MASCOT_BODIES[id].name} body"`);
     }
   });
 
   it("marks the current body pressed and the rest unpressed, defaulting to cursor", () => {
     const markup = renderCard(makeBot());
 
-    expect(markup).toContain(`aria-pressed="true" aria-label="Use the ${MASCOT_BODIES.cursor.name} body"`);
+    expect(markup).toContain(`aria-pressed="true" aria-label="Use the Orb body"`);
     expect(markup).toContain(`aria-pressed="false" aria-label="Use the ${MASCOT_BODIES.star.name} body"`);
   });
 
@@ -58,14 +63,14 @@ describe("BotProfileAvatarCard body picker", () => {
     const markup = renderCard(makeBot({ mascotBody: "star" }));
 
     expect(markup).toContain(`aria-pressed="true" aria-label="Use the ${MASCOT_BODIES.star.name} body"`);
-    expect(markup).toContain(`aria-pressed="false" aria-label="Use the ${MASCOT_BODIES.cursor.name} body"`);
+    expect(markup).toContain(`aria-pressed="false" aria-label="Use the Orb body"`);
   });
 
   it("hides the body picker for flat crops that have no mascot to wear one", () => {
     const markup = renderCard(makeBot({ avatarCrop: "circle" }));
 
     expect(markup).not.toContain(">Body<");
-    expect(markup).not.toContain(`aria-label="Use the ${MASCOT_BODIES.cursor.name} body"`);
+    expect(markup).not.toContain(`aria-label="Use the Orb body"`);
   });
 
   it("hides the body picker for every flat crop, not just circle", () => {

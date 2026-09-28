@@ -3,7 +3,7 @@ import { Image, Pressable, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { randomUUID } from 'expo-crypto';
 import { BOT_AVATAR_CROPS } from '../../shared/bot-avatar';
-import { MAUS_COLORS, MAUS_COLOR_NAMES } from '../../shared/mascot-appearance';
+import { MAUS_COLORS, MAUS_COLOR_NAMES, type MascotState } from '../../shared/mascot-appearance';
 import { MASCOT_BODIES, MASCOT_BODY_IDS } from '../../shared/mascot-bodies';
 import { parseOrganizationBranding } from '../../electron/organization-branding.mjs';
 import type { ManagedDesktopState } from '../../electron/managed-desktop.mjs';
@@ -13,6 +13,7 @@ import { generateAvatar, RESET_MASCOT, uploadedAvatar, type AvatarPatch } from '
 import { avatarAppearance, avatarEditorFor } from './core/avatarEditor';
 import { uploadFile } from './attachments';
 import { desktopRequest } from './settings/Desktop';
+import { MASCOT_SCENARIOS } from '../../shared/mascot-triggers';
 import { Avatar } from './Avatar';
 import { AvatarImageGenerator } from './AvatarImageGenerator';
 import { ActionRow, ErrorNotice, FormSection, Label, Row, useAction, useTheme } from './ui';
@@ -23,6 +24,8 @@ function Swatch({ label, selected, disabled, onPress, children }: React.PropsWit
 }
 export function BotAvatarSettings({ session, bot, identity, disabled: profileBusy }: { session: Session; bot: Bot; identity: { name: string; title: string; description: string }; disabled: boolean }) {
   const action = useAction();
+  const theme = useTheme();
+  const [preview, setPreview] = useState<MascotState>();
   // This component is keyed by bot ID. The queue survives renders and is
   // flushed on close so a quick tap followed by Back still saves.
   const [editor] = useState(() => avatarEditorFor(session, bot));
@@ -59,7 +62,7 @@ export function BotAvatarSettings({ session, bot, identity, disabled: profileBus
       <ErrorNotice error={action.error ?? draft.error} />
       <Label size={12} muted accessibilityLiveRegion="polite">{draft.error ? 'Changes are not saved yet.' : draft.pending || draft.saving ? 'Saving…' : 'Changes saved'}</Label>
       {!!draft.error && <ActionRow title="Retry saving avatar" disabled={disabled} onPress={() => void editor.flush().catch(() => {})} />}
-      <View style={{ alignItems: 'center', paddingVertical: 8 }}><Avatar bot={avatar} client={client} size={112} /></View>
+      <View style={{ alignItems: 'center', paddingVertical: 8 }}><Avatar bot={avatar} client={client} size={112} state={preview} /></View>
       {!!icons.length && <><Label muted size={13}>{organization?.organization?.name} icons</Label><Row>{icons.map(icon => <Swatch key={icon.id} label={`Use ${icon.name} icon`} selected={false} disabled={disabled} onPress={() => void action.run(async () => {
         await editor.flush();
         const bytes = Uint8Array.from(atob(icon.image.slice(22)), character => character.charCodeAt(0));
@@ -80,13 +83,19 @@ export function BotAvatarSettings({ session, bot, identity, disabled: profileBus
       <Label muted size={13}>Shape</Label>
       <Row>{BOT_AVATAR_CROPS.map(value => <Swatch key={value} label={`Use ${value} shape`} selected={crop === value} disabled={disabled} onPress={() => choose({ avatarCrop: value })}><Label size={13}>{value[0].toUpperCase() + value.slice(1)}</Label></Swatch>)}</Row>
       {crop === 'mascot' && <>
-        <Label muted size={13}>Expressions animate automatically with your bot’s activity.</Label>
+        <Label muted size={13}>Expressions follow your bot’s activity. Try an emotion below.</Label>
+        <Label muted size={13}>Preview emotions</Label>
+        <Row><Swatch label="Follow bot activity" selected={!preview} disabled={false} onPress={() => setPreview(undefined)}><Label size={13}>Automatic</Label></Swatch>
+          {(['idle', 'listening', 'thinking', 'searching', 'working', 'celebrate', 'alerting', 'sleeping'] as MascotState[]).map(state => <Swatch key={state} label={`Preview ${state} emotion`} selected={preview === state} disabled={false} onPress={() => setPreview(state)}><Label size={13}>{state[0].toUpperCase() + state.slice(1)}</Label></Swatch>)}
+        </Row>
+        <Label muted size={13}>Try a situation</Label>
+        <Row>{MASCOT_SCENARIOS.map(({ label, state }) => <Swatch key={state} label={`Preview ${label.toLowerCase()}`} selected={preview === state} disabled={false} onPress={() => setPreview(state)}><Label size={13}>{label}</Label></Swatch>)}</Row>
         <Label muted size={13}>Color</Label>
-        <Row>{MAUS_COLOR_NAMES.map(value => <Swatch key={value} label={`Use ${value} mascot color`} selected={avatar.color === value} disabled={disabled} onPress={() => choose({ color: value })}><View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: MAUS_COLORS[value] }} /></Swatch>)}</Row>
+        <Row>{MAUS_COLOR_NAMES.map(value => <Swatch key={value} label={`Use ${value} mascot color`} selected={avatar.color === value} disabled={disabled} onPress={() => choose({ color: value })}><View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: MAUS_COLORS[value], borderWidth: value === 'white' ? 1 : 0, borderColor: theme.line }} /></Swatch>)}</Row>
         <Label muted size={13}>Body</Label>
-        <Row>{MASCOT_BODY_IDS.map(id => <Swatch key={id} label={`Use the ${MASCOT_BODIES[id].name} body`} selected={(avatar.mascotBody ?? 'cursor') === id} disabled={disabled} onPress={() => choose({ mascotBody: id })}><Avatar bot={{ ...avatar, mascotBody: id }} client={client} size={38} animated={false} /></Swatch>)}</Row>
+        <Row>{MASCOT_BODY_IDS.map(id => <Swatch key={id} label={`Use the ${id === 'cursor' ? 'Orb' : MASCOT_BODIES[id].name} body`} selected={(avatar.mascotBody ?? 'cursor') === id} disabled={disabled} onPress={() => choose({ mascotBody: id })}><Avatar bot={{ ...avatar, mascotBody: id }} client={client} size={38} animated={false} /></Swatch>)}</Row>
       </>}
-      <ActionRow title="Reset mascot" disabled={disabled} onPress={() => choose(RESET_MASCOT)} />
+      <ActionRow title="Reset mascot" disabled={disabled} onPress={() => { setPreview(undefined); choose(RESET_MASCOT); }} />
     </FormSection>
     <AvatarImageGenerator client={client} busy={busy} error={action.error} canEdit={canEdit && !!identity.name.trim()} run={action.run} onGenerate={async direction => {
       await editor.flush();

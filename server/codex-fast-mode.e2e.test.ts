@@ -28,6 +28,18 @@ it("saves and reports the personal Codex speed setting in an isolated harness", 
     const fast = await api("PATCH", "/api/instances/codex", { fastMode: true });
     expect(fast.status).toBe(200);
     expect(codex(fast).fastMode).toBe(true);
+    const toolSelection = await api("PATCH", "/api/instances/codex", {
+      nativeApps: false, disabledUserMcpServers: ["personal-desktop", "personal-desktop"],
+    });
+    expect(toolSelection.status).toBe(200);
+    expect(codex(toolSelection)).toMatchObject({ nativeApps: false, disabledUserMcpServers: ["personal-desktop"] });
+    expect(codex(await api("GET", "/api/instances"))).toMatchObject({ nativeApps: false, disabledUserMcpServers: ["personal-desktop"] });
+    expect(JSON.parse(readFileSync(join(fixture.info.dataDir, "config.json"), "utf8")).instances.codex.config)
+      .toMatchObject({ nativeApps: false, disabledUserMcpServers: ["personal-desktop"] });
+    expect((await api("PATCH", "/api/instances/claude", { nativeApps: false })).status).toBe(400);
+    expect((await api("PATCH", "/api/instances/codex", { disabledUserMcpServers: ["bad.name"] })).status).toBe(400);
+    expect(codex(await api("PATCH", "/api/instances/codex", { nativeApps: true, disabledUserMcpServers: [] })))
+      .toMatchObject({ nativeApps: true, disabledUserMcpServers: [] });
   } finally {
     const path = fixture.info.logPath + ".codex-fast-mode.json";
     writeFileSync(path, JSON.stringify({ evidence }, null, 2));

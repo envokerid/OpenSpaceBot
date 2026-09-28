@@ -89,6 +89,7 @@ if (process.argv[2] === "login" && process.argv[3] === "status") {
 }
 const calls: Array<{ method: string; params: unknown }> = [];
 let developerInstructions = "";
+let developerContext = "";
 let resumedThread: string | null = null;
 const sessionFile = (id: string) => process.env.FAKE_CODEX_SESSION_DIR
   ? join(process.env.FAKE_CODEX_SESSION_DIR, `${encodeURIComponent(id)}.json`) : undefined;
@@ -96,14 +97,21 @@ const saveSession = (id: string) => {
   const file = sessionFile(id);
   if (!file) return;
   mkdirSync(process.env.FAKE_CODEX_SESSION_DIR!, { recursive: true });
-  writeFileSync(file, JSON.stringify({ developerInstructions }));
+  writeFileSync(file, JSON.stringify({ developerInstructions, developerContext }));
 };
 let decision: unknown = null;
+let startupReply: unknown;
 let experimentalApi = false;
 
 const out = (obj: unknown) => process.stdout.write(JSON.stringify(obj) + "\n");
 let nativeThreadId = "codex-thread-1";
-const nativeTurnId = "turn-1";
+let nativeTurnId = "turn-1";
+let turnNumber = 0;
+let turnFinished = true;
+let loadedThread = false;
+let totalUsage = process.env.FAKE_CODEX_RESTORED_USAGE
+  ? { inputTokens: 100, cachedInputTokens: 50, outputTokens: 10 }
+  : { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
 const notify = (method: string, params: any) => out({
   jsonrpc: "2.0", method,
   params: {
@@ -118,11 +126,11 @@ const notify = (method: string, params: any) => out({
 // chunk. Force that ordering for the baseline fixture instead of relying on
 // the OS to coalesce two writes under load.
 const threadReply = (response: unknown) => {
-  if (!process.env.FAKE_CODEX_RESTORED_USAGE) return out(response);
+  if (!process.env.FAKE_CODEX_RESTORED_USAGE && turnNumber === 0) return out(response);
   const restored = {
     jsonrpc: "2.0", method: "thread/tokenUsage/updated",
     params: { threadId: nativeThreadId, turnId: nativeTurnId,
-      tokenUsage: { total: { inputTokens: 100, cachedInputTokens: 50, outputTokens: 10 } } },
+      tokenUsage: { total: totalUsage } },
   };
   process.stdout.write(`${JSON.stringify(response)}\n${JSON.stringify(restored)}\n`);
 };
@@ -169,6 +177,8 @@ const dump = () => {
 };
 
 const finishTurn = () => {
+  if (turnFinished) return;
+  turnFinished = true;
   notify("item/completed", { item: { id: "i1", type: "commandExecution", status: "completed", aggregatedOutput: "README.md\nAPI_KEY=codex-output-secret", exitCode: 0 } });
   notify("item/completed", { item: { id: "w1", type: "webSearch", status: "completed" } });
   if (mode === "stream") {
@@ -193,9 +203,9 @@ const finishTurn = () => {
   // FAKE_CODEX_RESTORED_USAGE the process already carried 100/50/10 before
   // turn/start (a resumed thread restoring earlier usage), so the driver's
   // per-turn figure must still come out as 7/4/3.
-  const carried = process.env.FAKE_CODEX_RESTORED_USAGE ? { inputTokens: 100, cachedInputTokens: 50, outputTokens: 10 } : { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
+  totalUsage = { inputTokens: totalUsage.inputTokens + 7, cachedInputTokens: totalUsage.cachedInputTokens + 4, outputTokens: totalUsage.outputTokens + 3 };
   notify("thread/tokenUsage/updated", { tokenUsage: {
-    total: { inputTokens: carried.inputTokens + 7, cachedInputTokens: carried.cachedInputTokens + 4, outputTokens: carried.outputTokens + 3 },
+    total: totalUsage,
     last: { inputTokens: 7, cachedInputTokens: 4, outputTokens: 3 },
     modelContextWindow: 272000,
   } });
@@ -224,7 +234,7 @@ const playRoomPlanTurn = (msg: any, planPath: string) => {
   if (!early) ack();
   // Loaded only in this mode: other tests run a copy of this file on its own.
   void import("./room-handoff-agent.ts").then(({ runRoomHandoffAgent }) => runRoomHandoffAgent(process.argv.slice(2), planPath, { message: { content: text } },
-    { integration, system: developerInstructions, evidence: { resumedThread } }))
+    { integration, system: developerInstructions + developerContext, evidence: { resumedThread } }))
     .then((reply) => {
       notify("item/completed", { item: { id: "m1", type: "agentMessage", text: reply } });
       notify("turn/completed", { turn: { status: "completed" } });
@@ -248,6 +258,12 @@ process.stdin.on("data", (chunk) => {
       continue;
     }
 
+    if (msg.id === "startup-approval" && (msg.result !== undefined || msg.error !== undefined)) {
+      decision = msg.result ?? { error: msg.error };
+      dump();
+      threadReply(startupReply);
+      continue;
+    }
     // response to our own server->client request (approval decision)
     if ((msg.id === 100 || msg.id === 101) && (msg.result !== undefined || msg.error !== undefined)) {
       decision = msg.result ?? { error: msg.error };
@@ -357,13 +373,17 @@ process.stdin.on("data", (chunk) => {
         resumedThread = msg.params?.threadId ?? null;
         if (resumedThread) {
           const file = sessionFile(resumedThread);
-          if (file && existsSync(file)) developerInstructions = JSON.parse(readFileSync(file, "utf8")).developerInstructions;
+          if (file && existsSync(file)) {
+            const saved = JSON.parse(readFileSync(file, "utf8"));
+            developerInstructions = saved.developerInstructions;
+            developerContext = saved.developerContext ?? "";
+          }
         }
         if (process.env.FAKE_CODEX_RESUME_ERROR) {
           out({ jsonrpc: "2.0", id: msg.id, error: JSON.parse(process.env.FAKE_CODEX_RESUME_ERROR) });
         } else if (msg.params?.permissions && (!experimentalApi || mode === "config-profile-unsupported")) {
           out({ jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: "experimental API required for permissions" } });
-        } else if (mode === "resume" || mode === "helper-events" || mode === "instructions-unsupported" || mode === "config-profile" || mode === "config-profile-unsupported" ||
+        } else if ((loadedThread && msg.params?.threadId === nativeThreadId) || mode === "resume" || mode === "helper-events" || mode === "instructions-unsupported" || mode === "config-profile" || mode === "config-profile-unsupported" ||
             (mode === "resume-then-missing" && !existsSync(process.env.FAKE_CODEX_STATE ?? ""))) {
           threadReply({ jsonrpc: "2.0", id: msg.id, result: { thread: { id: msg.params?.threadId } } });
         } else {
@@ -376,10 +396,12 @@ process.stdin.on("data", (chunk) => {
           out({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "method not found" } });
           break;
         }
-        if (process.env.FAKE_CODEX_SESSION_DIR) {
+        {
           const update = msg.params?.items?.findLast((item: any) => item.role === "developer");
           if (update) {
-            developerInstructions = update.content.map((item: any) => item.text ?? "").join("\n");
+            const text = update.content.map((item: any) => item.text ?? "").join("\n");
+            if (text.startsWith("Current OpenMausBot task context.")) developerContext = text;
+            else developerInstructions = text;
             saveSession(msg.params.threadId);
           }
         }
@@ -414,7 +436,9 @@ process.stdin.on("data", (chunk) => {
         notify("turn/completed", { turn: { status: "interrupted" } });
         break;
       case "thread/start":
+        loadedThread = true;
         dump();
+        developerContext = "";
         developerInstructions = msg.params?.developerInstructions ?? "";
         if (process.env.FAKE_CODEX_START_ERROR) {
           out({ jsonrpc: "2.0", id: msg.id, error: JSON.parse(process.env.FAKE_CODEX_START_ERROR) });
@@ -423,10 +447,17 @@ process.stdin.on("data", (chunk) => {
         } else {
           const id = process.env.FAKE_CODEX_SESSION_DIR ? randomUUID() : "codex-thread-1";
           saveSession(id);
-          threadReply({ jsonrpc: "2.0", id: msg.id, result: { thread: { id }, model: "fake-codex-model" } });
+          const response = { jsonrpc: "2.0", id: msg.id, result: { thread: { id }, model: "fake-codex-model" } };
+          if (mode === "startup-approval") {
+            startupReply = response;
+            out({ jsonrpc: "2.0", id: "startup-approval", method: "item/commandExecution/requestApproval",
+              params: { threadId: id, turnId: "startup", command: "echo fixture", reason: "startup permission probe" } });
+          } else if (mode !== "startup-wait") threadReply(response);
         }
         break;
       case "turn/start": {
+        nativeTurnId = `turn-${++turnNumber}`;
+        turnFinished = false;
         dump();
         nativeThreadId = msg.params?.threadId ?? nativeThreadId;
         // crash script for close-path retry tests: die before
@@ -665,7 +696,7 @@ process.stdin.on("data", (chunk) => {
             method: "item/permissions/requestApproval",
             params: {
               threadId: "codex-thread-1",
-              turnId: "turn-1",
+              turnId: nativeTurnId,
               itemId: "permission-1",
               cwd: "/tmp",
               startedAtMs: Date.now(),

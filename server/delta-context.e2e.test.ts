@@ -679,7 +679,8 @@ it("does not offer a message the person stopped before any reply again on Codex"
   await f.send("Warm up.");
   await f.wait();
   await f.send("CODEX_STOPPED_ASK please drop the staging database");
-  await expect.poll(() => f.codexLaunches().length, { timeout: 15_000 }).toBe(2);
+  await expect.poll(() => f.codexCalls().filter((call: any) => call.method === "turn/start").length, { timeout: 15_000 }).toBe(2);
+  expect(f.codexLaunches()).toHaveLength(1);
   await f.api(`/api/bots/${f.chief.id}/interrupt`, { threadId: f.thread });
   await f.idle();
   f.open(f.gate("slow"));
@@ -732,7 +733,8 @@ it("does not offer a message again that the person steered out of the queue into
     await f.send("Warm up.");
     await f.wait();
     await f.send("Start on the report.");
-    await expect.poll(() => f.codexLaunches().length, { timeout: 15_000 }).toBe(2);
+    await expect.poll(() => f.codexCalls().filter((call: any) => call.method === "turn/start").length, { timeout: 15_000 }).toBe(2);
+    expect(f.codexLaunches()).toHaveLength(1);
     // The engine refuses the live steer, so the words wait in the queue.
     const queued = await f.send("QUEUED_STEER also cover costs");
     expect(queued.queued).toBe(true);
@@ -878,8 +880,10 @@ it("rebuilds a delegated return whose Codex thread is gone into a new thread wit
   await f.send("Please have Engineering build the export.");
   await leadRunning(f);
   await expect.poll(async () => (await f.messages()).some((m: any) => m.role === "bot" && m.text === "Assigned"), { timeout: 15_000 }).toBe(true);
-  // The personal (unmanaged) Codex app-server no longer has the thread.
+  // Restart the fixture's engine with unavailable native history. A retained
+  // runtime otherwise still owns its loaded thread even if its rollout is lost.
   f.setMode("happy", "codex");
+  await f.api("/api/instances/codex", { cli: join(f.dataDir, "codex.mjs") }, "PATCH");
   f.open(f.gate("lead"));
   await f.wait();
   f.setMode(undefined, "codex");

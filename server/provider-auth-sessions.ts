@@ -22,7 +22,7 @@ export class ProviderAuthSessions {
     return [...this.flows.values()].some((flow) => flow.busy || (!flow.revoked && flow.expiresAt > Date.now()));
   }
 
-  async start(instance: LoginInstance, owner: string): Promise<ProviderAuthenticationStart> {
+  async start(instance: LoginInstance, owner: string, provider?: string): Promise<ProviderAuthenticationStart> {
     if (!instance.startAuthentication) throw failure("Account setup is unavailable for this provider.", 404);
     const existing = this.flows.get(instance.instanceId);
     if (existing && (existing.busy || (existing.owner !== owner && existing.expiresAt > Date.now()))) {
@@ -36,7 +36,7 @@ export class ProviderAuthSessions {
     flow.starting = true;
     this.flows.set(instance.instanceId, flow);
     try {
-      const result = await instance.startAuthentication();
+      const result = await instance.startAuthentication(provider);
       if (flow.revoked || this.flows.get(instance.instanceId) !== flow) {
         await instance.cancelAuthentication?.();
         throw failure("Sign-in cancelled because the session or provider changed.", 409);
@@ -95,7 +95,7 @@ export class ProviderAuthSessions {
   /** Remove the server's stored sign-in for this provider. A login another
    * admin is still completing must not be pulled away underneath them, and
    * nobody may start one while the credential is being removed. */
-  async signOut(instance: LoginInstance, owner: string): Promise<void> {
+  async signOut(instance: LoginInstance, owner: string, provider?: string): Promise<void> {
     if (!instance.signOut) throw failure("Sign-out is unavailable for this provider.", 404);
     const existing = this.flows.get(instance.instanceId);
     if (existing && (existing.busy || (existing.owner !== owner && existing.expiresAt > Date.now() && !existing.revoked))) {
@@ -107,7 +107,7 @@ export class ProviderAuthSessions {
     try {
       // This owner's own leftover flow is theirs to abandon.
       if (existing) await existing.instance.cancelAuthentication?.();
-      await instance.signOut();
+      await instance.signOut(provider);
     } finally {
       if (this.flows.get(instance.instanceId) === flow) this.flows.delete(instance.instanceId);
     }

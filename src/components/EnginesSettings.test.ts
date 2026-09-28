@@ -54,6 +54,15 @@ describe("Settings → Engines → Codex", () => {
     expect(html).toContain("Upload a custom provider icon for Codex");
   });
 
+  it("shows the built-in native agent without a CLI path or installer", () => {
+    render(false);
+    fixture.instances = [{ instanceId: "native", driverKind: "nativeAgent", displayName: "OpenMaus Agent",
+      snapshot: { state: "available", authenticated: false }, models: { default: "", options: [] }, nativeAccounts: [] }];
+    const html = renderToStaticMarkup(createElement(EnginesSettings));
+    expect(html).toContain("OpenMaus Agent"); expect(html).toContain("Connect ChatGPT");
+    expect(html).not.toContain("Set CLI"); expect(html).not.toContain("Install OpenMaus");
+  });
+
   it("shows a connected account without offering to replace it", () => {
     const html = render(true);
     expect(html).toContain("ChatGPT connected on this server");

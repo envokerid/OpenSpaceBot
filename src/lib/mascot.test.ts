@@ -19,3 +19,13 @@ describe("stateForBot", () => {
     expect(stateForBot({ name: "Atlas", messages: [{ kind: "options" }, { kind: "digest" }] })).toBe("curious");
   });
 });
+
+
+describe("live mascot activity", () => {
+  it("listens while waiting for approval and alerts when the agent is unavailable", () => {
+    expect(stateForBot({ name: "Maus", busy: true, activity: "waiting-on-you" })).toBe("listening");
+    expect(stateForBot({ name: "Maus", activity: "dead" })).toBe("alerting");
+    expect(stateForBot({ name: "Maus", activity: "working" })).toBe("working");
+    expect(stateForBot({ name: "Maus", mascotExpression: "happy", activity: "working" })).toBe("happy");
+  });
+});

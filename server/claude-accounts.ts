@@ -18,6 +18,8 @@ export const instanceSettingsSchema = z.object({
   configDir: configDir.optional(),
   tools: z.boolean().optional(),
   fastMode: z.boolean().optional(),
+  nativeApps: z.boolean().optional(),
+  disabledUserMcpServers: z.array(z.string().regex(/^[\w-]{1,100}$/)).max(64).optional(),
 }).strict().refine((value) => Object.keys(value).length > 0, "No settings supplied");
 
 function rawConfig(entry: InstanceConfig): Record<string, unknown> {

@@ -20,6 +20,7 @@ try {
 // through `ps`, and the token guards a loopback endpoint.
 const controlUrl = process.env.OMB_CONTROL_URL ?? "";
 const controlToken = process.env.OMB_CONTROL_TOKEN ?? "";
+const tokenFile = process.env.OMB_CONTROL_TOKEN_FILE;
 
 runMcpBridge({
   command: "docker",
@@ -29,5 +30,5 @@ runMcpBridge({
   // driver: a busy desktop mid-tool-call must never look dead, while an
   // unreachable VPS must, and `docker version` distinguishes exactly that.
   liveness: { command: "docker", args: vpsDockerArgs(sshAlias, ["version", "--format", "{{.Server.Version}}"]) },
-  ...(controlUrl && controlToken ? { gate: { url: controlUrl, token: controlToken } } : {}),
+  ...(controlUrl && (controlToken || tokenFile) ? { gate: { url: controlUrl, token: controlToken, tokenFile } } : {}),
 });

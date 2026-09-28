@@ -19,11 +19,12 @@ registerHooks({
       const read = () => JSON.parse(readFileSync(file, 'utf8'));
       export async function containerRuntimeStatus() { return { runtime: 'podman', daemonUp: true }; }
       export async function containerComputerExists() { return !read().noContainers; }
-      export async function containerComputerStatus(_run, _platform, target = SHARED_LOCAL_VM_TARGET) {
+      export async function containerComputerStatus(_run, _platform, target = SHARED_LOCAL_VM_TARGET, options = {}) {
         writeFileSync(file + '.entered', target.key);
-        while (read().blocked) await new Promise(r => setTimeout(r, 30));
-        const ready = !read().failed;
-        return { runtime: 'podman', daemonUp: true, imagePresent: true, managed: true,
+        while (options.probeDesktop !== false && read().blocked) await new Promise(r => setTimeout(r, 30));
+        const ready = options.probeDesktop !== false && !read().failed;
+        return { runtime: 'podman', daemonUp: true, image: true, managed: true,
+          imageMatches: true, network: 'loopback', security: 'hardened', persistence: 'durable',
           container: 'running', ready, problem: ready ? null : 'fixture desktop unavailable',
           container_name: target.containerName, target_key: target.key, workspace_path: target.workspaceDir };
       }

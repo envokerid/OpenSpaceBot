@@ -1,3 +1,4 @@
+import { NativeAccountSettings } from "./NativeAccountSettings";
 // Engines settings — per-instance CLI path override. One "Set CLI…" button
 // per engine reveals a picker: a "detected" dropdown of every binary the
 // server found on PATH, plus a manual path input. Saving first probes the
@@ -261,11 +262,12 @@ function EngineRow({ instance }: { instance: InstanceInfo }) {
   return (
     <EngineCard instance={instance}>
       <ProviderIconPicker instance={instance} />
-      {!engineReady(instance) && <EngineSetup instance={instance} intent={instance.access === "custom" ? "inject" : "cloud"} unframed />}
+      {instance.nativeAccounts && <NativeAccountSettings instance={instance} />}
+      {!instance.nativeAccounts && !engineReady(instance) && <EngineSetup instance={instance} intent={instance.access === "custom" ? "inject" : "cloud"} unframed />}
       {instance.snapshot.update && <EngineUpdateNotice update={instance.snapshot.update} instance={instance} className="mt-3" />}
       {instance.snapshot.warning && <EngineWarningNotice warning={instance.snapshot.warning} className="mt-3" />}
       {instance.claudeAccount && <ClaudeAccountSettings instance={instance} />}
-      {engineReady(instance) && instance.snapshot.authenticated === true && (
+      {!instance.nativeAccounts && engineReady(instance) && instance.snapshot.authenticated === true && (
         instance.authentication?.method === "device-code"
           ? <CodexAccountSettings instance={instance} />
           : instance.authentication?.method === "paste-code" && !instance.claudeAccount && (
@@ -296,7 +298,7 @@ function EngineRow({ instance }: { instance: InstanceInfo }) {
           />
         </div>
       )}
-      <details className="mt-3 rounded-xl border border-hairline/40 px-3 py-2.5">
+      {!instance.nativeAccounts && <details className="mt-3 rounded-xl border border-hairline/40 px-3 py-2.5">
         <summary className="cursor-pointer text-[12px] font-medium text-ink-secondary hover:text-ink">{t("engines.library.advanced")}</summary>
         <p className="mt-2 text-[12px] leading-relaxed text-ink-secondary">{t("engines.footer")}</p>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px]">
@@ -359,7 +361,7 @@ function EngineRow({ instance }: { instance: InstanceInfo }) {
             onSaved={refreshInstances}
           />
         )}
-      </details>
+      </details>}
     </EngineCard>
   );
 }
@@ -369,7 +371,7 @@ export function EnginesSettings() {
   // every KNOWN-driver instance has cliDefault; unknown-driver shadows have
   // neither unless an override was set. Including them keeps a Reset-able row
   // (and a Set CLI… path) for engines the running build doesn't recognize.
-  const rows = state.instances.filter((i) => i.readOnly || i.cli !== undefined || i.cliDefault !== undefined || i.snapshot.state === "unavailable");
+  const rows = state.instances.filter((i) => i.nativeAccounts || i.readOnly || i.cli !== undefined || i.cliDefault !== undefined || i.snapshot.state === "unavailable");
 
   return (
     <div className="flex min-w-0 flex-col gap-6 pb-2">

@@ -70,6 +70,9 @@ interface RuntimeOptions<Config> {
   driverKind: string;
   apiKey: string;
   apiUrl: string;
+  /** Native provider transport; the project still owns the full tool loop. */
+  fetchCompletion?: (body: Record<string, unknown>, signal: AbortSignal) => Promise<Response>;
+  credentialSecrets?: () => string[];
   models: () => ModelCatalog;
   requestBody(model: string, messages: OpenAIChatMessage[], stream: boolean): Record<string, unknown>;
   httpErrorLabel: string;
@@ -143,21 +146,19 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
         ? AbortSignal.any([signal, timeoutController.signal])
         : timeoutController.signal;
 
-      const response = await fetch(`${options.apiUrl}/chat/completions`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${options.apiKey}`, "content-type": "application/json" },
-        body: JSON.stringify({
-          ...options.requestBody(model, messages, stream),
-          ...(tools.length ? { tools } : {}),
-        }),
-        signal: activeSignal,
-      });
+      const body = { ...options.requestBody(model, messages, stream), ...(tools.length ? { tools } : {}) };
+      const response = options.fetchCompletion
+        ? await options.fetchCompletion(body, activeSignal)
+        : await fetch(`${options.apiUrl}/chat/completions`, {
+            method: "POST", headers: { authorization: `Bearer ${options.apiKey}`, "content-type": "application/json" },
+            body: JSON.stringify(body), signal: activeSignal,
+          });
       if (!response.ok) {
         const body = await response.text().catch(() => "");
         throw new Error(`${options.httpErrorLabel} HTTP ${response.status}${body ? `: ${body.slice(0, 200)}` : ""}`);
       }
 
-      if (!stream || response.headers.get("content-type")?.includes("application/json")) {
+      if ((!stream && !options.fetchCompletion) || response.headers.get("content-type")?.includes("application/json")) {
         const json = await response.json() as CompletionJson;
         const bodyError = providerError(json);
         if (bodyError) throw new ChatProtocolError(`provider returned a completion error: ${bodyError.slice(0, 200)}`);
@@ -310,9 +311,10 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
         }
       }
     }
+    const allSecrets = () => [...secrets, ...(options.credentialSecrets?.() ?? [])];
     const safeText = (text: string) => {
       let safe = text;
-      for (const secret of secrets) if (secret) safe = safe.split(secret).join("[redacted]");
+      for (const secret of allSecrets()) if (secret) safe = safe.split(secret).join("[redacted]");
       return redactSecretsInText(safe);
     };
     const preview = (value: unknown) => toolDetailPreview(JSON.parse(JSON.stringify(value, (_key, part) =>
@@ -362,11 +364,11 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
               let combined = pending[streamKind] + text;
               // Mask complete matches before holding a suffix: otherwise a key
               // such as "abab" could be split at its own repeated prefix.
-              for (const secret of secrets) if (secret) combined = combined.split(secret).join("[redacted]");
+              for (const secret of allSecrets()) if (secret) combined = combined.split(secret).join("[redacted]");
               let hold = 0;
               // A configured credential can straddle chunks. Hold any suffix
               // that could be its prefix until the next chunk disambiguates it.
-              if (!flush) for (const secret of secrets) {
+              if (!flush) for (const secret of allSecrets()) {
                 for (let length = Math.min(secret.length - 1, combined.length); length > hold; length--) {
                   if (combined.endsWith(secret.slice(0, length))) { hold = length; break; }
                 }

@@ -44,6 +44,10 @@ describe("parseBotProfilePatch (strict — the paired boundary)", () => {
 });
 
 describe("parseBotProfilePatch (both modes)", () => {
+  it("accepts the white mascot color", () => {
+    expect(parseBotProfilePatch({ color: "white" }, true)).toEqual({ ok: true, patch: { color: "white" } });
+  });
+
   // A name or title is quoted as one line inside prompts and cards — the
   // roster, a room's "Name: …" speaker line, the bracketed provenance note.
   // One that can break out of that line is refused at the door, in both

@@ -1,9 +1,5 @@
-// Bot avatar — the Blob Studio "Cursor" mascot (CursorAvatar.tsx), wrapped
-// in the app's historical MausAvatar API so no call site changes: per-bot
-// color becomes a body gradient, the app's one-shot motion beats borrow the
-// face/state for a moment, and the eyes follow the pointer. The previous
-// hand-built Maus body + face engine (maus-engine/face/driver) is gone;
-// CursorAvatar owns morphing, blinking, drift, body motion and effects.
+// Shared avatar entry point: the reference orb is the default 3D mascot.
+// Existing alternate bodies and uploaded images remain available.
 import {
   forwardRef,
   memo,
@@ -13,7 +9,11 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { MAUS_COLORS, type MausColor, type MausMotion, type MausState } from "@/lib/mascot";
+import { useMascotAnimation } from "../../shared/use-mascot-animation";
+import { mascotEyeColor } from "../../shared/mascot-appearance";
+import type { MascotBotProfile } from "../../shared/mascot-state";
+import { MAUS_COLORS, stateForBot, type MausColor, type MausMotion, type MausState } from "@/lib/mascot";
+import { OrbAvatar } from "./OrbAvatar";
 import { CursorAvatar, type CursorAvatarHandle } from "./CursorAvatar";
 import { botAvatarProfile, type BotAvatarCrop } from "../../shared/bot-avatar";
 import { MASCOT_BODIES, botMascotBody, type MascotBodyId } from "../../shared/mascot-bodies";
@@ -146,6 +146,7 @@ function MausAvatarComponent(
   // A one-shot motion borrows the state for a moment, then hands it back.
   const [motionState, setMotionState] = useState<MausState | null>(null);
   useEffect(() => {
+    setMotionState(null);
     if (motion === "none" || !animated) return;
     const beat = MOTION_FACE[motion];
     if (!beat) return;
@@ -176,13 +177,24 @@ function MausAvatarComponent(
       onPointerMove={trackPointer && animated ? onPointerMove : undefined}
       onPointerLeave={trackPointer && animated ? onPointerLeave : undefined}
     >
-      <CursorAvatar
+      {botMascotBody(bodyId) === "cursor" ? <OrbAvatar
+        ref={inner}
+        color={color}
+        expression={expression}
+        state={motionState ?? state}
+        size={size}
+        label={label}
+        animated={animated}
+        gaze={{ x: (gaze?.x ?? 0) + pointer.x, y: (gaze?.y ?? 0) + pointer.y }}
+        turn={turn}
+      /> : <CursorAvatar
         ref={inner}
         state={motionState ?? state}
         expression={expression}
         size={size}
         silhouette={silhouette}
         gradient={gradientFor(color)}
+        eyeColor={mascotEyeColor(color)}
         title={label ?? null}
         lookAround={lookAround ?? (forward ? 0 : 1)}
         gaze={{ x: (gaze?.x ?? 0) + pointer.x, y: (gaze?.y ?? 0) + pointer.y }}
@@ -192,7 +204,7 @@ function MausAvatarComponent(
         showMouth={showMouth}
         mouthStroke={mouthStroke}
         paused={!animated}
-      />
+      />}
     </span>
   );
 }
@@ -200,7 +212,8 @@ function MausAvatarComponent(
 export const MausAvatar = memo(forwardRef(MausAvatarComponent));
 
 export type BotAvatarProps = Omit<MausAvatarProps, "color"> & {
-  bot: {
+  automatic?: boolean;
+  bot: Partial<MascotBotProfile> & {
     name?: string;
     color: MausColor;
     avatarUrl?: string | null;
@@ -240,7 +253,9 @@ export function resolveBotAvatarOutcome(params: {
  * values and images that fail to load both fall back to the animated mascot,
  * so an old/corrupt profile can never leave a broken-image icon in the app.
  */
-export function BotAvatar({ bot, size = 44, label, ...mascotProps }: BotAvatarProps) {
+export function BotAvatar({ bot, size = 44, label, automatic = true, ...mascotProps }: BotAvatarProps) {
+  const identity = { ...bot, name: bot.name ?? "Maus" };
+  const mood = useMascotAnimation(identity, mascotProps.state ?? stateForBot(identity), automatic && mascotProps.animated !== false);
   const profile = botAvatarProfile(bot);
   const [imageFailed, setImageFailed] = useState(false);
 
@@ -257,6 +272,7 @@ export function BotAvatar({ bot, size = 44, label, ...mascotProps }: BotAvatarPr
       <MausAvatar
         bodyId={bot.mascotBody ?? undefined}
         {...mascotProps}
+        state={mood}
         color={bot.color}
         size={size}
         label={label ?? bot.name}

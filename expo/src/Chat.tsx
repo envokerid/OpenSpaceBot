@@ -157,7 +157,15 @@ export function Chat({ visible, session, state, destination, around, drafts, onD
         <View style={{ flex: 1, minWidth: 0, alignItems: 'center' }}>
           {destination.kind === 'bots' && owner && 'color' in owner ? (
             <Pressable accessibilityRole="button" accessibilityLabel={`Open ${owner.name} settings`} onPress={onProfile} style={[styles.identityChip, { backgroundColor: c.chrome }]}>
-              <Avatar bot={owner} client={session.client} size={36} animated={visible} />
+              <Avatar bot={{
+                ...owner, threadId: destination.threadId,
+                messages: visibleMessages(page),
+                busy: task && 'busy' in task ? task.busy : owner.threadId === destination.threadId ? owner.busy : false,
+                activity: task && 'activity' in task ? task.activity : owner.threadId === destination.threadId ? owner.activity : 'idle',
+                waitingForTeammates: task && 'waitingForTeammates' in task ? task.waitingForTeammates : owner.threadId === destination.threadId ? owner.waitingForTeammates : false,
+                typing: isTyping(state, destination.threadId, !!busy) && !!state.streaming[destination.threadId],
+                reasoning: isTyping(state, destination.threadId, !!busy) && !!state.reasoning[destination.threadId],
+              }} client={session.client} size={36} animated={onScreen} />
               <Label size={15} bold numberOfLines={1} style={{ flexShrink: 1 }}>{owner.name}</Label>
             </Pressable>
           ) : group ? (
