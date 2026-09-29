@@ -472,6 +472,7 @@
   "chat.unpin": "Unpin",
   "chat.pinnedJump": "Jump to the pinned message",
   "chat.you": "You",
+  "chat.peer.messageFrom": "Message from {name}",
   "chat.peer.asked": "asked via ask_bot",
   "chat.peer.delegated": "delegated a task",
   "chat.peer.openedThread": "opened this thread",
@@ -2297,5 +2298,11 @@
   "nativeAgent.save": "Save account",
   "nativeAgent.failed": "Sign-in could not be completed. Please try again.",
   "nativeAgent.disconnectTitle": "Disconnect {name}?",
-  "nativeAgent.disconnectHint": "This removes this provider’s credentials from OpenMausBot. Finish or stop tasks using this provider first."
+  "nativeAgent.disconnectHint": "This removes this provider’s credentials from OpenMausBot. Finish or stop tasks using this provider first.",
+  "vm.main.perBotPersistentSubtitle": "Private Cua Linux desktops on this {host}. Each bot keeps its installed apps, files and browser profiles across stops and restarts. Desktops are not automatically deleted when idle.",
+  "vm.main.sharedPersistentSubtitle": "A shared Cua Linux desktop on this {host}. Installed apps, files and browser profiles remain across stops and restarts. The desktop is not automatically deleted when idle.",
+  "vm.isolation.persistentSubtitle": "Shared gives bots one desktop to use in turn. Per bot gives each bot its own persistent desktop, workspace, viewer port and control lease.",
+  "vm.safety.perBotPersistent": "Each bot keeps its entire VM filesystem across stops and restarts. Only explicit deletion or replacement removes it. The private host folder at {path} also survives replacement. Each desktop retains its resource limits, loopback viewer and isolated bot ownership. VMs can reach the internet.",
+  "vm.safety.sharedPersistent": "The entire VM filesystem is retained across stops and restarts, including installed apps and browser profiles. Only explicit deletion or replacement removes it. The private host folder at {path} also survives replacement. The viewer remains local and password-protected, with 4 GB memory, 2 CPUs and 512 processes. Bots share control one at a time; the VM can reach the internet.",
+  "vm.confirm.replacePersistent": "Replace this Local VM? Installed apps and files outside its durable workspace will be deleted. Use Start to resume a stopped VM without losing data."
 }

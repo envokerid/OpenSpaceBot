@@ -1,0 +1,28 @@
+version: 1
+scenarios:
+  - id: lookup-proof
+    category: tools
+    description: Prove a real fixture call, its arguments, and an intentional regression when tools are removed.
+    memory: "The verification marker is BLUEBIRD."
+    tools:
+      - name: lookup
+        description: Look up a fixture order by id.
+        inputSchema:
+          type: object
+          properties:
+            id: { type: string }
+          required: [id]
+          additionalProperties: false
+        responses:
+          - text: "Order A17: dispatched."
+    turns:
+      - text: Look up order A17 and tell me its status.
+        fake:
+          text: Order A17 is dispatched.
+          calls:
+            - name: fixture_lookup
+              args: { id: A17 }
+        assertions:
+          - { type: replyContains, value: dispatched }
+          - { type: toolCalled, value: fixture_lookup, args: { id: A17 } }
+          - { type: promptContains, value: BLUEBIRD }

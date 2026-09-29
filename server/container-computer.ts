@@ -15,6 +15,7 @@ import { promisify } from "node:util";
 import { augmentedPath, resolveCliSpawn } from "./env-path.ts";
 import { DATA_DIR } from "./config.ts";
 import { SPAWNED_PROXIES } from "./proxy-paths.ts";
+import { mobileVmCommand, mobileVmInputSchema, type MobileVmInput } from "../shared/mobile-vm.ts";
 
 const run = promisify(execFile);
 const SCREENSHOT_STATUS_TTL_MS = 10_000;
@@ -339,21 +340,8 @@ function emptyStatus(platform: NodeJS.Platform, target: LocalVmTarget): Containe
   };
 }
 
-/** Whether a turn may recreate this Local VM itself instead of failing.
- *
- * True for exactly one state: the container is gone, and a plain `run` is all
- * that is needed to bring it back. That is what `LocalVmIdleTimer` leaves
- * behind — it removes an unused Local VM rather than pausing it — so a turn
- * arriving after an idle period should not have to send the person to App
- * Settings for a container the app itself deleted.
- *
- * Every other problem in `statusProblem` stays the person's call and returns
- * false here: no runtime, daemon down, image never prepared, `create_supported`
- * false, and any existing container — stale image, unmanaged, unsafe network,
- * security or persistence. A stopped container is excluded deliberately, since
- * `statusProblem` says this desktop image cannot safely resume and asks for a
- * recreate rather than a start.
- */
+/** Create only when no container exists and its image is already prepared.
+ * Existing containers, including stopped ones, must never be replaced here. */
 export function localVmRecreatableOnDemand(
   status: ContainerComputerStatus,
 ): status is ContainerComputerStatus & { runtime: Runtime } {
@@ -364,12 +352,16 @@ export function localVmRecreatableOnDemand(
     && status.create_supported;
 }
 
-/** Whether Auto may attach this Local VM without a person choosing it: the
- * desktop is ready, or its image is prepared and the container can simply be
- * recreated after idling away. Anything else — no runtime, daemon down, image
- * never prepared, an unmanaged or unsafe container — stays the person's call. */
+/** Auto can use a ready desktop, resume its retained container, or create
+ * a missing one. Unsafe and incompatible desktops remain a manual decision. */
 export function autoLocalVmAttachable(status: ContainerComputerStatus): boolean {
-  return status.ready === true || localVmRecreatableOnDemand(status);
+  return status.ready === true || localVmStartable(status) || localVmRecreatableOnDemand(status);
+}
+
+/** Resume the existing filesystem only after validating its ownership and
+ * isolation. A stopped desktop must never be replaced just to wake it. */
+export function localVmStartable(status: ContainerComputerStatus): status is ContainerComputerStatus & { runtime: Runtime } {
+  return status.container === "stopped" && localVmMountable({ ...status, container: "running" });
 }
 
 /** Safe to expose through a lazy control gate. This verifies container
@@ -394,7 +386,7 @@ function statusProblem(status: ContainerComputerStatus): string | null {
   if (status.network === "unsafe") return "The existing Local VM exposes its viewer publicly; recreate it";
   if (status.security === "unsafe") return "The existing Local VM is missing safety limits; recreate it";
   if (status.persistence === "unsafe") return "The existing Local VM is missing its durable workspace; recreate it";
-  if (status.container === "stopped") return "This desktop image cannot safely resume; recreate the Local VM";
+  if (status.container === "stopped") return "Start the Local VM to resume its saved desktop";
   if (status.desktop_error) return `The Local VM desktop failed to start: ${status.desktop_error}`;
   if (!status.desktopReady) return "The Local VM started, but Cua Driver is not ready yet";
   return null;
@@ -593,7 +585,7 @@ export async function containerComputerStatus(
       status.security = (
         status.runtime === "podman"
           ? podmanSecurityIsHardened(detail?.HostConfig, detail?.EffectiveCaps, detail?.BoundingCaps)
-          : dockerSecurityIsHardened(detail?.HostConfig)
+          : dockerSecurityIsHardened(detail?.HostConfig, { restartPolicy: "retained" })
       ) ? "hardened" : "unsafe";
       status.viewer_url = viewerUrl(viewerPassword(detail?.Config?.Env), status.viewer_port);
     }
@@ -794,13 +786,11 @@ export interface DockerHardeningConfig {
  * BYO-VPS backend in vps-computer.ts): exact resource limits, no privilege,
  * no host namespaces or devices, no disabled security profiles. The only
  * runtime-specific capability exception is Podman's Firefox sandbox chroot.
- * Callers also differ on restart policy — the VPS
- * container must survive a reboot nobody is watching ("unless-stopped"),
- * while the Local VM must NOT auto-resume: its desktop leaves a stale X lock
- * on stop, so a restarted container is a broken one. */
+ * VPS containers require automatic restart. Retained Local VMs accept that
+ * policy and the legacy manual-start policy without requiring replacement. */
 export function dockerSecurityIsHardened(
   config: DockerHardeningConfig | undefined,
-  options: { restartPolicy?: "no" | "unless-stopped"; podmanBrowserSandbox?: boolean } = {},
+  options: { restartPolicy?: "no" | "unless-stopped" | "retained"; podmanBrowserSandbox?: boolean } = {},
 ): boolean {
   if (!config) return false;
   const capDrop = (config.CapDrop ?? []).map((cap) => cap.toLowerCase());
@@ -812,7 +802,8 @@ export function dockerSecurityIsHardened(
   const restartPolicyOk =
     options.restartPolicy === "unless-stopped"
       ? restartPolicy === "unless-stopped"
-      : restartPolicy === undefined || restartPolicy === "" || restartPolicy === "no";
+      : restartPolicy === undefined || restartPolicy === "" || restartPolicy === "no" ||
+        (options.restartPolicy === "retained" && restartPolicy === "unless-stopped");
   return (
     config.Memory === MEMORY_BYTES &&
     (config.MemorySwap ?? 0) === MEMORY_BYTES &&
@@ -875,6 +866,9 @@ export function containerRunArgs(
     throw new Error("Per-bot Local VMs require Docker or Podman because Apple container requires a fixed host port");
   }
   const common = ["run", "-d", "--name", target.containerName];
+  // Docker resumes the same writable layer after a host/daemon restart.
+  // A manual Stop stays stopped until explicitly started again.
+  if (runtime === "docker") common.push("--restart", "unless-stopped");
   if (runtime === "podman") {
     // The supervisor starts as namespace-root then drops to cua (1000).
     // Preserve the host workspace owner instead of :U chowning it to root.
@@ -996,8 +990,8 @@ export async function containerComputerAction(
   if (action === "run" && !before.create_supported) {
     throw Object.assign(new Error(before.problem ?? "This runtime cannot create a per-bot Local VM"), { status: 409 });
   }
-  if (action === "start") {
-    throw Object.assign(new Error("This desktop image cannot safely resume; remove and recreate the Local VM"), {
+  if (action === "start" && !localVmStartable(before)) {
+    throw Object.assign(new Error(before.problem ?? "The Local VM is not stopped"), {
       status: 409,
     });
   }
@@ -1125,6 +1119,24 @@ export async function containerComputerScreenshot(
   return `data:image/${format};base64,${png}`;
 }
 
+/** Human input is limited to this managed container and a fixed tool set. */
+export async function containerComputerInput(
+  input: MobileVmInput,
+  target: LocalVmTarget,
+  checkLease: () => void,
+  runner: CommandRunner = sh,
+) {
+  const command = mobileVmCommand(mobileVmInputSchema.parse(input));
+  const status = await containerComputerStatus(runner, process.platform, target, { probeDesktop: false });
+  if (!localVmMountable(status) || !status.runtime) throw Object.assign(new Error(status.problem ?? "The Local VM is not ready"), { status: 409 });
+  checkLease();
+  const { stdout } = await runner(status.runtime, cuaExecArgs([
+    "call", command.tool, JSON.stringify(command.args), "--socket", CUA_SOCKET,
+  ], { container: target.containerName }), 15_000);
+  const result = JSON.parse(stdout);
+  if (result.isError || result.error || result.success === false) throw Object.assign(new Error("The VM could not apply this input."), { status: 502 });
+}
+
 const screenshotStatusCache = new Map<
   string,
   { status: ContainerComputerStatus; expiresAt: number }
@@ -1206,7 +1218,7 @@ export function setupCommands(
       runtime === "container" && target.key !== SHARED_LOCAL_VM_TARGET.key
         ? null
         : command(containerRunArgs(runtime, "CHANGE_ME", target)),
-    start: null,
+    start: command(["start", target.containerName]),
     stop: command(["stop", target.containerName]),
     remove: command(["rm", runtime === "container" ? "--force" : "-f", target.containerName]),
     view: target.viewerPort ? `http://127.0.0.1:${target.viewerPort}/vnc.html` : "",

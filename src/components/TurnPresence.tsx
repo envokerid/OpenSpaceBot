@@ -1,23 +1,18 @@
-// Left-edge tail: mascot looks around while it works, with a live activity
-// sheen beside it. The moment there is an answer, the label is gone while
-// the canonical transcript row performs the settle-in animation above it.
+// The animated mascot represents work in progress. A completed reply
+// settles into the transcript above it.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
-import { WorkingTimer } from "@/components/WorkingIndicator";
 
 export function TurnPresence({
   avatar,
   visible,
   label = "Thinking",
   answering = false,
-  since = null,
 }: {
   avatar: ReactNode;
   visible: boolean;
   label?: string;
   answering?: boolean;
-  /** Turn start (epoch ms) — shows a self-ticking elapsed readout while working. */
-  since?: number | null;
 }) {
   const [mounted, setMounted] = useState(visible);
   const [phase, setPhase] = useState<"think" | "answer" | "out">(answering ? "answer" : "think");
@@ -55,14 +50,7 @@ export function TurnPresence({
       >
         {avatar}
         {showWorking ? (
-          <span className="flex items-baseline gap-2 leading-none">
-            <span className="thinking-shimmer animate-shimmer text-[13px]" aria-live="polite">
-              {label}
-            </span>
-            {since !== null && (
-              <WorkingTimer since={since} className="text-[11.5px] text-ink-secondary/70" />
-            )}
-          </span>
+          <span className="sr-only" role="status">{label}</span>
         ) : null}
       </div>
     </div>

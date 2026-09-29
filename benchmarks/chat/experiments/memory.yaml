@@ -1,0 +1,13 @@
+version: 1
+name: memory-comparison
+suite: ../suites/single-bot.yaml
+baseline:
+  name: seeded-memory
+variants:
+  - name: no-memory
+    memory:
+      mode: off
+  - name: empty-memory
+    memory:
+      mode: empty
+repetitions: 3

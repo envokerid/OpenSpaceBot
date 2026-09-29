@@ -81,8 +81,8 @@ Stop, provider failure, Off, a new queued request, and rejected in-flight manual
 surface changes have regression coverage. The VPS fixture separately proves
 starting a stopped container and creating a missing one only after selection.
 
-Two limits remain explicit: a stopped Local VM is not destructively rebuilt to
-make selection succeed, and the native Box runner does not expose the local
+Stopped Local VMs now resume their retained container when selected; they are
+never destructively rebuilt to make selection succeed. The native Box runner does not expose the local
 agents MCP. Switching back from an already Cloud-pinned native Box conversation
 therefore uses the composer destination selector for now.
 
@@ -97,3 +97,12 @@ container status and controls lease expiry and watchdog/deadline timing inside
 that child process.
 Production launchers never import it. No provider or live desktop is used by
 these regression tests; the opt-in Podman acceptance above covers real routing.
+
+Direct chats defer ownership of a running, mountable Local VM until their first
+computer tool call, including when the bot profile or conversation explicitly
+selects Local VM. The isolated fixture covers all three selection modes (Auto,
+profile, and conversation pin): a screen-less turn dispatches and finishes while
+another turn owns the VM, without waiting or emitting `Computer free` activity.
+A first computer call still waits behind that owner and proceeds after release.
+Stopped or missing VMs retain startup before dispatch because the MCP bridge
+needs a running container. Group/Goal setup retains its existing ownership flow.

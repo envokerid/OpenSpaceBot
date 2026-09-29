@@ -18,6 +18,7 @@ import {
   VM_WORKSPACE_GUEST,
   WORKSPACE_LABEL,
   containerComputerAction,
+  containerComputerInput,
   containerComputerFrame,
   containerComputerMcp,
   containerComputerScreenshot,
@@ -27,6 +28,7 @@ import {
   dockerSecurityIsHardened,
   localVmRecreatableOnDemand,
   localVmMountable,
+  localVmStartable,
   managedImageDockerfile,
   perBotLocalVmTarget,
   podmanSecurityIsHardened,
@@ -141,6 +143,25 @@ function perBotReadyInspect(botId: string, viewerPort: number, targetLabel?: str
 }
 
 describe("containerComputerStatus", () => {
+  it("sends bounded phone input as literal argv only after rechecking the lease", async () => {
+    const input = { type: "text" as const, text: "hello $(no-shell) 東京" };
+    const command = `${driverExec} call type_text ${JSON.stringify({ scope: "desktop", delivery_mode: "foreground", text: input.text })} --socket ${CUA_SOCKET}`;
+    const fake = runner({
+      "/usr/bin/which docker": "docker\n",
+      "/usr/bin/which podman": new Error("missing"),
+      "docker info --format {{.ServerVersion}}": "29\n",
+      [`docker image inspect ${IMAGE}`]: preparedImageInspect(),
+      [`docker inspect ${CONTAINER}`]: readyInspect(),
+      [command]: "{}",
+    });
+    let checked = false;
+    await containerComputerInput(input, SHARED_LOCAL_VM_TARGET, () => { checked = true; }, fake.run);
+    expect(checked).toBe(true);
+    expect(fake.calls.at(-1)).toBe(command);
+    const before = fake.calls.filter(call => call === command).length;
+    await expect(containerComputerInput(input, SHARED_LOCAL_VM_TARGET, () => { throw new Error("lease ended"); }, fake.run)).rejects.toThrow("lease ended");
+    expect(fake.calls.filter(call => call === command)).toHaveLength(before);
+  });
   it("prefers the supported Podman image store when Docker is also healthy on Windows", async () => {
     const fake = runner({
       "where.exe podman": "C:\\Program Files\\RedHat\\Podman\\podman.exe\n",
@@ -814,17 +835,21 @@ describe("containerComputerAction", () => {
     expect(fake.calls.some((call) => call.startsWith("docker run "))).toBe(false);
   });
 
-  it("never starts a stopped desktop because its stale X lock makes resume unsafe", async () => {
+  it.each(["no", "unless-stopped"])("starts the same stopped desktop with %s restart policy without deleting its filesystem", async (policy) => {
+    const detail = JSON.parse(readyInspect({ State: { Running: false } }))[0];
+    detail.HostConfig.RestartPolicy.Name = policy;
     const fake = runner({
       "/usr/bin/which docker": "docker\n",
       "/usr/bin/which podman": new Error("missing"),
       "docker info --format {{.ServerVersion}}": "29\n",
       [`docker image inspect ${IMAGE}`]: preparedImageInspect(),
-      [`docker inspect ${CONTAINER}`]: readyInspect({ State: { Running: false } }),
+      [`docker inspect ${CONTAINER}`]: JSON.stringify([detail]),
+      [`docker start ${CONTAINER}`]: CONTAINER,
     });
 
-    await expect(containerComputerAction("start", fake.run, "linux")).rejects.toThrow("cannot safely resume");
-    expect(fake.calls).not.toContain(`docker start ${CONTAINER}`);
+    await containerComputerAction("start", fake.run, "linux");
+    expect(fake.calls).toContain(`docker start ${CONTAINER}`);
+    expect(fake.calls.some(call => /docker (rm|run) /.test(call))).toBe(false);
   });
 });
 
@@ -873,8 +898,8 @@ describe("setupCommands", () => {
     expect(command).toContain("VNC_PW=CHANGE_ME");
   });
 
-  it("does not suggest docker start for an image that must be recreated", () => {
-    expect(setupCommands("docker", "linux").start).toBeNull();
+  it("offers a non-destructive start command", () => {
+    expect(setupCommands("docker", "linux").start).toBe(`docker start ${CONTAINER}`);
   });
 
   it("limits resources and retains only the sandbox supervisor's identity-switch caps", () => {
@@ -949,7 +974,7 @@ describe("localVmRecreatableOnDemand", () => {
     "podman info --format json": '{"host":{"arch":"amd64"}}\n',
   };
 
-  it("recreates a Local VM the idle timer removed", async () => {
+  it("creates a missing Local VM from the prepared image", async () => {
     const target = SHARED_LOCAL_VM_TARGET;
     const fake = runner({
       ...linuxPodman,
@@ -964,20 +989,27 @@ describe("localVmRecreatableOnDemand", () => {
     expect(localVmRecreatableOnDemand(status)).toBe(true);
   });
 
-  it("leaves a stopped container alone, because it is asked to be recreated not started", async () => {
+  it("resumes a stopped container instead of recreating it", async () => {
     const target = SHARED_LOCAL_VM_TARGET;
     const detail = JSON.parse(readyInspect())[0];
     detail.State = { Running: false, Status: "exited" };
     const fake = runner({
-      ...linuxPodman,
-      [`podman image inspect ${IMAGE}`]: preparedImageInspect(),
-      [`podman inspect ${target.containerName}`]: JSON.stringify([detail]),
+      "/usr/bin/which docker": "docker\n",
+      "/usr/bin/which podman": new Error("missing"),
+      "docker info --format {{.ServerVersion}}": "29\n",
+      [`docker image inspect ${IMAGE}`]: preparedImageInspect(),
+      [`docker inspect ${target.containerName}`]: JSON.stringify([detail]),
     });
 
     const status = await containerComputerStatus(fake.run, "linux", target);
 
     expect(status.container).toBe("stopped");
     expect(localVmRecreatableOnDemand(status)).toBe(false);
+    expect(localVmStartable(status)).toBe(true);
+    expect(autoLocalVmAttachable(status)).toBe(true);
+    for (const unsafe of [{ managed: false }, { imageMatches: false }, { network: "unsafe" as const }, { security: "unsafe" as const }, { persistence: "unsafe" as const }]) {
+      expect(localVmStartable({ ...status, ...unsafe })).toBe(false);
+    }
   });
 
   it("does not create anything when no container runtime is installed", async () => {
@@ -990,6 +1022,8 @@ describe("localVmRecreatableOnDemand", () => {
 
     expect(status.runtime).toBeNull();
     expect(localVmRecreatableOnDemand(status)).toBe(false);
+    expect(localVmStartable(status)).toBe(false);
+    expect(autoLocalVmAttachable(status)).toBe(false);
   });
 
   it("does not create anything before the desktop image has been prepared", async () => {
@@ -1012,7 +1046,7 @@ describe("Auto's Local VM eligibility", () => {
   it("attaches a ready desktop or one whose prepared image can be recreated, and nothing else", () => {
     expect(autoLocalVmAttachable({ ...base, ready: true, container: "running" })).toBe(true);
     expect(autoLocalVmAttachable(base)).toBe(true);
-    // never a first-time setup, a stopped image that cannot resume, or a dead daemon
+    // Never a first-time setup, an unverified stopped image, or a dead daemon
     expect(autoLocalVmAttachable({ ...base, image: false })).toBe(false);
     expect(autoLocalVmAttachable({ ...base, daemonUp: false })).toBe(false);
     expect(autoLocalVmAttachable({ ...base, container: "stopped" })).toBe(false);

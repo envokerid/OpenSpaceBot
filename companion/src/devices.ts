@@ -23,7 +23,7 @@ export interface DeviceRecord {
   tokenHash: string;
   createdAt: number;
   lastSeenAt: number;
-  /** Full interactive access to a bot's cloud desktop. Deliberately off on
+  /** Full interactive access to a bot's cloud desktop or Local VM. Deliberately off on
    * every new and migrated device until the computer owner enables it. */
   cloudDesktopAccess: boolean;
   /** Workspace administration is a separate, explicit grant from the host. */

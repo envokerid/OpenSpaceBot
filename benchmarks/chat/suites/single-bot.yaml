@@ -1,0 +1,188 @@
+version: 1
+scenarios:
+  - id: exact-format
+    category: instructions
+    description: Follow a precise answer format.
+    turns:
+      - text: "Reply with exactly: READY"
+        fake: { text: READY }
+        assertions:
+          - { type: replyEquals, value: READY }
+
+  - id: json-format
+    category: instructions
+    description: Return parseable JSON without markdown fences.
+    turns:
+      - text: 'Return only a JSON object with the property status set to "ready".'
+        fake: { text: '{"status":"ready"}' }
+        assertions:
+          - { type: replyJson }
+          - { type: replyContains, value: ready }
+
+  - id: standing-instruction
+    category: instructions
+    description: Apply a standing instruction to a normal question.
+    instructions: End every response with the exact marker [DONE].
+    turns:
+      - text: What is two plus two?
+        fake: { text: '4 [DONE]' }
+        assertions:
+          - { type: replyContains, value: '[DONE]' }
+
+  - id: instruction-update
+    category: instructions
+    description: Refresh standing instructions between turns in the same chat.
+    instructions: Reply with exactly ALPHA to a greeting.
+    turns:
+      - text: Hello.
+        fake: { text: ALPHA }
+        assertions:
+          - { type: replyEquals, value: ALPHA }
+      - text: Hello again.
+        instructions: Reply with exactly BETA to a greeting.
+        fake: { text: BETA }
+        assertions:
+          - { type: replyEquals, value: BETA }
+          - { type: promptContains, value: Reply with exactly BETA }
+
+  - id: lookup-selection
+    category: tools
+    description: Choose the order lookup and pass the correct identifier.
+    tools:
+      - name: lookup
+        description: Find an order's shipping status by its order id.
+        inputSchema: &lookupSchema
+          type: object
+          properties:
+            id: { type: string }
+          required: [id]
+          additionalProperties: false
+        responses:
+          - text: 'Order A17 is dispatched. Tracking code: TRACK-741.'
+      - name: weather
+        description: Find today's weather for a city. Does not return order details.
+        inputSchema:
+          type: object
+          properties:
+            city: { type: string }
+          required: [city]
+          additionalProperties: false
+        responses:
+          - text: Sunny.
+    turns:
+      - text: Look up order A17 and give me its tracking code.
+        fake:
+          text: 'Order A17 is dispatched. Tracking code: TRACK-741.'
+          calls:
+            - { name: fixture_lookup, args: { id: A17 } }
+        assertions:
+          - { type: toolCalled, value: fixture_lookup, args: { id: A17 } }
+          - { type: toolNotCalled, value: fixture_weather }
+          - { type: replyContains, value: TRACK-741 }
+
+  - id: tool-restraint
+    category: tools
+    description: Avoid external lookup for a simple arithmetic question.
+    tools:
+      - name: lookup
+        description: Find an order's shipping status by its order id.
+        inputSchema: *lookupSchema
+        responses:
+          - text: Order found.
+    turns:
+      - text: What is 2 plus 2? Reply with the number only.
+        fake: { text: '4' }
+        assertions:
+          - { type: replyEquals, value: '4' }
+          - { type: toolNotCalled, value: fixture_lookup }
+
+  - id: lookup-not-found
+    category: tools
+    description: A missing lookup result must not become an invented tracking code.
+    tools:
+      - name: lookup
+        description: Find an order's shipping status by its order id.
+        inputSchema: *lookupSchema
+        responses:
+          - text: 'No order exists with id UNKNOWN. No tracking code is available.'
+    turns:
+      - text: Look up order UNKNOWN. If it does not exist, say NOT FOUND.
+        fake:
+          text: NOT FOUND
+          calls:
+            - { name: fixture_lookup, args: { id: UNKNOWN } }
+        assertions:
+          - { type: toolCalled, value: fixture_lookup, args: { id: UNKNOWN } }
+          - { type: replyContains, value: NOT FOUND }
+
+  - id: saved-preference
+    category: memory
+    description: Use a synthetic user preference without repeating it in the question.
+    memory: 'The user prefers the date format YYYY-MM-DD.'
+    turns:
+      - text: Write September 28, 2026 in my preferred date format. Reply with just the date.
+        fake: { text: '2026-09-28' }
+        assertions:
+          - { type: replyEquals, value: '2026-09-28' }
+
+  - id: saved-fact
+    category: memory
+    description: Retrieve an arbitrary saved fact that cannot be inferred from the question.
+    memory: 'The synthetic project Juniper has the internal reference number JNP-4821.'
+    turns:
+      - text: What is the internal reference number for project Juniper?
+        fake: { text: JNP-4821 }
+        assertions:
+          - { type: replyContains, value: JNP-4821 }
+
+  - id: irrelevant-memory
+    category: memory
+    description: Keep irrelevant saved notes out of a simple answer.
+    memory: 'The synthetic project Juniper has the internal reference number JNP-4821.'
+    turns:
+      - text: What is 3 plus 5? Reply with the number only.
+        fake: { text: '8' }
+        assertions:
+          - { type: replyEquals, value: '8' }
+          - { type: replyNotContains, value: JNP-4821 }
+
+  - id: durable-memory
+    category: memory
+    description: Save a fact and use it in a new conversation without replaying the old user turn.
+    turns:
+      - text: Remember this durable fact using memory_update. My synthetic project code is ORCHID-729. Confirm when saved.
+        fake:
+          text: Saved your project code.
+          calls:
+            - name: agents_memory_update
+              args: { action: append, text: 'The user project code is ORCHID-729.' }
+        assertions:
+          - { type: toolCalled, value: agents_memory_update }
+          - { type: memoryContains, value: ORCHID-729 }
+      - text: What is my project code?
+        newSession: true
+        fake: { text: ORCHID-729 }
+        assertions:
+          - { type: replyContains, value: ORCHID-729 }
+          - { type: promptContains, value: ORCHID-729 }
+
+  - id: corrected-memory
+    category: memory
+    description: Replace a stale fact and use the correction in a new conversation.
+    memory: 'The project office is in Vienna.'
+    turns:
+      - text: The project office has moved to Graz. Use memory_update to replace the old fact, then confirm.
+        fake:
+          text: Updated the office to Graz.
+          calls:
+            - name: agents_memory_update
+              args: { action: replace, old_text: 'The project office is in Vienna.', text: 'The project office is in Graz.' }
+        assertions:
+          - { type: memoryContains, value: Graz }
+          - { type: memoryNotContains, value: Vienna }
+      - text: Where is the project office now?
+        newSession: true
+        fake: { text: Graz }
+        assertions:
+          - { type: replyContains, value: Graz }
+          - { type: replyNotContains, value: Vienna }

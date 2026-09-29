@@ -11,6 +11,8 @@ import { extname, join } from "node:path";
 import { authorizeExternalRuntime, externalRuntimeIsActive, type ExternalRuntimeGrant } from "./external-runtime.ts";
 
 import { z } from "zod";
+import { MobileVmControl } from "./mobile-vm-control.ts";
+import { mobileVmRequestSchema } from "../shared/mobile-vm.ts";
 import { selectReplay, DEFAULT_REBUILD_BYTES, MAX_SUMMARY_BYTES } from "./context-rebuild.ts";
 import { draftSummary, foldPoint } from "./compaction-summary.ts";
 import { compactBudget, contextWindowFor, shouldCompact } from "./context-budget.ts";
@@ -110,6 +112,7 @@ import { chiefOfStaffPromptParts, chiefOfStaffSystemPrompt } from "./chief-of-st
 import { canAccessTeam, canReachPeer, peerAllowed, peerName, peerRosterSystemPrompt, peerStatus, peerStatusWords, reachablePeers, resolveTeammate, roomPeerRosterSystemPrompt, roomRosterLine, PEER_ACCESS_HELP } from "./peer-roster.ts";
 import { openMausStatusSystemPrompt } from "./openmaus-status-capsule.ts";
 import {
+  containerComputerInput,
   containerComputerAction,
   containerComputerExists,
   containerComputerFrame,
@@ -118,6 +121,7 @@ import {
   containerComputerStatus,
   containerRuntimeStatus,
   localVmRecreatableOnDemand,
+  localVmStartable,
   localVmMountable,
   perBotLocalVmTarget,
   SHARED_LOCAL_VM_TARGET,
@@ -1497,6 +1501,9 @@ const computerControl = new ComputerControl((key, snapshot) => {
   broadcast({ kind: "computer-control", botId, held: snapshot.held, helpReason: snapshot.helpReason });
   }
 });
+const mobileVmControl = new MobileVmControl(computerControl);
+setInterval(() => mobileVmControl.sweep(), 5000).unref();
+
 const controlLeaseIdSchema = z.string().min(16).max(120).regex(/^[A-Za-z0-9_-]+$/);
 const routineRequestSourceSchema = {
   fromBotId: z.string().min(1).max(128),
@@ -4128,7 +4135,9 @@ const computerProviderConfigTransitions = new Set<RemoteComputerProvider>();
 // A restore mutates and cleans a project work tree. Claim the bot across the
 // entire async Git operation so a turn cannot start in that folder midway.
 const checkpointRestoreLeases = new Set<string>();
-const LOCAL_VM_IDLE_MS = 8 * 60 * 60_000;
+// Retain the whole desktop filesystem, including installed software and
+// files outside the workspace mount. Zero disables automatic idle shutdown.
+const LOCAL_VM_IDLE_MS = 0;
 /** How long a turn waits for Cua Driver after starting the container itself.
  * A cold XFCE desktop needs some seconds; past this the turn reports the
  * status it has rather than hanging on a container that will not come up. */
@@ -4490,8 +4499,9 @@ async function selectableComputers(bot: BotRecord) {
         const target = localVmTargetForBot(bot.id);
         const status = await containerComputerStatus(undefined, undefined, target);
         ready = status.ready;
-        canCreate = !ready && autoLocalVmAttachable(status);
-        if (ready || canCreate) noteLocalVmSeen(target, status);
+        canStart = localVmStartable(status);
+        canCreate = localVmRecreatableOnDemand(status);
+        if (ready || canStart || canCreate) noteLocalVmSeen(target, status);
         reason = status.problem ?? reason;
       } else if (surface === "local") {
         ready = shouldMountLocalComputer({ requested: "local", hostPlatform: process.platform,
@@ -4623,11 +4633,10 @@ function localVmIdleFor(target: LocalVmTarget): LocalVmIdleTimer {
       localVmLifecycleBusy.add(target.key);
       try {
         const status = await containerComputerStatus(undefined, undefined, target);
-        // The desktop leaves a stale X lock after stop, so idle cleanup
-        // removes only the disposable container. Its target-specific durable
-        // workspace and the shared prepared image remain.
+        // If idle suspension is enabled in future, preserve the entire
+        // filesystem. Removal is reserved for an explicit delete/replace.
         if (status.container === "running") {
-          await containerComputerAction("remove", undefined, undefined, target);
+          await containerComputerAction("stop", undefined, undefined, target);
         }
       } finally {
         localVmLifecycleBusy.delete(target.key);
@@ -6867,19 +6876,20 @@ async function startTurn(
         }
         const localVmTarget = localVmTargetForBot(bot.id);
         let lazyReadyVm: { runtime: Runtime } | null = null;
+        // An explicit destination selects the computer; it does not mean
+        // this turn will use it. Inspect without touching the desktop so
+        // profile-selected and pinned VM turns can defer ownership too.
+        if (!strict && !localVmSeen.has(localVmTarget.key) && !opts?.automationSource) return false;
+        const seen = await containerComputerStatus(undefined, undefined, localVmTarget, { probeDesktop: false }).catch(() => null);
         if (!strict) {
-          // Nothing this process has ever seen for this target, and nobody is
-          // relying on an unattended run: do not pay for a runtime probe.
-          if (!localVmSeen.has(localVmTarget.key) && !opts?.automationSource) return false;
-          const seen = await containerComputerStatus(undefined, undefined, localVmTarget, { probeDesktop: false }).catch(() => null);
           if (!seen || (!localVmMountable(seen) && !autoLocalVmAttachable(seen))) return false;
           if (localVmImageBusy || localVmModeChangeBusy || localVmLifecycleBusy.has(localVmTarget.key)) return false;
-          if (localVmMountable(seen) && seen.runtime) lazyReadyVm = { runtime: seen.runtime };
         }
+        if (seen && localVmMountable(seen) && seen.runtime) lazyReadyVm = { runtime: seen.runtime };
         try {
           if (lazyReadyVm) {
             // Lazy readiness and exclusivity: an inspected, isolated VM
-            // mounts without capturing its desktop — screen-less Auto turns never touch
+            // mounts without capturing its desktop — screen-less turns never touch
             // the lease, and the first screen tools/call fires the claim
             // through the computer-control gate. A VM that must be created
             // or recreated first keeps the eager claim below: the bridge
@@ -8871,7 +8881,7 @@ async function runGroupMemberTurn(
     // A distinct identity fences cleanup even in shared mode on the same room thread.
     const target = { ...localVmTargetForBot(readyBot.id) };
     await bindTurnComputer(resourceOwner, `computer:vm:${target.key}`, true);
-    if (localVmImageBusy || localVmModeChangeBusy || localVmLifecycleBusy.has(target.key)) {
+    if (mobileVmControl.holds(target.key) || localVmImageBusy || localVmModeChangeBusy || localVmLifecycleBusy.has(target.key)) {
       throw new Error("this Local VM is being started, stopped, or replaced");
     }
     if (!localVmLeaseFor(target).claim(threadId, readyBot.id, localVmOwnerBusy)) {
@@ -10838,28 +10848,10 @@ async function localVmPayload(target: LocalVmTarget) {
   };
 }
 
-/** The Local VM a turn is about to use, recreated if the idle timer took it.
- *
- * `LocalVmIdleTimer` REMOVES an unused Local VM rather than pausing it. The
- * turn then failed with "Create the Local VM (App Settings → Local VM)" —
- * which reads like a fault the person must repair by hand, for a container the
- * app itself deleted eight hours earlier. Someone who steps away overnight
- * comes back to an error on their first message.
- *
- * The cloud branch below already does the opposite: an absent box is
- * provisioned on first use behind a `provisioning` broadcast. This gives the
- * Local VM the same lifecycle for the same reason.
- *
- * Only `missing` is recovered, and only when a fresh `run` is all it takes.
- * Every other problem still surfaces: no runtime installed, no image pulled,
- * `create_supported` false, or an existing container that is stale, unmanaged
- * or unsafe. Those need a decision — install podman, download 1.4 GB, replace
- * a container someone else made — and a stopped container is deliberately not
- * resumed here, because `localVmProblem` says this desktop image cannot safely
- * resume and asks for a recreate rather than a start. Per-bot mode keeps its
- * instance cap; creating past it would quietly do what the lifecycle route
- * refuses.
- */
+/** Reuse a running desktop, resume its retained container after Stop, or
+ * create a missing desktop from the prepared image. Never replace an existing
+ * container automatically: its writable layer contains the user's software
+ * and files. Unsafe or incompatible containers remain a manual decision. */
 async function readyLocalVmForTurn(botId: string, target: LocalVmTarget, isCurrent = () => true) {
   localVmLifecycleBusy.add(target.key);
   // Fence this target, and the cross-target capacity decision for creates,
@@ -10873,28 +10865,24 @@ async function readyLocalVmForTurn(botId: string, target: LocalVmTarget, isCurre
     status = await containerComputerStatus(undefined, undefined, target);
     noteLocalVmSeen(target, status);
     if (!isCurrent()) return status;
-    if (status.ready || !localVmRecreatableOnDemand(status)) return status;
+    const resume = localVmStartable(status);
+    if (!status.runtime || status.ready || (!resume && !localVmRecreatableOnDemand(status))) return status;
     // Another creation is already mid-flight and its container is not yet
     // visible to a count, so the safe answer is the inspected status —
     // exactly what the over-cap path below returns.
-    if (!ownsProvision) return status;
+    if (!resume && !ownsProvision) return status;
 
-    if (target.key !== SHARED_LOCAL_VM_TARGET.key) {
+    if (!resume && target.key !== SHARED_LOCAL_VM_TARGET.key) {
       const count = await existingPerBotLocalVmCount(status.runtime);
       if (!isCurrent() || count >= localVmMaxInstances(cfg)) return status;
     }
 
     broadcast({ kind: "computer", botId, state: "provisioning" });
     try {
-      status = await containerComputerAction("run", undefined, undefined, target);
+      status = await containerComputerAction(resume ? "start" : "run", undefined, undefined, target);
     } catch {
       // Keep the inspected status: its `problem` names the real obstacle,
       // which is more use to the person than "podman run exited non-zero".
-      // `run` can throw after the container exists, so arm the idle
-      // backstop anyway — expiry defers while the target is busy and its
-      // remove step no-ops unless a fresh probe sees a running container.
-      // The problem text stays as inspected: cheaply telling a half-created
-      // container from none here would need another container probe.
       localVmIdleFor(target).touch();
       return status;
     }
@@ -10905,8 +10893,7 @@ async function readyLocalVmForTurn(botId: string, target: LocalVmTarget, isCurre
   localVmIdleFor(target).touch();
 
   // The container is up before Cua Driver is. Waiting here rather than failing
-  // the turn is the whole point: a person who has been away eight hours should
-  // not have to send their message twice.
+  // lets the original request continue once the resumed desktop is ready.
   const deadline = Date.now() + LOCAL_VM_DESKTOP_WAIT_MS;
   while (isCurrent() && !status.ready && status.container === "running" && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 2_000));
@@ -13355,6 +13342,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!bot) return json(res, 404, { error: "no such bot" });
         if (method === "GET") {
           const snapshot = botComputerControlSnapshot(botId, internalCapability.teamComputerId);
+          const heldVmTarget = internalCapability.localVmTarget ?? localVmThreadTargets.get(internalCapability.threadId);
+          if (heldVmTarget && mobileVmControl.holds(heldVmTarget.key)) {
+            return json(res, 200, { held: true, helpOpen: snapshot.helpReason !== null });
+          }
           const slot = autoVmClaims.get(internalCapability.threadId);
           const lazyClaim = slot && slot.owner.generation === internalCapability.generation ? slot : undefined;
           if (!snapshot.held && lazyClaim?.lazy && !lazyClaim.begin) {
@@ -13397,6 +13388,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               blockedReason: "Another thread is using this computer. This call was not performed. Pause computer work until that thread finishes, then take a fresh screenshot before acting.",
             });
           }
+          const claimedVmTarget = localVmThreadTargets.get(internalCapability.threadId);
+          if (claimedVmTarget && mobileVmControl.holds(claimedVmTarget.key)) return json(res, 200, { held: true, helpOpen: snapshot.helpReason !== null });
           const computer = turnComputerResources.get(internalCapability.threadId);
           if (!snapshot.held && computer && computer.owner.generation === internalCapability.generation &&
               !claimTurnResource(computer.owner, computer.resource)) {
@@ -17144,7 +17137,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 415, { error: "content-type must be application/json" });
       }
       const action = z.enum(["pull", "run", "start", "stop", "remove"]).parse(m[1]);
-      if (localVmImageBusy || localVmModeChangeBusy || localVmLifecycleBusy.has(SHARED_LOCAL_VM_TARGET.key)) {
+      if (mobileVmControl.holds(SHARED_LOCAL_VM_TARGET.key) || localVmImageBusy || localVmModeChangeBusy || localVmLifecycleBusy.has(SHARED_LOCAL_VM_TARGET.key)) {
         return json(res, 409, { error: "another Local VM setup action is still running" });
       }
       if (localVmMode(cfg) === "per-bot" && action === "run") {
@@ -17192,7 +17185,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!bot) return json(res, 404, { error: "no such bot" });
       return json(res, 200, await localVmPayload(localVmTargetForBot(bot.id)));
     }
-    m = path.match(/^\/api\/bots\/([\w-]+)\/local-computer\/(run|stop|remove)$/);
+    m = path.match(/^\/api\/bots\/([\w-]+)\/local-computer\/(run|start|stop|remove)$/);
     if (m && method === "POST") {
       if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) {
         return json(res, 415, { error: "content-type must be application/json" });
@@ -17202,12 +17195,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (boxLifecycleBusyBots.has(bot.id)) {
         return json(res, 409, { error: "this bot's computer is being changed or deleted — wait for it to finish" });
       }
-      const action = z.enum(["run", "stop", "remove"]).parse(m[2]);
+      const action = z.enum(["run", "start", "stop", "remove"]).parse(m[2]);
       const target = localVmTargetForBot(bot.id);
       if (target.key === SHARED_LOCAL_VM_TARGET.key) {
         return json(res, 409, { error: "Shared mode manages this desktop in App Settings → Computers" });
       }
-      if (localVmImageBusy || localVmModeChangeBusy || localVmLifecycleBusy.has(target.key)) {
+      if (mobileVmControl.holds(target.key) || localVmImageBusy || localVmModeChangeBusy || localVmLifecycleBusy.has(target.key)) {
         return json(res, 409, { error: "this bot's Local VM setup action is still running" });
       }
       if (action === "run" && localVmProvisionBusy) {
@@ -17252,6 +17245,33 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         localVmLifecycleBusy.delete(target.key);
       }
     }
+    m = path.match(/^\/api\/bots\/([\w-]+)\/local-computer\/control$/);
+    if (m && method === "POST") {
+      if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) return json(res, 415, { error: "content-type must be application/json" });
+      const parsed = mobileVmRequestSchema.safeParse(await readBody(req, 32_768));
+      if (!parsed.success) return json(res, 400, { error: "Invalid VM control request" });
+      const threadId = url.searchParams.get("threadId");
+      if (!threadId) return json(res, 400, { error: "Select a conversation before taking control" });
+      const { action, controlLeaseId, input } = parsed.data;
+      // Release remains possible after a thread is deleted or changes surface.
+      if (action === "release") return json(res, 200, mobileVmControl.release(m[1], threadId, controlLeaseId));
+      const bot = computerPreviewBot(m[1], url);
+      if (!bot) return json(res, 404, { error: "no such bot" });
+      if (await computerPreviewSurface(bot, threadId) !== "vm") return json(res, 409, { error: "This conversation is not using the Local VM" });
+      const target = localVmTargetForBot(bot.id);
+      if (localVmModeChangeBusy || localVmLifecycleBusy.has(target.key) || boxLifecycleBusyBots.has(bot.id)) return json(res, 409, { error: "The VM is being changed. Try again shortly." });
+      localVmIdleFor(target).touch();
+      if (action === "take") {
+        const status = await containerComputerStatus(undefined, undefined, target, { probeDesktop: false });
+        if (!localVmMountable(status)) return json(res, 409, { error: status.problem ?? "The VM is not running" });
+        if (localVmModeChangeBusy || localVmLifecycleBusy.has(target.key)) return json(res, 409, { error: "The VM is being changed" });
+        if (store.bots.some(other => other.id !== bot.id && localVmTargetForBot(other.id).key === target.key && botComputerControlSnapshot(other.id).held)) return json(res, 409, { error: "This VM is controlled on another screen" });
+        return json(res, 200, mobileVmControl.take(bot.id, threadId, target.key, bot.id, controlLeaseId));
+      }
+      if (action === "renew") return json(res, 200, mobileVmControl.renew(bot.id, threadId, controlLeaseId));
+      return json(res, 200, await mobileVmControl.input(bot.id, threadId, target.key, controlLeaseId, check => containerComputerInput(input!, target, check)));
+    }
+
     m = path.match(/^\/api\/bots\/([\w-]+)\/local-computer\/screenshot$/);
     if (m && method === "POST") {
       const bot = computerPreviewBot(m[1], url);

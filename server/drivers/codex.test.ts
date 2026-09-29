@@ -431,6 +431,36 @@ describe("CodexDriver turns (fake app-server)", () => {
   });
 
   it.each([
+    ["closed transport", { status: "failed", error: { message: "tool call failed\nCaused by:\n    Transport closed" } }, true],
+    ["ordinary tool error", { status: "failed", error: { message: "Window not found" } }, false],
+    ["tool result text", { status: "completed", result: { content: [{ type: "text", text: "Transport closed" }] } }, false],
+  ] as const)("rebuilds a waiting MCP session only for a %s", async (_label, item, restart) => {
+    const dump = join(scratch, "mcp-recovery.json");
+    const itemFile = join(scratch, "mcp-item.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    await create({ mode: "resume", environment: { FAKE_CODEX_MCP_ITEM_FILE: itemFile } });
+    const send = async (threadId: string, text: string) => {
+      const result = await instance.adapter.sendTurn({ threadId, text });
+      await recorder.until(e => e.type === "turn.completed" && e.turnId === result.turnId);
+      return JSON.parse(readFileSync(dump, "utf8"));
+    };
+    const other = await send("mcp-other", "unrelated conversation");
+    writeFileSync(itemFile, JSON.stringify({ id: "computer-call", type: "mcpToolCall", server: "computer", tool: "list_windows", ...item }));
+    const first = await send("mcp-recovery", "first request");
+    expect(first.calls.filter((call: any) => call.method === "turn/start")).toHaveLength(1);
+    expect(recorder.events.some(e => e.type === "turn.retrying")).toBe(false);
+    const second = await send("mcp-recovery", "try again");
+    expect(second.pid !== first.pid).toBe(restart);
+    if (restart) {
+      expect(processIsAlive(first.pid)).toBe(false);
+      expect(second.calls.find((call: any) => call.method === "thread/resume")?.params.threadId).toBe("codex-thread-1");
+      expect(second.calls.filter((call: any) => call.method === "turn/start")).toHaveLength(1);
+    }
+    expect(processIsAlive(other.pid)).toBe(true);
+    expect((await send("mcp-other", "still waiting")).pid).toBe(other.pid);
+  });
+
+  it.each([
     [false, "agents", "OMB_COMMS_TOKEN"], [true, "agents", "OMB_COMMS_TOKEN"],
     [false, "localComputer", "OMB_CONTROL_TOKEN"], [true, "localComputer", "OMB_CONTROL_TOKEN"],
   ] as const)("reuses only integrations with a credential refresh file: %s %s", async (refreshable, kind, tokenName) => {

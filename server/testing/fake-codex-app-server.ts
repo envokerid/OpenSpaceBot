@@ -27,6 +27,7 @@
 //   FAKE_CODEX_ASK_HOLD        question modes: record the ask reply and hold the turn open, for
 //                              timeout tests that advance the clock
 //   FAKE_CODEX_DUMP   path to write {pid, argv, env, calls, decision} as JSON
+//   FAKE_CODEX_MCP_ITEM_FILE  optional completed MCP item emitted before a reply
 //   FAKE_CODEX_ACCOUNT_EMAIL  synthetic ChatGPT identity (default ada@example.test)
 //   FAKE_CODEX_ACCOUNT_MODE   chatgpt (default) | api-key | none | unsupported | error | hang
 //   FAKE_CODEX_RESUME_ERROR   JSON-RPC error object to reject thread/resume
@@ -179,6 +180,7 @@ const dump = () => {
 const finishTurn = () => {
   if (turnFinished) return;
   turnFinished = true;
+  emitMcpFixtureItem();
   notify("item/completed", { item: { id: "i1", type: "commandExecution", status: "completed", aggregatedOutput: "README.md\nAPI_KEY=codex-output-secret", exitCode: 0 } });
   notify("item/completed", { item: { id: "w1", type: "webSearch", status: "completed" } });
   if (mode === "stream") {
@@ -218,6 +220,11 @@ const finishTurn = () => {
   }
 };
 
+const emitMcpFixtureItem = () => {
+  const path = process.env.FAKE_CODEX_MCP_ITEM_FILE;
+  if (path && existsSync(path)) notify("item/completed", { item: JSON.parse(readFileSync(path, "utf8")) });
+};
+
 const playRoomPlanTurn = (msg: any, planPath: string) => {
   const ack = () => out({ jsonrpc: "2.0", id: msg.id, result: { turn: { id: nativeTurnId } } });
   const early = process.env.FAKE_CODEX_COMPLETE_BEFORE_ACK === "1";
@@ -236,6 +243,7 @@ const playRoomPlanTurn = (msg: any, planPath: string) => {
   void import("./room-handoff-agent.ts").then(({ runRoomHandoffAgent }) => runRoomHandoffAgent(process.argv.slice(2), planPath, { message: { content: text } },
     { integration, system: developerInstructions + developerContext, evidence: { resumedThread } }))
     .then((reply) => {
+      emitMcpFixtureItem();
       notify("item/completed", { item: { id: "m1", type: "agentMessage", text: reply } });
       notify("turn/completed", { turn: { status: "completed" } });
     })

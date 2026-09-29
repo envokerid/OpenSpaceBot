@@ -6,6 +6,16 @@ describe("LocalVmIdleTimer", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it("retains a permanent desktop indefinitely when idle shutdown is disabled", async () => {
+    const suspend = vi.fn(async () => {});
+    const idle = new LocalVmIdleTimer(0, () => false, suspend);
+    idle.touch();
+    await vi.advanceTimersByTimeAsync(30 * 24 * 60 * 60_000);
+    idle.touch();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(suspend).not.toHaveBeenCalled();
+  });
+
   it("suspends only after a complete idle window", async () => {
     const suspend = vi.fn(async () => {});
     const idle = new LocalVmIdleTimer(1_000, () => false, suspend);

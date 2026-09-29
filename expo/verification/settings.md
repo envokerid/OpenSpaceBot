@@ -11,7 +11,8 @@ value to the phone. Local appearance, activity detail, quick replies, notificati
 and saved connections are grouped into detail pages from the main Settings screen.
 The mobile settings home uses three compact, rounded navigation groups with inset
 dividers, monochrome circular icons, centered navigation and searchable rows. It
-follows the phone's light/dark appearance with a soft-gray or true-black canvas.
+follows the active app palette's background in light and dark appearance. The
+navigation cards use black backgrounds with white text and gray secondary labels.
 These styles are scoped to Expo Settings; desktop settings and the rest of the
 mobile app retain their own layouts.
 The **Chat → bot header → Bot settings** route shares this appearance, including

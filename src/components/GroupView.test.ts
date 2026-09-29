@@ -42,10 +42,16 @@ describe("RoomToolChip", () => {
     expect(markup).toContain('title="Open #QA PR 245"');
   });
 
-  it("leaves an ordinary step as a plain pill", () => {
-    const markup = render(chip());
-    expect(markup).not.toContain("<button");
-    expect(markup).toContain("Posted in Standup");
+  it("hides ordinary steps and failed tools", () => {
+    expect(render(chip())).toBe("");
+    expect(render(chip({ tool: { name: "Bash", ok: false } }))).toBe("");
+  });
+
+  it("keeps turn errors readable without tool details", () => {
+    const markup = render(chip({ tool: { name: "error: Connection lost", ok: false, input: "private command" } }));
+    expect(markup).toContain('role="alert"');
+    expect(markup).toContain("Connection lost");
+    expect(markup).not.toContain("private command");
   });
 
   it("shows a same-room teammate avatar without adding a navigation button", () => {
@@ -56,7 +62,7 @@ describe("RoomToolChip", () => {
     const markup = renderToStaticMarkup(createElement(StoreProvider, null,
       createElement(RoomToolChip, { message, roomId: "here" })));
     expect(markup).toContain("Sent to Eli");
-    expect(markup).toContain('aria-label="Eli"');
+    expect(markup).toContain('aria-label="Eli avatar"');
     expect(markup).not.toContain("<button");
   });
 });

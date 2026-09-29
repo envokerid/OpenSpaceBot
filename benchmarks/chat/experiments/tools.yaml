@@ -1,0 +1,15 @@
+version: 1
+name: tool-comparison
+suite: ../suites/single-bot.yaml
+baseline:
+  name: baseline
+variants:
+  - name: no-fixture-tools
+    tools:
+      allow: [agents_memory_update]
+  - name: vague-lookup-description
+    tools:
+      allow: [fixture_*, agents_memory_update]
+      descriptions:
+        fixture_lookup: Get data.
+repetitions: 3

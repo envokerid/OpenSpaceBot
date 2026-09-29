@@ -22,13 +22,18 @@ registerHooks({
       export async function containerComputerStatus(_run, _platform, target = SHARED_LOCAL_VM_TARGET, options = {}) {
         writeFileSync(file + '.entered', target.key);
         while (options.probeDesktop !== false && read().blocked) await new Promise(r => setTimeout(r, 30));
-        const ready = options.probeDesktop !== false && !read().failed;
+        const ready = options.probeDesktop !== false && !read().failed && !read().stopped;
         return { runtime: 'podman', daemonUp: true, image: true, managed: true,
           imageMatches: true, network: 'loopback', security: 'hardened', persistence: 'durable',
-          container: 'running', ready, problem: ready ? null : 'fixture desktop unavailable',
+          container: read().stopped ? 'stopped' : 'running', ready, problem: ready ? null : 'fixture desktop unavailable',
           container_name: target.containerName, target_key: target.key, workspace_path: target.workspaceDir };
       }
-      export async function containerComputerAction() { throw new Error('Unexpected container mutation in VM routing test'); }
+      export async function containerComputerAction(action, _run, _platform, target = SHARED_LOCAL_VM_TARGET) {
+        const state = read();
+        if (action !== 'start' || !state.stopped) throw new Error('Unexpected container mutation in VM routing test: ' + action);
+        writeFileSync(file, JSON.stringify({ ...state, stopped: false, starts: (state.starts || 0) + 1 }));
+        return containerComputerStatus(_run, _platform, target);
+      }
     ` };
     const result = nextLoad(url, context);
     if (url.endsWith('/local-vm-lease.ts')) {

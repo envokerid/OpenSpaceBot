@@ -38,6 +38,7 @@ recipe from sending messages to the user's running app by accident.
 Use only mapped, tested commands:
 
 - [Chat turns](chat-turns.md)
+- [Chat mechanics benchmark](chat-benchmark.md)
 - [Conversation context compaction](context-compaction.md)
 - [Work summaries and engine hooks](digests.md)
 - [OpenAI-compatible structured tools](openai-tools.md)
@@ -163,6 +164,9 @@ The [Expo companion checks](expo-companion.md) exercise the shared Android/iOS
 protocol client against an isolated desktop companion, including streaming,
 local thread selection, retry receipts, and live approval responses.
 
+The [Expo VM control checks](../../expo/verification/vm-control.md) cover phone takeover,
+bounded input, shared-VM holds, thread isolation, and lease cleanup using an isolated server.
+
 The [Expo workspace settings checks](../../expo/verification/settings.md) cover
 administration grants, settings persistence, encrypted backups, the restricted
 Electron bridge and native Android settings screens using disposable fixtures.
@@ -202,6 +206,10 @@ sent mentions, multiline scrolling and responsive wrapping in real chat views.
 
 The [Group and Goal Local VM recipe](group-local-vm.md) checks per-speaker
 desktop routing, cancellation, and computer authority cleanup.
+
+The [Local VM persistence recipe](local-vm-persistence.md) checks disabled idle
+deletion, non-destructive resume, and installed apps and files across a Docker
+stop/start cycle in an isolated container.
 
 ## Evidence
 

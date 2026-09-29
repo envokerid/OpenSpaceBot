@@ -5,6 +5,7 @@ import { Ajv2020 } from "ajv/dist/2020.js";
 import formats from "ajv-formats";
 import { stripControlPlaneEnv } from "../config.ts";
 import type { SendTurnInput } from "../contracts.ts";
+import { benchmarkHooks } from "../benchmark-hooks.ts";
 import { augmentedPath } from "../env-path.ts";
 import { killCliTree, spawnCli } from "../procs.ts";
 
@@ -274,6 +275,10 @@ export async function mountChatTools(integrations: SendTurnInput["integrations"]
       for (const tool of tools) {
         if (!object(tool) || typeof tool.name !== "string" || !tool.name.trim() || originalNames.has(tool.name)) throw new Error("MCP server advertised an invalid or duplicate tool name");
         originalNames.add(tool.name);
+        const originalDescription = typeof tool.description === "string" ? tool.description : "Configured MCP tool";
+        const hook = benchmarkHooks();
+        const description = hook ? hook.tool(server, tool.name, originalDescription) : originalDescription;
+        if (description === null) continue;
         if (definitions.length >= TOOL_COUNT) throw new Error("MCP tool count exceeds the 128-tool limit");
         if (!object(tool.inputSchema) || tool.inputSchema.type !== "object") throw new Error("MCP tools require an object input schema");
         if (Buffer.byteLength(JSON.stringify(tool.inputSchema)) > SCHEMA_BYTES) throw new Error("MCP tool schema exceeds the 64KB limit");
@@ -282,7 +287,7 @@ export async function mountChatTools(integrations: SendTurnInput["integrations"]
         let name = base;
         for (let index = 2; registered.has(name); index += 1) { const suffix = `_${index}`; name = base.slice(0, 64 - suffix.length) + suffix; }
         registered.set(name, { client, name: tool.name, schema });
-        definitions.push({ type: "function", function: { name, description: typeof tool.description === "string" ? tool.description : "Configured MCP tool", parameters: tool.inputSchema } });
+        definitions.push({ type: "function", function: { name, description, parameters: tool.inputSchema } });
         if (Buffer.byteLength(JSON.stringify(definitions)) > CATALOG_BYTES) throw new Error("MCP tool catalog exceeds the 1MB limit");
       }
     }

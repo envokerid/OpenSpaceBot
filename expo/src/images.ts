@@ -7,6 +7,7 @@ export function useAuthenticatedImage(client: Client, path?: string, retry = 0) 
   const [image, setImage] = useState<{ path?: string; uri?: string; failed?: boolean }>({});
   useEffect(() => {
     if (!path) return;
+    setImage({ path });
     let alive = true; const controller = new AbortController();
     void (async () => {
       client.imageSource(path);

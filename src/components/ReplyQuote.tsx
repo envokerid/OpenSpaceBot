@@ -18,12 +18,13 @@ export function ReplyQuote({
   onClear?: () => void;
   compact?: boolean;
 }) {
+  const peer = peerLine(message);
   const body = (
     <>
       <MessageSquareReply size={compact ? 12 : 14} className="shrink-0 text-accent" />
       <span className="min-w-0 flex-1">
         <span className="block text-[10.5px] font-medium text-accent">{t("chat.reply.replyingTo", { name: replyAuthor(message, fallbackName) })}</span>
-        <span dir="auto" className="block truncate text-[11.5px] text-ink-secondary">{replySnippet(peerLine(message)?.body ?? message.text ?? "")}</span>
+        <span dir="auto" className="block truncate text-[11.5px] text-ink-secondary">{peer ? t("chat.peer.messageFrom", { name: peer.name }) : replySnippet(message.text ?? "")}</span>
       </span>
     </>
   );

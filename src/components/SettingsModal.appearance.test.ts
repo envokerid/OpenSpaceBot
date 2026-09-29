@@ -54,12 +54,12 @@ afterEach(() => {
 const render = () => renderToStaticMarkup(createElement(SettingsModal));
 
 describe("Settings → Appearance", () => {
-  it("groups skins, thread visibility, and tool-call display with preservation copy", () => {
+  it("groups skins and thread visibility without obsolete tool-call controls", () => {
     const html = render();
     expect(html).toContain('<option value="appearance" selected="">Appearance</option>');
     expect(html).toContain("Midnight");
     expect(html).toContain('aria-label="Show threads"');
-    expect(html).toContain('aria-label="Show tool calls in chat"');
+    expect(html).not.toContain('aria-label="Show tool calls in chat"');
     expect(html).toContain("on this device only");
     expect(html).toContain("all conversation history and running work");
     expect(html).toContain("channels are unchanged");

@@ -1,0 +1,19 @@
+version: 1
+name: prompt-comparison
+suite: ../suites/single-bot.yaml
+baseline:
+  name: baseline
+variants:
+  - name: explicit-instructions
+    instructions: >-
+      Follow the user's requested format exactly. Be concise. Use a lookup tool
+      for facts held in the fixture. Never fabricate a tool result. Save durable
+      facts with memory_update when explicitly asked, and use saved preferences.
+  - name: no-standing-instructions
+    promptSections:
+      soul: null
+repetitions: 3
+limits:
+  turnTimeoutSeconds: 90
+  maxRequestsPerTrial: 20
+  maxRunSeconds: 1800

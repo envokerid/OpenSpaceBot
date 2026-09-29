@@ -50,7 +50,8 @@
   "devDependencies": {
     "@types/react": "~19.2.2",
     "@types/three": "^0.186.0",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "yoga-layout": "3.2.1"
   },
   "engines": {
     "node": ">=24"

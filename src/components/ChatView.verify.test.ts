@@ -1,10 +1,8 @@
 import { createElement, type ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import type { AppState, Bot, InstanceInfo, Message } from "@/state/store";
+import type { AppState, Bot, Message } from "@/state/store";
 import { t } from "@/lib/i18n";
-import { askText, runSteps, skillPrompt } from "@/lib/verify-steps";
-import { SAVE_RUN_AS_SKILL_LINE } from "../../shared/learn-request";
 import type { VerifyCard } from "./VerifyCard";
 
 const fixture = vi.hoisted(() => {
@@ -12,7 +10,6 @@ const fixture = vi.hoisted(() => {
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
   return {
     dispatch: vi.fn(),
-    appendComposerDraft: vi.fn(),
     state: null as Partial<AppState> | null,
     verify: null as ComponentProps<typeof VerifyCard> | null,
   };
@@ -21,11 +18,7 @@ vi.mock("@/state/store", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/state/store")>();
   return { ...original, useStore: () => ({ state: { ...original.initialState, ...fixture.state }, dispatch: fixture.dispatch }) };
 });
-vi.mock("@/lib/drafts", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@/lib/drafts")>();
-  return { ...original, appendComposerDraft: fixture.appendComposerDraft };
-});
-// The real card renders; its props are kept so a test can press Save.
+// Catch accidental remounting of the old run checklist.
 vi.mock("./VerifyCard", async (importOriginal) => {
   const original = await importOriginal<typeof import("./VerifyCard")>();
   return { VerifyCard: (props: ComponentProps<typeof VerifyCard>) => {
@@ -67,89 +60,86 @@ const run: Message[] = [
   chip("c3", "git status", true),
   chip("c4", "cat scripts/control-omb.ts", true),
 ];
-// A run with no control CLI in it: plain commands, one of them a read.
-const release: Message[] = [
-  asked("u1", "publish the release"),
-  chip("c1", "git push origin main", true),
-  chip("c2", "cat CHANGELOG.md", true),
-  chip("c3", "npm publish", false),
-];
-// An engine with the agents tools, which Save needs alongside the flag.
-const agentsEngine = { instanceId: "test", driverKind: "claude", displayName: "Test", capabilities: { agentsMcp: true } } as unknown as InstanceInfo;
-const saveable = (): void => {
-  fixture.state = { instances: [agentsEngine], config: { features: { skillAuthoring: true } } as AppState["config"] };
-};
-const CARD = `aria-label="${t("chat.verify.aria")}"`;
-const TAG = `>${t("chat.verify.verifiedTag")}<`;
-const render = (messages: Message[]) => renderToStaticMarkup(createElement(ChatView, { bot: { ...bot, messages } }));
-const draft = (): string => fixture.appendComposerDraft.mock.calls[0]![1] as string;
+const render = (messages: Message[], busy = false) => renderToStaticMarkup(createElement(ChatView, { bot: { ...bot, busy, messages } }));
 
-describe("The run card in the chat pane", () => {
-  it("appears once the bot runs a control CLI, with the run as a checklist and its verified steps tagged", () => {
+describe("Avatar activity in the chat pane", () => {
+  it.each([false, true])("hides tool calls and run checklists even with a saved tool-detail setting (%s)", (showToolCalls) => {
+    fixture.state = { config: { features: { showToolCalls, skillAuthoring: true } } as AppState["config"] };
     const markup = render(run);
-    expect(markup).toContain(CARD);
-    expect(markup).toContain(`>${t("chat.verify.title")}<`);
-    expect(markup).toContain("2 steps · 2 verified · 1 failed");
-    expect(markup).not.toContain("Execution timeline");
-    expect(markup).toContain(">doctor<");
-    expect(markup).toContain(">send<");
-    expect(markup.match(new RegExp(TAG, "g"))).toHaveLength(2);
-    // reads are not steps
-    expect(markup).not.toContain(">git status<");
-    expect(markup).not.toContain(">cat<");
-    // no engine in the fixture has the agents tools: no Save, no footer
-    expect(markup).not.toContain(t("chat.verify.save"));
+    expect(markup).toContain("verify the fixture");
+    expect(markup).not.toContain(`aria-label="${t("chat.verify.aria")}"`);
+    expect(markup).not.toContain("steps ·");
+    expect(markup).not.toContain("Bash");
+    expect(markup).not.toContain("pnpm control:omb");
+    expect(fixture.verify).toBeNull();
   });
 
-  it("withholds Save when skill authoring is switched off in Settings", () => {
-    fixture.state = { instances: [agentsEngine], config: { features: { skillAuthoring: false } } as AppState["config"] };
-    const markup = render(run);
-    expect(markup).toContain(">doctor<");
-    expect(markup).not.toContain(t("chat.verify.save"));
+  it("shows the working avatar without exposing the current tool or command", () => {
+    const markup = render([...run, chip("live", "npm publish")], true);
+    expect(markup).toContain("turn-presence");
+    expect(markup).toContain('data-state="working"');
+    expect(markup).toContain('class="sr-only" role="status"');
+    expect(markup).not.toContain("npm publish");
+    expect(markup).not.toContain("Running a command");
   });
 
-  it("offers Save with an agents engine; Save fills the thread's composer with the run and the request instead of sending", () => {
-    saveable();
-    const markup = render(run);
-    expect(markup).toContain(t("chat.verify.save"));
-    expect(markup).toContain(t("chat.verify.saveHint"));
-    expect(fixture.verify?.canSave).toBe(true);
-
-    fixture.verify!.onSave();
-    expect(fixture.appendComposerDraft).toHaveBeenCalledTimes(1);
-    expect(fixture.appendComposerDraft).toHaveBeenCalledWith("bot:bot:t1", skillPrompt(runSteps(run), askText(run)));
-    expect(draft().startsWith("Create a verification skill from the run below.\nGoal: verify the fixture\n")).toBe(true);
-    expect(fixture.dispatch).not.toHaveBeenCalled();
+  it("renders the reply image without the redundant standalone screen", () => {
+    const reply: Message = { id: "reply-image", role: "bot", kind: "text", at: 2,
+      text: "Here is the screenshot.", turnId: "image-turn",
+      attachments: [{ kind: "image", path: "/api/attachments/screenshot.png", mime: "image/png" }] };
+    const screen: Message = { id: "screen", role: "bot", kind: "screen", at: 4, png: "standalone-pixels" };
+    const markup = render([reply, { id: "digest", role: "bot", kind: "digest", at: 3, turnId: "image-turn" }, screen]);
+    expect(markup).toContain("Here is the screenshot.");
+    expect(markup).toContain("screenshot.png");
+    expect(markup).not.toContain("standalone-pixels");
+    expect(render([{ ...reply, attachments: [] }, screen])).toContain("standalone-pixels");
   });
 
-  it("records a run with no control CLI in it too, and saves that one in plain words the server expands like /learn", () => {
-    saveable();
-    const markup = render(release);
-    expect(markup).toContain(CARD);
-    expect(markup).toContain(`>${t("chat.verify.title")}<`);
-    expect(markup).toContain("2 steps · 1 failed");
-    expect(markup).toContain(">git push<");
-    expect(markup).toContain(">npm publish<");
-    expect(markup).not.toContain(TAG);
-
-    fixture.verify!.onSave();
-    expect(draft().startsWith(`${SAVE_RUN_AS_SKILL_LINE}\nGoal: publish the release\n`)).toBe(true);
-    expect(draft()).not.toContain("/learn");
-    expect(draft()).toContain("✓ git push — git push origin main\n");
-    expect(draft()).toContain("✗ npm publish — npm publish\n");
-    expect(draft()).not.toContain("Create a verification skill");
+  it("shows only a sender notice for incoming bot messages, including older provenance rows", () => {
+    for (const request of [
+      { peerAsk: { botId: "chief", name: "Chief" }, text: "INTERNAL_HANDOFF_BODY" },
+      { text: "[Delegated by @Chief, another bot in this OpenMausBot workspace — reply directly.]\n\nINTERNAL_HANDOFF_BODY" },
+    ]) {
+      const markup = render([{ id: "peer", role: "user", kind: "text", at: 1, ...request,
+        attachments: [{ kind: "image", path: "/api/attachments/internal.png", mime: "image/png" }] }]);
+      expect(markup).toContain("Message from Chief");
+      expect(markup).not.toContain("INTERNAL_HANDOFF_BODY");
+      expect(markup).not.toContain("internal.png");
+      expect(markup).not.toContain("another bot in this OpenMausBot workspace");
+    }
   });
 
-  it("stays out of a thread whose run is one unverified command", () => {
-    const markup = render([asked("u1", "push it"), chip("c1", "git push origin main", true), chip("c2", "git status", true)]);
-    expect(markup).not.toContain(CARD);
+  it("shows a sender notice for a room request copied into the receiving bot's chat", () => {
+    const markup = render([{ id: "room-request", role: "bot", kind: "text", at: 1,
+      roomRequest: { id: "request", phase: "request" },
+      from: { botId: "chief", name: "Chief Of Staff", color: "white" }, text: "INTERNAL_ROOM_HANDOFF" }]);
+    expect(markup).toContain("Message from Chief Of Staff");
+    expect(markup).not.toContain("INTERNAL_ROOM_HANDOFF");
   });
 
-  it("records only the current ask: the person's next message starts a fresh run", () => {
-    const markup = render([...run, asked("u2", "now push"), chip("c5", "git push origin main", true)]);
-    // the verified steps belong to the previous ask; what is left is one unverified command
-    expect(markup).not.toContain(CARD);
-    expect(render([...run, asked("u2", "now publish"), chip("c5", "git push origin main", true), chip("c6", "npm publish", true)]))
-      .toContain("2 steps<");
+  it("reuses the incoming receipt without a second notice or peer message bubble", () => {
+    const markup = render([
+      { id: "receipt", role: "bot", kind: "activity", at: 1, tool: { name: "Message from @Chief" },
+        comm: { groupId: "pair", withBotId: "chief", withName: "Chief", withColor: "blue" } },
+      { id: "peer", role: "user", kind: "text", at: 2, text: "INTERNAL_HANDOFF_BODY", peerAsk: { botId: "chief", name: "Chief" } },
+      { id: "answer", role: "bot", kind: "text", at: 3, text: "The task is finished." },
+    ]);
+    expect(markup.match(/Message from/g)).toHaveLength(1);
+    expect(markup).not.toContain("INTERNAL_HANDOFF_BODY");
+    expect(markup).toContain("The task is finished.");
+  });
+
+  it("keeps completed replies and turn errors visible", () => {
+    const markup = render([...run,
+      { id: "progress", at: 2, role: "bot", kind: "text", turnId: "finished", text: "Progress narration" },
+      { id: "reply", at: 60002, role: "bot", kind: "text", turnId: "finished", turnTerminal: true, text: "Here is the result." },
+      { id: "error", at: 3, role: "bot", kind: "activity", tool: { name: "error: Connection lost", ok: false } },
+    ]);
+    expect(markup).toContain("Here is the result.");
+    expect(markup).not.toContain("Worked for");
+    expect(markup).not.toContain("Show progress messages");
+    expect(markup).not.toContain("Progress narration");
+    expect(markup).toContain("Connection lost");
+    expect(markup).not.toContain("turn-presence");
   });
 });

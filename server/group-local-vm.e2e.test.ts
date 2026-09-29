@@ -147,6 +147,29 @@ const send = (id: string) => api("POST", `/api/groups/${id}/messages`, { text: "
 const stop = (id: string) => api("POST", `/api/groups/${id}/interrupt`, {});
 
 describe("Group Local VM ownership on the real isolated server", () => {
+  it("resumes a retained stopped VM for a bot request without recreating it", async () => {
+    vmState({ stopped: true });
+    rmSync(dumpFile, { force: true }); rmSync(finishFile, { force: true });
+    const { bot } = await api("POST", "/api/bots", { name: "Retained desktop" });
+    try {
+      await api("PATCH", `/api/bots/${bot.id}`, { computer: "vm", browser: false });
+      expect((await api("GET", "/api/local-computer")).idle_timeout_ms).toBe(0);
+      await api("POST", `/api/bots/${bot.id}/messages`, { text: "Continue on my saved desktop" });
+      const sent = await dump();
+      expect(computer(sent)).toBeTruthy();
+      expect(JSON.parse(readFileSync(stateFile, "utf8"))).toMatchObject({ stopped: false, starts: 1 });
+      expect((await gate(computer(sent))).status).toBe(200);
+      writeFileSync(finishFile, "finish");
+      await idle(bot.id);
+      expect((await gate(computer(sent))).status).toBe(401);
+    } finally {
+      writeFileSync(finishFile, "finish");
+      await api("POST", `/api/bots/${bot.id}/interrupt`, {});
+      await idle(bot.id);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
   it.each(["wake", "removed", "missing-auto"])("chat selection starts or provisions a configured cloud computer (%s) only after selecting it", async state => {
     vmState(); rmSync(dumpFile, { force: true }); rmSync(finishFile, { force: true });
     const { bot } = await api("POST", "/api/bots", { name: "Chat cloud selection" });
@@ -442,22 +465,24 @@ describe("Group Local VM ownership on the real isolated server", () => {
     await stop(group.id); await idle(bots[0].id);
   });
 
-  it("runs a screen-less Auto turn to completion while another thread holds the Local VM (issue #1361 AC1)", async () => {
+  it.each(["auto", "profile", "pinned"] as const)("runs a screen-less %s turn to completion while another thread holds the Local VM", async (mode) => {
     vmState(); rmSync(dumpFile, { force: true }); rmSync(finishFile, { force: true });
     const { bot: holder } = await api("POST", "/api/bots", { name: "VM holder" });
-    const { bot: auto } = await api("POST", "/api/bots", { name: "Screen-less Auto" });
+    const { bot: auto } = await api("POST", "/api/bots", { name: `Screen-less ${mode}` });
     try {
       await api("PATCH", `/api/bots/${holder.id}`, { computer: "vm" });
-      await api("PATCH", `/api/bots/${auto.id}`, { browser: false });
+      await api("PATCH", `/api/bots/${auto.id}`, { browser: false, ...(mode === "profile" ? { computer: "vm" } : {}) });
+      if (mode === "pinned") await api("PATCH", `/api/bots/${auto.id}/tasks/${auto.threadId}`, { surface: "vm" });
       await api("POST", `/api/bots/${holder.id}/messages`, { text: "Hold the VM" });
       await until(async () => (await api("GET", "/api/bots?messages=0")).bots.find((b: any) => b.id === holder.id)?.busy, Boolean);
       // The dump file is shared with the holder's fake CLI. Consume the
       // holder's dump and remove it, so the assertion below can only pass
-      // on the Auto turn's own mount, never the holder's leftover file.
-      await dump();
+      // on the screen-less turn's own mount, never the holder's leftover file.
+      const holderComputer = computer(await dump());
+      expect(await (await gate(holderComputer)).json()).toEqual({ held: false, helpOpen: false });
       rmSync(dumpFile, { force: true });
-      // The Auto attach mounts the computer MCP without claiming the VM, so
-      // this dispatch must not block behind the holder's eager claim.
+      // The attach mounts the computer MCP without claiming the VM, so
+      // this dispatch must not block behind the holder's computer use.
       await api("POST", `/api/bots/${auto.id}/messages`, { text: "No screen work today" });
       expect(computer(await dump())).toBeTruthy();
       await until(async () => (await api("GET", "/api/bots?messages=0")).bots.find((b: any) => b.id === auto.id)?.busy, Boolean);
@@ -468,6 +493,7 @@ describe("Group Local VM ownership on the real isolated server", () => {
         .filter((m: any) => m.kind === "activity")
         .map((m: any) => m.tool?.name ?? "");
       expect(activities(auto.id).join("|")).not.toContain("Waiting for its turn");
+      expect(activities(auto.id).join("|")).not.toContain("Computer free");
       expect(activities(holder.id).join("|")).not.toContain("Waiting for its turn");
     } finally {
       writeFileSync(finishFile, "finish");
@@ -477,31 +503,31 @@ describe("Group Local VM ownership on the real isolated server", () => {
     }
   });
 
-  it("claims a lazily attached Auto VM on the first screen call and proceeds on release (issue #1361 AC2)", async () => {
+  it.each(["auto", "profile", "pinned"] as const)("claims a %s VM on the first screen call and proceeds on release", async (mode) => {
     vmState(); rmSync(dumpFile, { force: true }); rmSync(finishFile, { force: true });
-    const { bot: auto } = await api("POST", "/api/bots", { name: "Steering Auto" });
+    const { bot: auto } = await api("POST", "/api/bots", { name: `Steering ${mode}` });
     const { bot: holder } = await api("POST", "/api/bots", { name: "VM holder" });
     try {
-      await api("PATCH", `/api/bots/${auto.id}`, { browser: false });
+      await api("PATCH", `/api/bots/${auto.id}`, { browser: false, ...(mode === "profile" ? { computer: "vm" } : {}) });
+      if (mode === "pinned") await api("PATCH", `/api/bots/${auto.id}/tasks/${auto.threadId}`, { surface: "vm" });
       await api("PATCH", `/api/bots/${holder.id}`, { computer: "vm" });
       await api("POST", `/api/bots/${auto.id}/messages`, { text: "Take a screenshot when free" });
       const autoComputer = computer(await dump());
       expect(autoComputer).toBeTruthy();
       rmSync(dumpFile, { force: true });
       await api("POST", `/api/bots/${holder.id}/messages`, { text: "Hold the VM" });
-      // busy flips before setup claims the VM, so it is not a contention
-      // signal. Each fake CLI dumps once, on its first prompt, after the
-      // eager claim and mount: the fresh dump is the lease-held sync point.
+      // Tool discovery does not claim the computer. Invoke its control gate
+      // to establish real computer use before the second turn tries it.
       const holderComputer = computer(await dump());
       expect(holderComputer).toBeTruthy();
-      expect((await gate(holderComputer)).status).toBe(200);
+      expect(await (await gate(holderComputer)).json()).toEqual({ held: false, helpOpen: false });
       // First screen tools/call: the gate fires the deferred claim, answers
       // with the contention text, and the existing wait activity appears.
       const first = await (await gate(autoComputer)).json();
       expect(first).toMatchObject({ held: true, helpOpen: false,
         blockedReason: "Another thread is using this computer. This call was not performed. Pause computer work until that thread finishes, then take a fresh screenshot before acting." });
       await until(async () => {
- const state = await api("GET", "/api/bots?messages=30");
+        const state = await api("GET", "/api/bots?messages=30");
         return (state.bots.find((b: any) => b.id === auto.id)?.messages ?? [])
           .some((m: any) => m.kind === "activity" && String(m.tool?.name ?? "").startsWith("Waiting for its turn on this computer"));
       }, Boolean);
@@ -596,7 +622,9 @@ describe("Group Local VM ownership on the real isolated server", () => {
       vmState();
       rmSync(dumpFile, { force: true });
       await api("POST", `/api/bots/${next.id}/messages`, { text: "Hold the VM" });
-      expect(computer(await dump())).toBeTruthy();
+      const nextComputer = computer(await dump());
+      expect(nextComputer).toBeTruthy();
+      expect(await (await gate(nextComputer)).json()).toEqual({ held: false, helpOpen: false });
       await until(async () => (await api("GET", "/api/bots?messages=0")).bots.find((b: any) => b.id === next.id)?.busy, Boolean);
       const state = await api("GET", "/api/bots?messages=30");
       const activities = (state.bots.find((b: any) => b.id === next.id)?.messages ?? [])

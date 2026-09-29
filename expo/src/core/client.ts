@@ -103,7 +103,7 @@ export class Client {
     const image = /^image\/(png|jpeg|gif|webp)$/.test(mime);
     if (bytes.byteLength > (image ? 10 : 25) * 1024 * 1024) throw new Error(`Choose ${image ? 'an image under 10' : 'a file under 25'} MB.`);
     const query = new URLSearchParams({ name, uploadId });
-    const response = await this.response(`/api/${image ? 'attachments' : 'files'}?${query}`, { method: 'POST', headers: { 'Content-Type': mime }, body: bytes as BodyInit });
+    const response = await this.response(`/api/${image ? 'attachments' : 'files'}?${query}`, { method: 'POST', headers: { 'Content-Type': mime }, body: bytes as RequestInit['body'] });
     return JSON.parse(new TextDecoder().decode(await response.arrayBuffer())) as Upload;
   }
   imageSource(path: string) {

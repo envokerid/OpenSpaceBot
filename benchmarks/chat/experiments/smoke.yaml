@@ -1,0 +1,14 @@
+version: 1
+name: harness-smoke
+suite: ../suites/smoke.yaml
+baseline:
+  name: baseline
+variants:
+  - name: no-tools
+    tools:
+      allow: []
+repetitions: 1
+limits:
+  turnTimeoutSeconds: 20
+  maxRequestsPerTrial: 6
+  maxRunSeconds: 120

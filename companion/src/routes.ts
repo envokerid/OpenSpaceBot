@@ -63,8 +63,11 @@ export function isMessageFileDownload(method: string, path: string): boolean {
   return method === MESSAGE_FILE_ROUTE.method && MESSAGE_FILE_ROUTE.path.test(path);
 }
 
+export const MOBILE_VM_CONTROL_ROUTE = { method: "POST", path: /^\/api\/bots\/[\w-]+\/local-computer\/control$/ } as const;
+
 export function isCloudDesktopAccess(method: string, path: string): boolean {
-  return isCloudDesktopJoin(method, path)
+  return (method === MOBILE_VM_CONTROL_ROUTE.method && MOBILE_VM_CONTROL_ROUTE.path.test(path))
+    || isCloudDesktopJoin(method, path)
     || (method === CLOUD_DESKTOP_CONTROL_ROUTE.method && CLOUD_DESKTOP_CONTROL_ROUTE.path.test(path));
 }
 
@@ -127,7 +130,7 @@ const ALLOWED: ReadonlyArray<{ method: string; path: RegExp }> = [
   { method: "PATCH", path: /^\/api\/bots\/[\w-]+\/model$/ },
   { method: "POST", path: /^\/api\/bots\/[\w-]+\/avatar\/generate$/ },
   // Passive previews of an existing bot desktop, including an idle Local VM.
-  // No VM lifecycle, host-desktop capture, or input routes are exposed.
+  // VM input below has a separate per-device desktop-access gate; no host input or lifecycle.
   { method: "GET", path: /^\/api\/bots\/[\w-]+\/computer$/ },
   { method: "POST", path: /^\/api\/bots\/[\w-]+\/local-computer\/screenshot$/ },
   // Full cloud desktop access. The route is narrow and the proxy applies a
@@ -135,6 +138,7 @@ const ALLOWED: ReadonlyArray<{ method: string; path: RegExp }> = [
   CLOUD_DESKTOP_JOIN_ROUTE,
 
   CLOUD_DESKTOP_CONTROL_ROUTE,
+  MOBILE_VM_CONTROL_ROUTE,
   // rooms — making one, and talking in one
   { method: "POST", path: /^\/api\/groups$/ },
   // Explicitly confirmed group deletion from the mobile roster.

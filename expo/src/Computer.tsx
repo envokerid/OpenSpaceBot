@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Image, Pressable, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Image, Modal, Pressable, View } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import type { Session } from './core/session';
 import type { State } from './core/store';
@@ -8,6 +8,7 @@ import { captureComputer, computerPreview } from './core/computer';
 import { useAuthenticatedImage } from './images';
 import { Icon } from './Icon';
 import { Button, ErrorNotice, Label, Row, useAction } from './ui';
+import { VmControl } from './VmControl';
 
 export function Computer({ session, state, botId, threadId, visible = true, onBack }: {
  session: Session; state: State; botId: string; threadId: string; visible?: boolean; onBack: () => void;
@@ -21,7 +22,8 @@ export function Computer({ session, state, botId, threadId, visible = true, onBa
  const [resolvedSurface, setResolvedSurface] = useState<string>();
  const [capture, setCapture] = useState<string>();
  const [failedImage, setFailedImage] = useState<string>();
- const active = visible && foreground;
+ const [controlling, setControlling] = useState(false);
+ const active = visible && foreground && !controlling;
  const saved = useAuthenticatedImage(session.client, active && !live && !capture ? savedPath : undefined, attempt);
  const uri = capture ?? saved.uri;
  useEffect(() => { if (live) { setCapture(`data:${live.mime};base64,${live.png}`); setFailedImage(undefined); } }, [live]);
@@ -76,6 +78,13 @@ export function Computer({ session, state, botId, threadId, visible = true, onBa
    </View>}
   </View>
   {problem && <View style={{ padding: 12, gap: 8 }}>{uri && !imageError && <Label size={13} style={{ color: '#FFFFFFB3' }}>{problem}</Label>}<Button title="Retry preview" onPress={retry} /></View>}
+  {resolvedSurface === 'vm' && <View style={{ paddingHorizontal: 18, paddingVertical: 12, gap: 8 }}>
+   <Button title="Take control" primary disabled={state.status !== 'connected'} onPress={() => setControlling(true)} />
+   <Label size={12} style={{ textAlign: 'center', color: '#999999' }}>Pause the bot and use the VM from your phone. Enable Cloud desktop access for this phone in Settings → Remote access on the host.</Label>
+  </View>}
+  <Modal visible={controlling && visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setControlling(false)}>
+   {controlling && visible && <VmControl key={`${botId}:${threadId}`} client={session.client} botId={botId} threadId={threadId} onClose={() => { setControlling(false); setAttempt(value => value + 1); }} />}
+  </Modal>
   {(resolvedSurface ? resolvedSurface === 'cloud' : cloud) && bot?.cloudBackend !== 'vps' && <View style={{ paddingHorizontal: 18, paddingVertical: 12, gap: 8 }}>
    <ErrorNotice error={action.error} />
    <Button title="Open live cloud desktop" primary disabled={action.busy} onPress={() => Alert.alert('Open live cloud desktop?', 'This gives this phone full control of the cloud computer, including anything signed in inside it.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Open', onPress: () => void action.run(async () => {

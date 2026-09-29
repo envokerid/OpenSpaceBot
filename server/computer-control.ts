@@ -75,6 +75,11 @@ export class ComputerControl {
     };
   }
 
+  ownsLease(botId: string, controlLeaseId: string): boolean {
+    const entry = this.entries.get(botId);
+    return entry?.heldSinceMs != null && entry.controlLeaseId === controlLeaseId;
+  }
+
   /** The person takes the wheel. Idempotent — a second click must not
    * reset `heldSinceMs` and make the hold look newer than it is. */
   take(botId: string): ControlSnapshot {
@@ -204,4 +209,3 @@ export async function executeToolSafely<T>(
     };
   }
 }
-

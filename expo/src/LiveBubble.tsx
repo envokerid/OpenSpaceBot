@@ -1,15 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, AppState, Easing, View } from 'react-native';
-import { useTheme } from './ui';
-
-const phases = Array.from({ length: 21 }, (_, i) => i / 20);
-const pulses = [0, .2, .4].map(delay => phases.map(phase => (1 - Math.cos((phase - delay) * Math.PI * 2)) / 2));
+import React, { useEffect, useRef } from 'react';
+import { AccessibilityInfo, Animated, Easing, View } from 'react-native';
+import { Avatar } from './Avatar';
+import type { Client } from './core/client';
 
 // Partial text stays in the session buffer. Only completed messages belong in
-// the transcript, so the typing bubble keeps the same size throughout a reply.
-export const LiveBubble = React.memo(function LiveBubble({ name, color, visible }: { name: string; color: string; visible: boolean }) {
-  const c = useTheme();
-  const phase = useRef(new Animated.Value(0)).current;
+// the transcript, so the working avatar keeps the same footprint throughout a reply.
+export const LiveBubble = React.memo(function LiveBubble({ bot, client, visible }: { bot: React.ComponentProps<typeof Avatar>['bot']; client: Client; visible: boolean }) {
   const space = useRef(new Animated.Value(visible ? 50 : 0)).current;
   const opacity = useRef(new Animated.Value(visible ? 1 : 0)).current;
   useEffect(() => {
@@ -36,29 +32,11 @@ export const LiveBubble = React.memo(function LiveBubble({ name, color, visible 
     }).catch(() => { if (!disposed) finish(); });
     return () => { disposed = true; clearTimeout(timer); space.stopAnimation(); opacity.stopAnimation(); motion.remove(); };
   }, [visible, space, opacity]);
-  const [moving, setMoving] = useState(false);
-  useEffect(() => {
-    let disposed = false, reduced = true, active = AppState.currentState === 'active';
-    const loop = Animated.loop(Animated.timing(phase, { toValue: 1, duration: 1200, easing: Easing.linear, useNativeDriver: true }));
-    const update = () => {
-      loop.stop(); phase.setValue(0);
-      const live = visible && !disposed && !reduced && active;
-      setMoving(live);
-      if (live) loop.start();
-    };
-    void AccessibilityInfo.isReduceMotionEnabled().then(value => { if (!disposed) { reduced = value; update(); } });
-    const motion = AccessibilityInfo.addEventListener('reduceMotionChanged', value => { reduced = value; update(); });
-    const app = AppState.addEventListener('change', value => { active = value === 'active'; update(); });
-    return () => { disposed = true; loop.stop(); motion.remove(); app.remove(); };
-  }, [phase, visible]);
   return <Animated.View pointerEvents="none" accessibilityElementsHidden={!visible} importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'} style={{ height: space }}>
-    <Animated.View style={{ position: 'absolute', left: 0, top: 0, paddingHorizontal: 15, paddingVertical: 11, borderRadius: 20, backgroundColor: c.bubble, opacity, transform: [{ translateX: opacity.interpolate({ inputRange: [0, 1], outputRange: [-12, 0] }) }] }}>
-    <View accessible accessibilityLabel={`${name} is typing`} accessibilityLiveRegion="polite" style={{ flexDirection: 'row', alignItems: 'center', height: 20, gap: 6 }}>
-      {pulses.map((pulse, i) => <Animated.View key={i} style={{
-        width: 8, height: 8, borderRadius: 4, backgroundColor: color || c.accent,
-        opacity: moving ? phase.interpolate({ inputRange: phases, outputRange: pulse.map(value => .35 + value * .65) }) : .6,
-        transform: [{ translateY: moving ? phase.interpolate({ inputRange: phases, outputRange: pulse.map(value => -3 * value) }) : 0 }],
-      }} />)}
-    </View>
-  </Animated.View></Animated.View>;
+    <Animated.View style={{ position: 'absolute', left: 0, top: 0, opacity, transform: [{ translateX: opacity.interpolate({ inputRange: [0, 1], outputRange: [-12, 0] }) }] }}>
+      <View accessible accessibilityLabel={`${bot.name} is working`} accessibilityLiveRegion="polite">
+        <Avatar bot={bot} client={client} size={44} animated={visible} />
+      </View>
+    </Animated.View>
+  </Animated.View>;
 });

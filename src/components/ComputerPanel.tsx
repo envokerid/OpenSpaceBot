@@ -339,10 +339,11 @@ export function ComputerPanel({
   // the only way a person can actually drive the VM.
   const [vmViewerUrl, setVmViewerUrl] = useState<string | null>(null);
   const [vmStatus, setVmStatus] = useState<LocalVmStatus | null>(null);
+  const vmCanStart = Boolean(vmStatus && vmStatus.container === "stopped" && vmStatus.imageMatches && vmStatus.managed && vmStatus.network === "loopback" && vmStatus.security === "hardened" && vmStatus.persistence === "durable");
   const [vpsStatus, setVpsStatus] = useState<VpsComputerStatus | null>(null);
   const [localFrame, setLocalFrame] = useState<string | null>(null);
   const [pending, setPending] = useState<
-    "join" | "sleep" | "provision" | "vps-replace" | "vm-create" | "vm-recreate" | "vm-delete" | null
+    "join" | "sleep" | "provision" | "vps-replace" | "vm-create" | "vm-start" | "vm-recreate" | "vm-delete" | null
   >(null);
   const [controlPending, setControlPending] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -1112,7 +1113,7 @@ export function ComputerPanel({
       .finally(() => setPending(null));
   };
 
-  const runVmAction = async (action: "vm-create" | "vm-recreate" | "vm-delete") => {
+  const runVmAction = async (action: "vm-create" | "vm-start" | "vm-recreate" | "vm-delete") => {
     if (
       (action === "vm-recreate" || action === "vm-delete") &&
       !window.confirm(
@@ -1126,14 +1127,14 @@ export function ComputerPanel({
     setVmStatus(null);
     vmReadinessAttempts.current = 0;
     try {
-      if (action !== "vm-create") {
+      if (action === "vm-recreate" || action === "vm-delete") {
         await api(`/api/bots/${bot.id}/local-computer/remove`, {
           method: "POST",
           body: "{}",
         });
       }
       if (action !== "vm-delete") {
-        const status: LocalVmStatus = await api(`/api/bots/${bot.id}/local-computer/run`, {
+        const status: LocalVmStatus = await api(`/api/bots/${bot.id}/local-computer/${action === "vm-start" ? "start" : "run"}`, {
           method: "POST",
           body: "{}",
         });
@@ -1445,16 +1446,18 @@ export function ComputerPanel({
               {phase === "vm-unavailable" && (
                 canManageVm && vmStatus?.mode === "per-bot" && vmStatus.image && vmStatus.create_supported ? (
                   <button
-                    onClick={() => void runVmAction(vmStatus.container === "missing" ? "vm-create" : "vm-recreate")}
+                    onClick={() => void runVmAction(vmStatus.container === "missing" ? "vm-create" : vmCanStart ? "vm-start" : "vm-recreate")}
                     disabled={pending !== null}
                     className="mt-1 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-medium text-white hover:brightness-110 disabled:opacity-50"
                   >
-                    {(pending === "vm-create" || pending === "vm-recreate") && (
+                    {(pending === "vm-create" || pending === "vm-start" || pending === "vm-recreate") && (
                       <Loader2 size={13} className="mr-1.5 inline animate-spin" />
                     )}
                     {vmStatus.container === "missing"
                       ? t("computer.createVm", { name: bot.name })
-                      : t("computer.replaceVm", { name: bot.name })}
+                      : vmCanStart
+                        ? t("vm.setup.start")
+                        : t("computer.replaceVm", { name: bot.name })}
                   </button>
                 ) : (
                   <button

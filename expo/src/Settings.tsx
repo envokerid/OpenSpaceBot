@@ -29,16 +29,6 @@ import {
 
 export const notificationsFooter =
   "Approvals and finished work appear while OpenMausMobile is connected, including frames replayed after a short background pause. Closed-app push needs a separate push-relay release that does not exist yet.";
-const details = [
-  { id: "full", label: "Full", caption: "Every step a bot takes." },
-  {
-    id: "summary",
-    label: "Reduced",
-    caption: "Steps fold into one line. Failures always show.",
-  },
-  { id: "off", label: "Hidden", caption: "No activity, only messages." },
-] as const;
-
 type HomeSetting = {
   title: string;
   icon: IconName;
@@ -51,7 +41,7 @@ function SettingsGroup({ items }: { items: HomeSetting[] }) {
   return (
     <View
       style={{
-        backgroundColor: c.sheet,
+        backgroundColor: "#000000",
         borderRadius: 20,
         overflow: "hidden",
       }}
@@ -83,15 +73,15 @@ function SettingsGroup({ items }: { items: HomeSetting[] }) {
           >
             <Icon name={item.icon} size={18} color="#FFFFFF" />
           </View>
-          <Label size={15} style={{ flex: 1, lineHeight: 21 }}>
+          <Label size={15} style={{ flex: 1, lineHeight: 21, color: "#FFFFFF" }}>
             {item.title}
           </Label>
           {item.value && (
-            <Label size={12} muted numberOfLines={1} style={{ maxWidth: "34%" }}>
+            <Label size={12} muted numberOfLines={1} style={{ maxWidth: "34%", color: "#A7A7A7" }}>
               {item.value}
             </Label>
           )}
-          <Icon name="chevron" size={17} color={c.text} />
+          <Icon name="chevron" size={17} color="#FFFFFF" />
           {index < items.length - 1 && (
             <View
               pointerEvents="none"
@@ -101,7 +91,7 @@ function SettingsGroup({ items }: { items: HomeSetting[] }) {
                 right: 14,
                 bottom: 0,
                 height: 1,
-                backgroundColor: c.line,
+                backgroundColor: "#303030",
               }}
             />
           )}
@@ -185,7 +175,7 @@ function SettingsContent({
   const c = useTheme();
   const action = useAction();
   const connection = session?.client.connection;
-  const [modal, setModal] = useState<"address" | "activity" | "replies">();
+  const [modal, setModal] = useState<"address" | "replies">();
   const [address, setAddress] = useState("");
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -581,13 +571,6 @@ function SettingsContent({
           <>
             <Section title="">
               <SettingRow
-                title="Activity detail"
-                value={details.find((d) => d.id === prefs.activity)?.label}
-                icon="list"
-                iconColor="#7061EF"
-                onPress={() => setModal("activity")}
-              />
-              <SettingRow
                 title="Quick replies"
                 icon="chat"
                 iconColor="#05AADB"
@@ -596,7 +579,7 @@ function SettingsContent({
                 }}
               />
               <Label size={13} muted>
-                {details.find((d) => d.id === prefs.activity)?.caption}
+                Bots show an animated avatar while working. Tool calls and step runs stay hidden.
               </Label>
             </Section>
           </>
@@ -702,68 +685,6 @@ function SettingsContent({
             />
             <ErrorNotice error={action.error} />
           </DialogBody>
-        </Sheet>
-      )}
-      {modal === "activity" && (
-        <Sheet
-          centered
-          title="Activity detail"
-          onClose={() => setModal(undefined)}
-        >
-          <View style={{ padding: 24, gap: 4 }}>
-            {details.map((d) => (
-              <Pressable
-                key={d.id}
-                accessibilityRole="radio"
-                accessibilityState={{ checked: d.id === prefs.activity }}
-                onPress={() => {
-                  onPreferences({ ...prefs, activity: d.id });
-                  setModal(undefined);
-                }}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 10,
-                  paddingVertical: 6,
-                }}
-              >
-                <View
-                  style={{
-                    width: 20,
-                    height: 20,
-                    borderWidth: 2,
-                    borderColor: d.id === prefs.activity ? c.accent : c.muted,
-                    borderRadius: 10,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  {d.id === prefs.activity && (
-                    <View
-                      style={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: 5,
-                        backgroundColor: c.accent,
-                      }}
-                    />
-                  )}
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Label size={16}>{d.label}</Label>
-                  <Label size={12} muted>
-                    {d.caption}
-                  </Label>
-                </View>
-              </Pressable>
-            ))}
-            <Button
-              title="Cancel"
-              text
-              onPress={() => setModal(undefined)}
-              style={{ alignSelf: "flex-end" }}
-            />
-          </View>
         </Sheet>
       )}
       {modal === "replies" && (

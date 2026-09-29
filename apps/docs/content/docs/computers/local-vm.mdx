@@ -40,7 +40,15 @@ Local VMs always run on the same physical host as the OpenMausBot desktop proces
 
 ## Persistence
 
-The bot's workspace and browser profile live in a durable mounted directory. Recreating the desktop can repair stale runtime state without deleting the durable workspace.
+Local VM containers are retained indefinitely when idle. Installed applications,
+files throughout the desktop filesystem, and browser profiles survive Stop and
+Start. Docker desktops also resume after a host or Docker restart unless they
+were manually stopped.
+
+Deleting or replacing a VM explicitly still removes its container filesystem.
+Only the mounted `/home/cua/workspace` directory survives replacement. Use
+**Start** to resume a stopped desktop without replacing it. Temporary operating
+system files and running processes are not a saved memory snapshot.
 
 ## Ownership and reuse
 

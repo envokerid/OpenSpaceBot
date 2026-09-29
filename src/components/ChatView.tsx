@@ -1,3 +1,4 @@
+import { redundantScreenIds } from "../../shared/transcript-screens";
 import { Component, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
@@ -41,17 +42,12 @@ import { EngineSetup } from "./EngineSetup";
 import { isProviderSafetyBlock, PROVIDER_SAFETY_GUIDANCE, PROVIDER_SAFETY_HELP_URL } from "../../shared/provider-safety";
 import { BotAvatar } from "./Avatar";
 import { TurnPresence } from "./TurnPresence";
-import { showToolCallsEnabled, skillAuthoringEnabled } from "@/lib/feature-flags";
 import { normalizeState, stateForBot } from "@/lib/mascot";
-import { peerLine, type PeerLine } from "@/lib/peer-message";
+import { peerLine, peerMessagesWithReceipts, type PeerLine } from "@/lib/peer-message";
 import { showWorkingDots } from "@/lib/turn-tail";
-import { liveActivityLabel } from "@/lib/live-activity";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { RawMarkdownView, RawToggleAction } from "./RawMarkdownToggle";
 import { ThreadChip } from "./ThreadChip";
-import { VerifyCard } from "./VerifyCard";
-import { askText, runSteps, runSummary, showRun, skillPrompt, skillStaged } from "@/lib/verify-steps";
-import { ToolActivity } from "./ToolActivity";
 import { ThreadRefText } from "./ThreadRefs";
 import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
 import { ApprovalCard } from "./ApprovalCard";
@@ -64,7 +60,7 @@ import { SecretRequestCard } from "./SecretRequestCard";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
 import { AttachmentGallery, collectMessageFiles } from "./AttachmentGallery";
 import { ScreenFrame } from "./ScreenFrame";
-import { CompactionChip, DigestChip } from "./DigestChip";
+import { CompactionChip } from "./DigestChip";
 import { RenameTitle } from "./RenameTitle";
 import { BotActivityPicker, TaskPicker } from "./TaskPicker";
 import { ModelPicker } from "./ModelPicker";
@@ -72,14 +68,11 @@ import { ExportTranscriptMenu } from "./ExportTranscriptMenu";
 
 import { SpeakButton } from "./SpeakButton";
 import { CallButton, CallOverlay } from "./CallView";
-import { effectivePlace, toolPlace, type EffectivePlace } from "@/lib/place";
 import { cn } from "@/lib/cn";
 import { activeLocale, t } from "@/lib/i18n";
 import { COMPACT_BUBBLE } from "@/lib/compact-chip";
 import { useFocusMessage } from "@/lib/focus-message";
 import { groupTranscript } from "@/lib/activity-runs";
-import { ActivityRun } from "./ActivityRun";
-import { TurnNarrationRun } from "./TurnNarrationRun";
 import { webhookMessageView } from "@/lib/webhook-message";
 import { splitTranscriptAttachments } from "@/lib/composer-attachments";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow, useBottomFollowResize } from "@/lib/bottom-follow";
@@ -91,13 +84,12 @@ import {
   resolveTranscriptWindow,
   tailWindowStart,
 } from "@/lib/transcript-window";
-import { appendComposerDraft, useReplyDraft } from "@/lib/drafts";
+import { useReplyDraft } from "@/lib/drafts";
 
 /** Long user messages collapse behind a fade so pasted walls of text don't
  * bury the conversation; bots get full markdown. */
 const USER_COLLAPSE_CHARS = 600;
 const USER_COLLAPSE_LINES = 8;
-const noop = () => {};
 
 /** "Today" / "Yesterday" / "Mon, Aug 11" — real dates, not a hardcoded label. */
 function dayLabel(at: number): string {
@@ -292,10 +284,7 @@ function Bubble({
 }) {
   const { state, dispatch } = useStore();
   const remoteClient = window.ogb?.remoteClient?.active === true;
-  // A user-role line another bot delivered (ask_bot, delegate_bot,
-  // start_thread) is that bot speaking, not the person: it takes the
-  // bot side of the chat under the peer's name, with the model-facing
-  // provenance note stripped from what the reader sees.
+  // Incoming bot requests are represented by a receipt, not a message bubble.
   const peer = peerLine(message);
   const user = message.role === "user" && !peer;
   const mentionPeers = useMemo(() => state.bots.filter((peer) => peer.id !== bot.id), [state.bots, bot.id]);
@@ -312,6 +301,8 @@ function Bubble({
   const hasAttachments = Boolean(attachments && (attachments.images.length || attachments.files.length));
   const collapsible =
     user && !webhookView && !expanded && (visibleText.length > USER_COLLAPSE_CHARS || visibleText.split("\n").length > USER_COLLAPSE_LINES);
+
+  if (peer) return <PeerLabel peer={peer} />;
 
   if (user && editing && !webhookView && !hasAttachments) {
     return (
@@ -330,7 +321,6 @@ function Bubble({
 
   return (
     <div className={cn("group flex w-full flex-col", user ? "animate-msg-in items-end" : "items-start")}>
-      {peer && <PeerLabel peer={peer} />}
       <div className={cn("flex w-full items-center gap-1.5", user ? "justify-end" : "justify-start")}>
         {user && (
           <MessageActions side="user">
@@ -527,20 +517,12 @@ function Bubble({
   );
 }
 
-/** Who wrote a relayed line and how it arrived, above the bubble — the
- * same shape as a room's cluster label. Looked up by id, then by name for
- * rows that predate Message.peerAsk; a peer since renamed or deleted still
- * shows the name the line carries. */
+/** A compact incoming receipt. Resolve the current sender profile when
+ * available; older rows and deleted bots retain their saved sender name. */
 function PeerLabel({ peer }: { peer: PeerLine }) {
   const { state } = useStore();
   const author =
     state.bots.find((b) => b.id === peer.botId) ?? state.bots.find((b) => b.name === peer.name);
-  const how =
-    peer.delivery === "delegate_bot"
-      ? t("chat.peer.delegated")
-      : peer.delivery === "start_thread"
-        ? t("chat.peer.openedThread")
-        : t("chat.peer.asked");
   return (
     <div className="mb-1 flex items-center gap-1.5 pl-0.5" data-testid="peer-label">
       <BotAvatar
@@ -551,14 +533,13 @@ function PeerLabel({ peer }: { peer: PeerLine }) {
         motionKey={0}
         animated={false}
       />
-      <span className="text-[11px] font-medium text-ink-secondary">{peer.name}</span>
-      <span className="text-[11px] text-ink-secondary/70">· {how}</span>
+      <span className="text-[13px] text-ink-secondary">{t("chat.peer.messageFrom", { name: author?.name ?? peer.name })}</span>
     </div>
   );
 }
 
-/** A tool run: spinner while live, check/cross once settled. */
-function ActivityChip({ message, place = "auto" }: { message: Message; place?: EffectivePlace }) {
+/** Links to another conversation remain visible while tool details stay hidden. */
+function ActivityChip({ message }: { message: Message }) {
   const { state, dispatch } = useStore();
   const tool = message.tool;
   if (!tool) return null;
@@ -581,7 +562,7 @@ function ActivityChip({ message, place = "auto" }: { message: Message; place?: E
       </div>
     );
   }
-  return <ToolActivity tool={tool} place={toolPlace(tool.name, place)} />;
+  return null;
 }
 
 /** The settled transcript, memoized as one unit: during streaming every
@@ -626,18 +607,13 @@ const MessagesList = memo(function MessagesList({
   onReply: (message: Message) => void;
 }) {
   const { state, dispatch } = useStore();
-  const showToolCalls = showToolCallsEnabled(state.config);
-  // Finished tool chips become compact runs; settled assistant narration
-  // becomes one reversible turn row while the terminal answer stays visible.
-  const items = useMemo(() => groupTranscript(messages), [messages, locale]);
-  // Where this conversation works, for the place icon on screen and page tools.
-  const place = effectivePlace(bot, bot.tasks?.find((task) => task.threadId === bot.threadId));
+  // Hide tool activity and settled progress rows; keep the final answer.
+  const hiddenScreens = useMemo(() => redundantScreenIds(transcript), [transcript]);
+  const receivedPeers = useMemo(() => peerMessagesWithReceipts(transcript), [transcript]);
+  const items = useMemo(() => groupTranscript(messages.filter(message =>
+    !hiddenScreens.has(message.id) && !receivedPeers.has(message.id) && message.kind !== "digest" && (message.kind !== "activity" || message.comm || message.threadRef || message.tool?.name.startsWith("error:")))).filter(item => item.kind !== "turn"), [messages, locale, hiddenScreens, receivedPeers]);
   const newestMessageId = messages.at(-1)?.id;
   const newestUserMessageId = [...messages].reverse().find((message) => message.role === "user")?.id;
-  // A search hit inside a folded run has to open it: the fold keeps the
-  // row out of the DOM, and there is nothing for the scroll to land on.
-  const focus = state.focusMessage;
-  const focusedId = focus && !focus.consumed && focus.threadId === bot.threadId ? focus.messageId : null;
   return (
     <>
       {messages.length === 0 && !bot.busy && (
@@ -667,50 +643,7 @@ const MessagesList = memo(function MessagesList({
         const prev = previous && (previous.kind === "message" ? previous.message : previous.messages.at(-1));
         const first = item.kind === "message" ? item.message : item.messages[0];
         const newDay = !prev || new Date(prev.at).toDateString() !== new Date(first.at).toDateString();
-        if (item.kind === "turn") {
-          return (
-            <div key={item.id} className="contents">
-              {newDay && <DaySeparator at={first.at} />}
-              <TurnNarrationRun
-                label={item.label}
-                forceOpen={item.messages.some((message) => message.id === focusedId)}
-              >
-                {item.messages.map((message) => (
-                  <div key={message.id} className="contents" data-mid={message.id}>
-                    <Bubble
-                      bot={bot}
-                      message={message}
-                      editing={false}
-                      isLastBotText={false}
-                      onStartEdit={noop}
-                      onCancelEdit={noop}
-                      onSubmitEdit={noop}
-                      replyTarget={message.replyToId
-                        ? bot.messages.find((candidate) => candidate.id === message.replyToId)
-                        : undefined}
-                      onReply={() => onReply(message)}
-                    />
-                  </div>
-                ))}
-              </TurnNarrationRun>
-            </div>
-          );
-        }
-        if (item.kind === "run") {
-          if (!showToolCalls) return null;
-          return (
-            <div key={item.id} className="contents">
-              {newDay && <DaySeparator at={first.at} />}
-              <ActivityRun messages={item.messages} forceOpen={item.messages.some((step) => step.id === focusedId)}>
-                {item.messages.map((step) => (
-                  <div key={step.id} className="contents" data-mid={step.id}>
-                    <ActivityChip message={step} place={place} />
-                  </div>
-                ))}
-              </ActivityRun>
-            </div>
-          );
-        }
+        if (item.kind === "run") return null;
         const m = item.message;
         const row = (() => {
           switch (m.kind) {
@@ -761,7 +694,7 @@ const MessagesList = memo(function MessagesList({
               // a failed turn is an error, not a tool run — render it as one.
               // bot⇄bot comm chips and opened-thread chips stay because they
               // link to another conversation.
-              // plain tool runs stay out unless Settings → Tool calls is on.
+              // Working progress is represented by the avatar below the transcript.
               if (m.tool?.name.startsWith("error:")) {
                 return (
                   <ErrorRow
@@ -771,12 +704,12 @@ const MessagesList = memo(function MessagesList({
                   />
                 );
               }
-              if (!showToolCalls && !m.comm && !m.threadRef) return null;
-              return <ActivityChip message={m} place={place} />;
+              if (!m.comm && !m.threadRef) return null;
+              return <ActivityChip message={m} />;
             }
             case "digest":
-              // the summary of the turn's tool chips: shown under the same setting
-              return showToolCalls ? <DigestChip message={m} /> : null;
+              // Tool summaries stay out of the conversation.
+              return null;
             case "compaction":
               return <CompactionChip message={m} />;
             case "screen":
@@ -833,7 +766,7 @@ function PinnedBanner({
   const pinnedPeer = peerLine(pinned);
   const sender =
     pinned.role === "user" ? (pinnedPeer?.name ?? t("chat.you")) : (pinned.from?.name ?? bot.name);
-  const text = (pinnedPeer?.body ?? pinned.text ?? "").replace(/\s+/g, " ").trim();
+  const text = (pinnedPeer ? t("chat.peer.messageFrom", { name: pinnedPeer.name }) : pinned.text ?? "").replace(/\s+/g, " ").trim();
   if (!text) return null;
   return (
     <div className="w-full px-5">
@@ -898,23 +831,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
 
   // only the active branch is rendered; forks stay reachable via ‹ › nav
   const messages = useMemo(() => visibleMessages(bot), [bot]);
-  // The bot's run in the current ask — every command it ran, the control-CLI
-  // ones verified — for the run card. Saving mirrors the /learn gate: the
-  // flag, an engine with the agents tools, and a bot that can take a message
-  // now — plus a run with something to keep.
-  const recordedRun = useMemo(() => runSteps(messages), [messages]);
-  const recordedRunCounts = runSummary(recordedRun);
-  const engineSupportsAgents = Boolean(
-    state.instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId)?.capabilities?.agentsMcp,
-  );
-  const canSaveRun =
-    skillAuthoringEnabled(state.config) && engineSupportsAgents && recordedRunCounts.passed > 0 && recordedRunCounts.running === 0 && !bot.busy;
-  // A dismissal is pinned to the run's last step, per thread: the card comes
-  // back when the bot runs another command, not merely when a step settles,
-  // and stays away across a switch to another thread and back.
-  const [runDismissed, setRunDismissed] = useState<ReadonlyMap<string, string>>(() => new Map());
-  const lastRunStep = recordedRun.at(-1);
-
   // Windowed transcript: only a tail of the thread mounts (screenshots make
   // full threads DOM-heavy). The boundary is anchored per bot+task; a
   // render-phase reset re-tails it on switch so the old thread's boundary
@@ -976,7 +892,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   // is finished, the whole bubble pops in above the mascot.
   const lastMessage = messages.at(-1);
   const toolInFlight = lastMessage?.kind === "activity" && lastMessage.tool?.ok === undefined;
-  const activityLabel = liveActivityLabel(lastMessage);
   const waiting = Boolean(
     bot.busy &&
       bot.activity !== "waiting-on-you" &&
@@ -1009,14 +924,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     }, 520);
   }, [lastMessage?.id, lastMessage?.role, lastMessage?.kind]);
   const presenceVisible = waiting || popping !== null;
-  // Wall-clock anchor for the working row's elapsed readout — the server
-  // stamps the turn's real start (turnStartedAt), so switching threads keeps
-  // the count truthful; Date.now() only covers servers without the stamp.
-  const [busySince, setBusySince] = useState<number | null>(null);
-  useEffect(() => {
-    setBusySince(bot.busy ? bot.turnStartedAt ?? Date.now() : null);
-  }, [bot.busy, bot.id, bot.threadId, bot.turnStartedAt]);
-
   // regenerate = fork the last user message with the same text — reuses the
   // existing branch machinery, so the old answer stays reachable via ‹ ›
   const regenerate = useCallback(() => {
@@ -1429,9 +1336,8 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
               />
             }
             visible={presenceVisible}
-            label={activityLabel}
+            label={t("chat.activity.working")}
             answering={popping !== null}
-            since={busySince}
           />
         </div>
       </div>
@@ -1453,28 +1359,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           selected one. ArrowUp-to-edit stays gated on busy because editing
           rewinds the thread, which a live turn forbids (the server 409s it). */}
       <div ref={composerDockRef} className="absolute inset-x-0 bottom-0 z-[2]">
-      {/* The bot's run in this ask as a checklist, once it is worth one (a
-          verified step, or more than one command). Save fills this thread's
-          composer with the run and the person's request and hands the caret
-          over; the person adds context and sends — nothing is sent from
-          here. In the dock so its height is measured with the composer's:
-          the transcript pad, the jump pill and bottom-follow all move with
-          it. */}
-      {lastRunStep && showRun(recordedRun) && runDismissed.get(transcriptKey) !== lastRunStep.id && (
-        <div className="flex justify-end px-5 pb-2">
-          <VerifyCard
-            key={transcriptKey}
-            steps={recordedRun}
-            canSave={canSaveRun}
-            staged={skillStaged(messages, recordedRun)}
-            onDismiss={() => setRunDismissed((current) => new Map(current).set(transcriptKey, lastRunStep.id))}
-            onSave={() => {
-              appendComposerDraft(`bot:${bot.id}:${bot.threadId}`, skillPrompt(recordedRun, askText(messages)));
-              composerDockRef.current?.querySelector("textarea")?.focus();
-            }}
-          />
-        </div>
-      )}
       <Composer
         key={bot.threadId}
         bot={profile}

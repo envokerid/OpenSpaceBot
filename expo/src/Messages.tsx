@@ -1,6 +1,9 @@
+import { peerLine } from '../../shared/peer-message';
 import React, { useState } from 'react';
-import { Image, Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import Markdown, { MarkdownIt } from 'react-native-markdown-display';
+import { markdownListLayout } from './markdownLayout';
+import { messageImageSize } from './core/messageImage';
 import * as WebBrowser from 'expo-web-browser';
 import { randomUUID } from 'expo-crypto';
 import { QuestionCard } from './QuestionCard';
@@ -23,14 +26,28 @@ import { Button, DialogBody, ErrorNotice, Input, Label, Row, Sheet, useAction, u
 
 export function MarkdownText({ text, onFile }: { text: string; onFile?: (path: string) => void }) {
   const c = useTheme();
-  return <Markdown markdownit={MarkdownIt({ typographer: false })} style={{ body: { color: c.text, fontSize: 17, lineHeight: 24, letterSpacing: 0.5 }, code_inline: { backgroundColor: c.bg, color: c.text }, fence: { backgroundColor: c.bg, color: c.text, borderColor: c.line }, code_block: { backgroundColor: c.bg, color: c.text }, link: { color: c.accent }, blockquote: { backgroundColor: c.bg, borderColor: c.line }, paragraph: { marginTop: 0, marginBottom: 0 } }}
+  return <Markdown markdownit={MarkdownIt({ typographer: false })} style={{ ...markdownListLayout, body: { color: c.text, fontSize: 17, lineHeight: 24, letterSpacing: 0.5 }, code_inline: { backgroundColor: c.bg, color: c.text }, fence: { backgroundColor: c.bg, color: c.text, borderColor: c.line }, code_block: { backgroundColor: c.bg, color: c.text }, link: { color: c.accent }, blockquote: { backgroundColor: c.bg, borderColor: c.line }, paragraph: { marginTop: 0, marginBottom: 0 } }}
     rules={{ image: node => <Text key={node.key} style={{ color: c.muted }} onPress={() => onFile?.(node.attributes.src)}>Image: {node.attributes.alt || 'attachment'} (tap to open)</Text> }}
     onLinkPress={url => { if (/^https?:\/\//i.test(url)) void Linking.openURL(url); else onFile?.(url); return false; }}>{text}</Markdown>;
 }
 
 function SecureImage({ client, path }: { client: Client; path: string }) {
-  const { uri, failed } = useAuthenticatedImage(client, path);
-  return uri ? <Image accessibilityLabel="Message image" source={{ uri }} resizeMode="contain" style={{ width: '100%', height: 260, borderRadius: 12 }} /> : <Label muted>{failed ? 'Could not load image.' : 'Loading image…'}</Label>;
+  const c = useTheme();
+  const viewport = useWindowDimensions();
+  const [attempt, setAttempt] = useState(0);
+  const [decodeFailed, setDecodeFailed] = useState(false);
+  const [sourceSize, setSourceSize] = useState<{ width: number; height: number }>();
+  const { uri, failed } = useAuthenticatedImage(client, path, attempt);
+  const size = messageImageSize(viewport.width, sourceSize);
+  const error = failed || decodeFailed;
+  return <View style={{ width: size.width, maxWidth: '100%' }}>
+    {uri && !error ? <Image key={attempt} accessibilityLabel="Message image" source={{ uri }} resizeMode="contain"
+      onLoad={event => setSourceSize(event.nativeEvent.source)} onError={() => setDecodeFailed(true)}
+      style={{ ...size, borderRadius: 12 }} /> : <View style={{ minHeight: 48, gap: 8, justifyContent: 'center' }}>
+      <Label muted>{error ? 'Could not load image.' : 'Loading image…'}</Label>
+      {error ? <Button title="Retry image" text onPress={() => { setDecodeFailed(false); setSourceSize(undefined); setAttempt(value => value + 1); }} /> : <ActivityIndicator accessibilityLabel="Loading message image" color={c.muted} />}
+    </View>}
+  </View>;
 }
 
 function Approval({ message, client, destination, onChanged, name }: { name?: string; message: Message; client: Client; destination: Destination; onChanged: () => Promise<unknown> }) {
@@ -72,8 +89,9 @@ function Approval({ message, client, destination, onChanged, name }: { name?: st
 }
 
 export const MessageBubble = React.memo(function MessageBubble({ message, client, destination, onChanged, versions = [], name, speaker, onEnter }: { onEnter?: () => boolean; name?: string; speaker?: Bot; message: Message; client: Client; destination: Destination; onChanged: () => Promise<unknown>; versions?: Message[] }) {
-  const c = useTheme(); const action = useAction(); const [details, setDetails] = useState(false); const [edit, setEdit] = useState<string>();
+  const c = useTheme(); const action = useAction(); const [edit, setEdit] = useState<string>();
   const [menu, setMenu] = useState<{ x: number; y: number }>(); const [selectText,setSelectText] = useState(false); const [copied, setCopied] = useState(false);
+  const peer = peerLine(message);
   const content = splitTranscriptAttachments(message.text ?? '');
   const goal = message.channelMode === 'goal' || !!message.goalRun;
   const groupSpeaker = destination.kind === 'groups' && message.role !== 'user' ? speaker ?? message.from : undefined;
@@ -94,14 +112,19 @@ export const MessageBubble = React.memo(function MessageBubble({ message, client
     if (result.url) { if (new URL(result.url).protocol !== 'https:') throw new Error('The sign-in link must use HTTPS.'); await WebBrowser.openBrowserAsync(result.url); }
     await onChanged();
   });
+  if (peer) return <View style={{ paddingHorizontal: 4, flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 24 }}>
+    <Avatar bot={speaker ?? { name: peer.name, color: 'blue' }} client={client} size={20} animated={false} />
+    <Label size={13} muted style={{ flexShrink: 1 }}>Message from {speaker?.name ?? peer.name}</Label>
+  </View>;
   if (message.card) return <Approval name={name} message={message} client={client} destination={destination} onChanged={onChanged} />;
   if (isConversationNotice(message)) return <View style={{ paddingHorizontal: 4, flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 24 }}><View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: message.tool?.ok === false ? c.danger : c.muted }} /><Label size={13} muted style={{ flexShrink: 1 }}>{message.tool?.name ?? message.text}</Label></View>;
-  if (message.kind === 'activity' || message.tool) return <View style={{ paddingHorizontal: 4, gap: 8 }}><Pressable onPress={() => setDetails(!details)} accessibilityRole="button" accessibilityLabel={`${message.tool?.name ?? 'Activity'}, ${message.tool?.ok === false ? 'failed' : 'success'}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 24 }}><View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: message.tool?.ok === false ? c.danger : c.muted }} /><Label size={13} muted>{message.tool?.name ?? message.text}</Label></Pressable>{details && <View style={{ padding: 12, borderRadius: 12, backgroundColor: c.card }}><Label size={13} selectable style={{ fontFamily: 'monospace' }}>{[message.tool?.input, message.tool?.output].filter(Boolean).join('\n\n') || message.tool?.summary || 'No additional details.'}</Label></View>}</View>;
+  if (message.tool?.name.startsWith('error:')) return <ErrorNotice error={message.tool.name.slice(6).trim()} />;
+  if (message.kind === 'activity' || message.tool) return null;
   return <><SpeechBubble onEnter={onEnter} mine={message.role === 'user'} goal={goal} fullWidth={!!message.goalRun} onLongPress={event => setMenu({ x: event.nativeEvent.pageX, y: event.nativeEvent.pageY })}>
     {goal && <GoalHeading run={message.goalRun} />}
     {groupSpeaker ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><View style={{ width: 24, height: 24, flexShrink: 0 }}><Avatar bot={groupSpeaker} client={client} size={24} animated={false} /></View><Label size={13} bold style={{ flexShrink: 1 }}>{groupSpeaker.name}</Label></View> : !!message.from?.name && message.role !== 'user' && <Label size={13} bold>{message.from.name}</Label>}
     {[...content.images.map(item => ({ ...item, image: true })), ...content.files.map(item => ({ ...item, image: false }))].map((item,index) => <AttachmentView key={`${item.path}-${index}`} client={client} threadId={destination.threadId} messageId={message.id} path={item.path} name={item.name} image={item.image} mine={message.role === 'user'} />)}
-    {message.kind === 'screen' && <SecureImage client={client} path={`/api/threads/${routeId(destination.threadId)}/messages/${routeId(message.id)}/image`} />}
+    {message.kind === 'screen' && <SecureImage key={`${destination.threadId}:${message.id}`} client={client} path={`/api/threads/${routeId(destination.threadId)}/messages/${routeId(message.id)}/image`} />}
     {message.attachments?.filter((a,i,all) => all.findIndex(other => other.path === a.path) === i).map(a => <AttachmentView key={a.path} client={client} threadId={destination.threadId} messageId={message.id} path={a.path} name={a.path.split('/').pop() ?? 'Image'} image mine={message.role === 'user'} />)}
     {!!content.display && !message.compaction && !message.routineRun && !message.goalRun && (message.role === 'user' ? <Text selectable style={{ color: goal ? '#FFFFFF' : c.mineText, fontSize: 17, lineHeight: 24, includeFontPadding: false, letterSpacing: 0.5 }}>{content.display}</Text> : <MarkdownText text={content.display} onFile={path => void file(path)} />)}
     {message.digest && !message.text && <><Label bold>Work summary</Label><Label>{message.digest.reply}</Label><Label muted>{message.digest.tools.map(tool => `${tool.name}: ${tool.count} calls`).join(' · ')}</Label></>}
@@ -129,9 +152,4 @@ export const MessageBubble = React.memo(function MessageBubble({ message, client
 function sameSpeaker(a?: Bot, b?: Bot) {
   return a === b || (!!a && !!b && a.id === b.id && a.name === b.name && a.color === b.color
     && a.mascotExpression === b.mascotExpression && a.avatarUrl === b.avatarUrl && a.avatarCrop === b.avatarCrop && a.mascotBody === b.mascotBody);
-}
-
-export function ActivityRun({ items, ...props }: { items: Message[]; client: Client; destination: Destination; onChanged: () => Promise<unknown> }) {
- const [expanded,setExpanded] = useState(false); const c = useTheme(); const running = items.some(i => i.tool?.ok == null); const summary = `${running ? 'Running' : 'Ran'} ${items.length} steps`;
- return <View style={{ paddingLeft: 4, gap: 5 }}><Pressable accessibilityLabel={`${summary}, ${expanded ? 'expanded' : 'collapsed'}`} onPress={() => setExpanded(!expanded)} style={{ minHeight: 48, justifyContent: 'center', alignSelf: 'flex-start' }}><Row style={{ backgroundColor: c.muted+'1A', borderRadius: 18, paddingHorizontal: 10, paddingVertical: 6, gap: 6 }}><Label size={13} style={{ color: '#22C55E' }}>{running ? '◌' : '✓'}</Label><Label size={13}>{summary}</Label><Label size={12} muted>{expanded ? 'Hide' : 'Show'}</Label></Row></Pressable>{expanded && items.map(message => <MessageBubble key={message.id} message={message} {...props} />)}</View>;
 }

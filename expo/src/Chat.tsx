@@ -1,3 +1,4 @@
+import { peerLine } from '../../shared/peer-message';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, FlatList, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
@@ -14,7 +15,7 @@ import { GroupMembers } from './GroupMembers';
 import { groupNeedsSetup } from './core/groups';
 import { routeId } from './core/client';
 import { attachedText, shareResponse, uploadFile } from './attachments';
-import { MessageBubble, ActivityRun } from './Messages';
+import { MessageBubble } from './Messages';
 import type { Preferences } from './storage';
 import { ComposerMenu, CommandHUD } from './ComposerMenus';
 import { LiveBubble } from './LiveBubble';
@@ -31,7 +32,7 @@ import { settleSendDraft } from './core/sendDraft';
 import { ComposerInput } from './ComposerInput';
 import { Button, ErrorNotice, IconButton, Label, Row, useAction, useTheme } from './ui';
 
-export function Chat({ visible, session, state, destination, around, drafts, onDraft, onBack, onThreads, onProfile, onComputer, onSelect, prefs }: {
+export function Chat({ visible, session, state, destination, around, drafts, onDraft, onBack, onThreads, onProfile, onComputer, onSelect }: {
   visible: boolean; onSelect: (destination: Destination) => void; prefs?: Preferences; session: Session; state: State; destination: Destination; around?: string; drafts: Record<string, Draft>;
   onDraft: (key: string, draft: Draft) => void; onBack: () => void; onThreads: () => void; onProfile: () => void; onComputer: () => void;
 }) {
@@ -77,11 +78,15 @@ export function Chat({ visible, session, state, destination, around, drafts, onD
   useEffect(() => { let alive = true; void session.client.instances().then(data => { if (alive) setSteeringEngines(data.instances.filter(i => i.capabilities?.queueing).map(i => i.instanceId)); }).catch(() => {}); return () => { alive = false; }; },[session]);
   const owner = destination.kind === 'bots' ? state.bots.find(b => b.id === destination.id) : state.groups.find(g => g.id === destination.id);
   const task = owner?.tasks?.find(t => t.threadId === destination.threadId);
-  const busy = task && 'busy' in task ? task.busy : owner && 'working' in owner ? owner.working : false;
+  const busy = task && 'busy' in task ? task.busy : owner?.threadId === destination.threadId ? ('working' in owner ? owner.working : owner.busy) : false;
   const engineCanSteer = !!owner && 'modelSelection' in owner && steeringEngines.includes(task && 'modelSelection' in task ? task.modelSelection?.instanceId ?? owner.modelSelection.instanceId : owner.modelSelection.instanceId);
   const activeRoom = destination.kind !== 'groups' || owner?.threadId === destination.threadId;
   const page = state.pages[destination.threadId];
-  const messages = useMemo(() => transcriptRows(visibleMessages(page), prefs?.activity, destination.kind === 'groups'), [page, prefs?.activity, destination.kind]);
+  const transcript = useMemo(() => visibleMessages(page), [page]);
+  const messages = useMemo(() => transcriptRows(transcript, 'off', destination.kind === 'groups'), [transcript, destination.kind]);
+  const working = isTyping(state, destination.threadId, !!busy);
+  const workingBot = destination.kind === 'bots' && owner && 'color' in owner
+    ? owner : groupBots.find(bot => bot.id === group?.busyBotId);
   const entrances = useRef({ key, rows: new BubbleEntrances(), timestamps: new Set<string>() });
   if (entrances.current.key !== key) entrances.current = { key, rows: new BubbleEntrances(), timestamps: new Set<string>() };
   const entranceRows = entrances.current.rows;
@@ -141,7 +146,7 @@ export function Chat({ visible, session, state, destination, around, drafts, onD
       for (const item of result.assets) { files.push(await uploadFile(session.client, item.uri, item.name, item.mimeType ?? 'application/octet-stream')); commitDraft({ ...latest.current, files: [...files], sendId: undefined }); }
     }
   });
-  const renderMessage = useCallback(({ item }: { item: TranscriptMessage }) => <View style={{ gap: 6 }}>{entrances.current.timestamps.has(item.id) && <Label size={13} muted style={{ textAlign: 'center', marginTop: 6 }}>{new Date(item.at).toDateString() === new Date().toDateString() ? 'Today' : new Date(item.at).toLocaleDateString()} {new Date(item.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</Label>}{item.activityRun ? <ActivityRun items={item.activityRun} client={session.client} destination={destination} onChanged={refresh} /> : <MessageBubble onEnter={() => entranceRows.claim(item.id)} name={owner?.name} speaker={destination.kind === 'groups' ? state.bots.find(bot => bot.id === item.from?.botId) : undefined} message={item} client={session.client} destination={destination} onChanged={refresh} versions={item.role === 'user' && item.kind === 'text' ? (page?.messages ?? []).filter(m => m.role === 'user' && m.kind === 'text' && m.parentId === item.parentId).sort((a, b) => a.at - b.at || a.id.localeCompare(b.id)) : []} />}</View>, [destination, entranceRows, messages, owner?.name, page?.messages, refresh, session.client, state.bots]);
+  const renderMessage = useCallback(({ item }: { item: TranscriptMessage }) => <View style={{ gap: 6 }}>{entrances.current.timestamps.has(item.id) && <Label size={13} muted style={{ textAlign: 'center', marginTop: 6 }}>{new Date(item.at).toDateString() === new Date().toDateString() ? 'Today' : new Date(item.at).toLocaleDateString()} {new Date(item.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</Label>}<MessageBubble onEnter={() => entranceRows.claim(item.id)} name={owner?.name} speaker={state.bots.find(bot => bot.id === (peerLine(item)?.botId ?? (destination.kind === 'groups' ? item.from?.botId : undefined)))} message={item} client={session.client} destination={destination} onChanged={refresh} versions={item.role === 'user' && item.kind === 'text' ? (page?.messages ?? []).filter(m => m.role === 'user' && m.kind === 'text' && m.parentId === item.parentId).sort((a, b) => a.at - b.at || a.id.localeCompare(b.id)) : []} /></View>, [destination, entranceRows, messages, owner?.name, page?.messages, refresh, session.client, state.bots]);
   return <View style={{ flex: 1, backgroundColor: c.bg }}>
     {visible && membersOpen && group && <GroupMembers key={group.id} session={session} group={group} bots={state.bots} onClose={() => setMembersOpen(false)} />}
     <View pointerEvents="box-none" onLayout={event => setHeaderHeight(event.nativeEvent.layout.height)} style={[styles.headerOverlay, { paddingTop: insets.top, paddingBottom: 24 }]}>
@@ -159,12 +164,12 @@ export function Chat({ visible, session, state, destination, around, drafts, onD
             <Pressable accessibilityRole="button" accessibilityLabel={`Open ${owner.name} settings`} onPress={onProfile} style={[styles.identityChip, { backgroundColor: c.chrome }]}>
               <Avatar bot={{
                 ...owner, threadId: destination.threadId,
-                messages: visibleMessages(page),
+                messages: transcript,
                 busy: task && 'busy' in task ? task.busy : owner.threadId === destination.threadId ? owner.busy : false,
                 activity: task && 'activity' in task ? task.activity : owner.threadId === destination.threadId ? owner.activity : 'idle',
                 waitingForTeammates: task && 'waitingForTeammates' in task ? task.waitingForTeammates : owner.threadId === destination.threadId ? owner.waitingForTeammates : false,
-                typing: isTyping(state, destination.threadId, !!busy) && !!state.streaming[destination.threadId],
-                reasoning: isTyping(state, destination.threadId, !!busy) && !!state.reasoning[destination.threadId],
+                typing: working && !!state.streaming[destination.threadId],
+                reasoning: working && !!state.reasoning[destination.threadId],
               }} client={session.client} size={36} animated={onScreen} />
               <Label size={15} bold numberOfLines={1} style={{ flexShrink: 1 }}>{owner.name}</Label>
             </Pressable>
@@ -200,7 +205,16 @@ export function Chat({ visible, session, state, destination, around, drafts, onD
         // Keep transient bubbles mounted so their occupied space can collapse
         // before removal; the follow-scroll hook tracks each layout frame.
         ListFooterComponent={<View style={{ paddingBottom: 14, gap: 8 }}>
-          <LiveBubble key={key} visible={onScreen && isTyping(state, destination.threadId, !!busy)} name={owner?.name ?? 'Your bot'} color={owner && 'color' in owner && owner.color === 'green' ? '#009957' : '#377FE6'} />
+          <LiveBubble key={key} visible={onScreen && working} client={session.client} bot={{
+            ...(workingBot ?? { name: owner?.name ?? 'Your bot', color: 'blue' }),
+            threadId: destination.threadId,
+            messages: transcript,
+            busy: working,
+            activity: task && 'activity' in task ? task.activity : working ? 'working' : 'idle',
+            waitingForTeammates: task && 'waitingForTeammates' in task ? task.waitingForTeammates : false,
+            typing: working && !!state.streaming[destination.threadId],
+            reasoning: working && !!state.reasoning[destination.threadId],
+          }} />
         </View>} />
     <View pointerEvents="box-none" onLayout={event => setFooterHeight(event.nativeEvent.layout.height)} style={[styles.footerOverlay, { paddingBottom: insets.bottom }]}>
       <Svg pointerEvents="none" width="100%" height={footerHeight} style={{ position: 'absolute', bottom: 0, left: 0 }}>

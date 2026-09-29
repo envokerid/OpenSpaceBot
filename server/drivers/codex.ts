@@ -636,6 +636,8 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       sensitiveResponseIds: Set<number>;
       nativeId: string | null;
       usedByTurn: boolean;
+      /** MCP children cannot be revived by reusing the app-server process. */
+      mcpTransportClosed?: boolean;
       preparationTimer?: ReturnType<typeof setTimeout>;
       usageBaseline?: { input: number; output: number; cachedInput: number };
       onMessage: (message: any) => void;
@@ -817,7 +819,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         })).digest("hex");
         let session = sessions.get(threadId);
         if (session && !preparation) clearTimeout(session.preparationTimer);
-        if (session && (session.key !== key || turn.sessionReset ||
+        if (session && (session.key !== key || turn.sessionReset || session.mcpTransportClosed ||
             (turn.resumeCursor && turn.resumeCursor !== session.nativeId) ||
             session.child.exitCode !== null || session.child.signalCode !== null)) {
           // Reserve the thread while waiting for the old process to stop.
@@ -1313,6 +1315,15 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
                 output: toolDetailPreview(item.type === "commandExecution" ? { output: item.aggregatedOutput, exitCode: item.exitCode } : item.type === "mcpToolCall" ? item.error ?? item.result : item.type === "fileChange" ? item.changes : item.action),
               });
               if (item.type === "mcpToolCall") {
+                // The model can finish successfully after reporting a broken
+                // tool connection. Keep that reply and cursor, but rebuild the
+                // MCP clients before the next turn instead of retaining a dead
+                // transport forever. Never replay the failed call: it may have
+                // reached the computer before the connection was lost.
+                if (item.status === "failed" && typeof item.error?.message === "string" &&
+                    /\bTransport closed\b/i.test(item.error.message)) {
+                  liveSession.mcpTransportClosed = true;
+                }
                 for (const img of extractMcpImages(item.result)) {
                   emit({ ...base(threadId, turnId), type: "item.completed", itemType: "assistant_image", data: img.data });
                 }

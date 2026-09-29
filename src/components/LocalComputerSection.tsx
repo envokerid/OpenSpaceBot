@@ -1019,7 +1019,7 @@ export function LocalComputerSection() {
     ) return;
     if (
       action === "recreate" &&
-      !window.confirm(t("vm.confirm.recreate"))
+      !window.confirm(t("vm.confirm.replacePersistent"))
     ) return;
     setPending(action);
     setError(null);
@@ -1213,8 +1213,7 @@ export function LocalComputerSection() {
   const existing = status?.container !== "missing";
   const needsRecreate = Boolean(
     existing &&
-      (status?.container === "stopped" ||
-        !status?.imageMatches ||
+      (!status?.imageMatches ||
         !status?.managed ||
         status?.network === "unsafe" ||
         status?.security === "unsafe" ||
@@ -1256,8 +1255,8 @@ export function LocalComputerSection() {
       <Card
         title={t("vm.main.title")}
         subtitle={perBot
-          ? t("vm.main.perBotSubtitle", { host })
-          : t("vm.main.sharedSubtitle", { host })}
+          ? t("vm.main.perBotPersistentSubtitle", { host })
+          : t("vm.main.sharedPersistentSubtitle", { host })}
       >
         <div className="flex flex-wrap items-center gap-2">
           <span
@@ -1307,7 +1306,7 @@ export function LocalComputerSection() {
 
       <Card
         title={t("vm.isolation.title")}
-        subtitle={t("vm.isolation.subtitle")}
+        subtitle={t("vm.isolation.persistentSubtitle")}
       >
         <div className="flex overflow-hidden rounded-lg border border-hairline/40">
           {(["shared", "per-bot"] as const).map((mode, index) => (
@@ -1454,8 +1453,8 @@ export function LocalComputerSection() {
         title={t("vm.safety.title")}
         subtitle={
           perBot
-            ? t("vm.safety.perBot", { path: status?.workspace_guest_path ?? "/home/cua/workspace" })
-            : t("vm.safety.shared", { path: status?.workspace_guest_path ?? "/home/cua/workspace" })
+            ? t("vm.safety.perBotPersistent", { path: status?.workspace_guest_path ?? "/home/cua/workspace" })
+            : t("vm.safety.sharedPersistent", { path: status?.workspace_guest_path ?? "/home/cua/workspace" })
         }
       >
         {existing && (

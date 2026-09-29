@@ -1,7 +1,7 @@
 /** Renewable idle deadline for one Local VM.
  *
  * Activity resets the full window. The caller decides how to suspend or
- * recycle the disposable VM, and an active turn or lifecycle operation defers
+ * stop the retained VM, and an active turn or lifecycle operation defers
  * that work for another full window instead of racing current work.
  */
 export class LocalVmIdleTimer {
@@ -11,7 +11,7 @@ export class LocalVmIdleTimer {
   private readonly suspend: () => Promise<void>;
 
   constructor(idleMs: number, isBusy: () => boolean, suspend: () => Promise<void>) {
-    if (!Number.isFinite(idleMs) || idleMs <= 0) throw new Error("Local VM idle timeout must be positive");
+    if (!Number.isFinite(idleMs) || idleMs < 0) throw new Error("Local VM idle timeout must be nonnegative");
     this.idleMs = idleMs;
     this.isBusy = isBusy;
     this.suspend = suspend;
@@ -19,6 +19,8 @@ export class LocalVmIdleTimer {
 
   touch(): void {
     this.cancel();
+    // Zero means retain the desktop without an automatic idle shutdown.
+    if (this.idleMs === 0) return;
     this.timer = setTimeout(() => void this.expire(), this.idleMs);
     this.timer.unref?.();
   }

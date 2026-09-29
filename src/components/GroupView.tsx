@@ -18,12 +18,9 @@ import {
 } from "@/state/store";
 import { BotAvatar } from "./Avatar";
 import { ThreadChip } from "./ThreadChip";
-import { ToolActivity } from "./ToolActivity";
 import { ThreadRefText } from "./ThreadRefs";
 import { TurnPresence } from "./TurnPresence";
-import { showToolCallsEnabled } from "@/lib/feature-flags";
-import { CompactionChip, DigestChip } from "./DigestChip";
-import { roomActivityVisible } from "@/lib/room-activity";
+import { CompactionChip } from "./DigestChip";
 import { normalizeState } from "@/lib/mascot";
 import { effectiveDefaultResponder, groupResponseHint } from "@/lib/group-routing";
 import { ChatMarkdown } from "./ChatMarkdown";
@@ -43,8 +40,6 @@ import { GroupCallButton, GroupCallOverlay } from "./GroupCallView";
 import { ApprovalCard } from "./ApprovalCard";
 import { QuestionCard } from "./QuestionCard";
 import { ManageMembersPanel } from "./ManageMembersPanel";
-import { groupActivityRuns } from "@/lib/activity-runs";
-import { ActivityRun } from "./ActivityRun";
 import { useDesktopCapabilities, useCaptionChrome } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
 import { useFocusMessage } from "@/lib/focus-message";
@@ -52,7 +47,6 @@ import { shortPath } from "@/lib/short-path";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow, useBottomFollowResize } from "@/lib/bottom-follow";
 import { useComposerDockPad } from "@/lib/composer-dock";
 import { awaitedMemberId, showWorkingDots } from "@/lib/turn-tail";
-import { liveActivityLabel } from "@/lib/live-activity";
 import { splitTranscriptAttachments } from "@/lib/composer-attachments";
 import {
   TRANSCRIPT_WINDOW_SIZE,
@@ -109,7 +103,7 @@ export function RoomToolChip({ message, roomId }: { message: Message; roomId?: s
       </div>
     );
   }
-  if (!comm) return <ToolActivity tool={tool} />;
+  if (!comm) return tool.name.startsWith("error:") ? <div role="alert" className="text-[13px] text-danger">{tool.name.slice(6).trim()}</div> : null;
   return (
     <div className="flex justify-start">
       <div
@@ -185,47 +179,19 @@ const Transcript = memo(function Transcript({
   onReply: (message: Message) => void;
 }) {
   const { state, dispatch } = useStore();
-  const showToolCalls = showToolCallsEnabled(state.config);
   const memberOf = (id?: string) => members.find((b) => b.id === id);
-  // Several bots working at once turn a room into a wall of chips; fold the
-  // finished ones the same way a 1:1 chat does.
-  const items = useMemo(() => groupActivityRuns(messages.filter(message =>
-    message.kind !== "activity" || roomActivityVisible(message, showToolCalls))), [messages, showToolCalls]);
+  // Keep conversation links and turn errors; progress lives in the avatar.
+  const items = useMemo(() => messages.filter(message =>
+    message.kind !== "digest" && (message.kind !== "activity" || message.comm || message.threadRef || message.tool?.name.startsWith("error:"))), [messages]);
   const newestMessageId = messages.at(-1)?.id;
   const newestUserMessageId = [...messages].reverse().find((message) => message.role === "user")?.id;
-  const focus = state.focusMessage;
-  const focusedId = focus && !focus.consumed && focus.threadId === group.threadId ? focus.messageId : null;
   return (
     <>
       {items.map((item, i) => {
-        const previous = items[i - 1];
-        const prev = previous && (previous.kind === "run" ? previous.messages.at(-1) : previous.message);
-        const first = item.kind === "run" ? item.messages[0] : item.message;
+        const prev = items[i - 1];
+        const first = item;
         const newDay = !prev || new Date(prev.at).toDateString() !== new Date(first.at).toDateString();
-        if (item.kind === "run") {
-          if (!showToolCalls) return null;
-          const cluster = !prev || prev.role !== first.role || prev.from?.botId !== first.from?.botId || newDay;
-          return (
-            <div key={item.id} className="contents">
-              {newDay && (
-                <div className="py-3 text-center text-[13px] text-ink-secondary">
-                  {dayLabel(first.at)} {formatTime(first.at)}
-                </div>
-              )}
-              {first.from && cluster && (
-                <ClusterLabel bot={memberOf(first.from.botId)} name={first.from.name} color={first.from.color} />
-              )}
-              <ActivityRun messages={item.messages} forceOpen={item.messages.some((step) => step.id === focusedId)}>
-                {item.messages.map((step) => (
-                  <div key={step.id} className="contents" data-mid={step.id}>
-                    <RoomToolChip message={step} />
-                  </div>
-                ))}
-              </ActivityRun>
-            </div>
-          );
-        }
-        const m = item.message;
+        const m = item;
         const user = m.role === "user";
         const attachments = user && m.text ? splitTranscriptAttachments(m.text) : null;
         const newCluster = !prev || prev.role !== m.role || prev.from?.botId !== m.from?.botId || Boolean(prev.comm) || newDay;
@@ -274,13 +240,11 @@ const Transcript = memo(function Transcript({
               />
             </div>
           ) : m.kind === "activity" && m.tool ? (
-            roomActivityVisible(m, showToolCalls) ? (
-              <RoomToolChip message={m} roomId={group.id} />
-            ) : null
+            <RoomToolChip message={m} roomId={group.id} />
           ) : m.kind === "compaction" ? (
             <CompactionChip message={m} />
           ) : m.kind === "digest" ? (
-            showToolCalls ? <DigestChip message={m} /> : null
+            null
           ) : m.kind === "text" && (m.text || m.attachments?.length) ? (
             <div className={cn("group flex w-full flex-col", user ? "items-end" : "items-start")}>
               <div className={cn("flex w-full items-end gap-1.5", user ? "justify-end" : "justify-start")}>
@@ -939,7 +903,6 @@ export function GroupView({ group }: { group: Group }) {
   // Mascot stays while a member works; the finished reply pops in above it.
   const lastGroupMessage = group.messages.at(-1);
   const toolInFlight = lastGroupMessage?.kind === "activity" && lastGroupMessage.tool?.ok === undefined;
-  const activityLabel = liveActivityLabel(lastGroupMessage);
   // A member busy elsewhere takes its turn when free; until then the room
   // works with no speaker, and the presence row names who it is waiting on.
   const awaited = members.find(
@@ -1399,9 +1362,8 @@ export function GroupView({ group }: { group: Group }) {
                 />
               }
               visible={presenceVisible}
-              label={activityLabel}
+              label={t("chat.activity.working")}
               answering={popping !== null}
-              since={speaker ? group.turnStartedAt ?? null : null}
             />
           )}
         </div>

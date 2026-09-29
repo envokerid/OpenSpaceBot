@@ -16,8 +16,8 @@ export const useSettingsStyle = () => useContext(SettingsStyle);
 export function SettingsSurface({ children, modal = false }: React.PropsWithChildren<{ modal?: boolean }>) {
   const c = useTheme();
   const theme = c.dark
-    ? { ...c, bg: '#000000', sheet: '#171717', card: '#202020', chrome: '#292929', text: '#FFFFFF', muted: '#A7A7A7', line: '#303030', outline: '#5E5E5E', accent: '#FFFFFF', accentInk: '#000000' }
-    : { ...c, bg: '#F5F6F6', sheet: '#FFFFFF', card: '#F0F0F0', chrome: '#E6E6E6', text: '#0A0A0A', muted: '#747474', line: '#E8E8E8', outline: '#A2A2A2', accent: '#111111', accentInk: '#FFFFFF' };
+    ? { ...c, bg: c.bg, sheet: '#171717', card: '#202020', chrome: '#292929', text: '#FFFFFF', muted: '#A7A7A7', line: '#303030', outline: '#5E5E5E', accent: '#FFFFFF', accentInk: '#000000' }
+    : { ...c, bg: c.bg, sheet: '#FFFFFF', card: '#F0F0F0', chrome: '#E6E6E6', text: '#0A0A0A', muted: '#747474', line: '#E8E8E8', outline: '#A2A2A2', accent: '#111111', accentInk: '#FFFFFF' };
   return <SettingsStyle.Provider value><Theme.Provider value={theme}>{modal ? children : <View style={{ flex: 1, backgroundColor: theme.bg }}>{children}</View>}</Theme.Provider></SettingsStyle.Provider>;
 }
 export const useTheme = () => useContext(Theme);

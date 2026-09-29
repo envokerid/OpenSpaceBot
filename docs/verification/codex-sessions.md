@@ -9,6 +9,10 @@ startup still creates the conversation's runtime.
 Resetting context, changing the process configuration, an interrupt, a failed
 turn, account changes, deletion, and shutdown release the runtime. A tool whose
 credentials cannot be refreshed also requires a restart when they change.
+An MCP call that fails with `Transport closed` marks the waiting runtime for
+replacement before the next message, even if the model finishes its reply
+successfully. The replacement resumes the same native conversation. It does
+not replay the failed call or the previous user request.
 Team, browser, connector, and gated computer proxies snapshot the current turn's credential
 from a private file for each request. In-flight requests keep their original
 credential; completion removes the file and revokes that turn's authority.
@@ -25,7 +29,11 @@ mapped `doctor`, `new-bot`, `models`, `set-model`, `send`, `wait`, and `messages
 commands with the fixture's explicit URL. Two messages must settle and appear
 in the transcript. Both use the same process, with one `initialize` and two
 `turn/start` calls, and both exercise the real injected team-tools proxy after
-credential rotation. The fixture is then stopped and removed.
+credential rotation. A third reply reports a scripted computer transport
+closure; a fourth message must replace the process, resume the same native
+thread, and exercise the real team-tools bridge again. The failed request
+must not be replayed. The fixture is then stopped and removed. The computer
+error is synthetic; this check does not open or control a real desktop.
 
 The persistent server log has a sibling `.codex-session.json` evidence file
 containing the command sequence, wait results, bounded transcript and process
