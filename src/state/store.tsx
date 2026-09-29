@@ -13,7 +13,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { CloudBackend, EffortLevel, ServerFrame } from "../../shared/wire";
+import type { CloudBackend, EffortLevel, ServerFrame, WireMessage } from "../../shared/wire";
 import type { TurnDigest } from "../../shared/digest";
 import type { ModelVariantOption, RuntimeEvent } from "../../shared/runtime-events";
 import type { MausColor, MausMotion } from "@/lib/mascot";
@@ -134,6 +134,7 @@ export interface SecretRequestCardData {
 }
 
 export interface Message {
+  roomRequest?: WireMessage["roomRequest"];
   id: string;
   role: "bot" | "user";
   kind: "text" | "options" | "activity" | "screen" | "connector" | "secret" | "routine.run" | "goal.run" | "digest" | "compaction";
