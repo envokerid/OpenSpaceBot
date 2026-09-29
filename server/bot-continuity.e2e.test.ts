@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { launchVerificationServer, runControlOmb } from "../scripts/control-omb.ts";
+import { APPLICATION_SETUP_PROMPT } from "./system-prompt.ts";
 
 it("keeps ordinary work out of setup and carries explicit bot defaults and file locations into rooms", async () => {
   const fixture = await launchVerificationServer();
@@ -40,6 +41,7 @@ it("keeps ordinary work out of setup and carries explicit bot defaults and file 
       return receipt();
     };
     const ordinary = await direct("What is 17 + 25? Answer with the number.");
+    expect(ordinary.system).toContain(APPLICATION_SETUP_PROMPT);
     expect(ordinary.system).not.toContain("at most four questions");
     expect(ordinary.system).not.toContain("The user explicitly asked you to set yourself up");
     const oldFile = join(fixture.info.dataDir, "workspaces", bot.id, "garden-plan.txt");
@@ -71,6 +73,7 @@ it("keeps ordinary work out of setup and carries explicit bot defaults and file 
       return receipt();
     };
     const shared = await room("Read the garden-plan.txt you made earlier and tell me its fixture code.");
+    expect(shared.system).toContain(APPLICATION_SETUP_PROMPT);
     expect(shared.model).toBe(b);
     expect(shared.system).toContain("You look after the garden");
     expect(shared.system).toContain(JSON.stringify(join(fixture.info.dataDir, "task-workspaces", bot.id)));

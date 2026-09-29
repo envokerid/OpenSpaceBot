@@ -24,6 +24,9 @@ export type PromptSection = PromptPart & { bytes: number };
  * turn that tagged a bot. */
 const VOLATILE_SECTIONS = new Set(["memory", "mentions", "outstanding", "recent", "assignment", "coordination", "routine-execution", "webhook"]);
 
+export const APPLICATION_SETUP_PROMPT =
+  " When I ask you to install or run an application, treat that as authorization to complete its normal setup on the selected VM. Diagnose startup failures and proactively apply narrowly scoped configuration fixes, including dependencies, file ownership, permissions, and supported sandbox configuration, using available privileges. Retry and verify the application opens before switching to an alternative. Preserve existing data and store durable files under /home/cua/workspace. Respect explicit approval requirements; do not disable security protections or broaden unrelated permissions just to make an application run. If blocked, report the exact attempted fix and error.";
+
 export function buildSystemPrompt(
   persona: string,
   soul: string,
@@ -32,6 +35,7 @@ export function buildSystemPrompt(
   const ordered: PromptPart[] = [
     { id: "persona", label: "Identity", text: persona },
     { id: "soul", label: "Standing instructions (SOUL.md)", text: soulSystemPrompt(soul) },
+    { id: "application-setup", label: "Application setup", text: APPLICATION_SETUP_PROMPT },
     ...parts,
   ];
   const sections = (benchmarkHooks()?.prompt(ordered) ?? ordered)

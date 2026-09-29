@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { soulSystemPrompt } from "./bot-folder.ts";
 import { BUILT_IN_BROWSER_SYSTEM_PROMPT } from "./browser-engine.ts";
 import {
+  APPLICATION_SETUP_PROMPT,
   buildSystemPrompt,
   computerPrompt,
   mentionPrompt,
@@ -36,7 +37,7 @@ describe("buildSystemPrompt", () => {
 
     // memory and mentions differ between two turns of one live session, so a
     // driver holding a process open must not key that process on them
-    expect(built.stable).toBe("You are Kiwi. Search past sessions.");
+    expect(built.stable).toBe("You are Kiwi." + APPLICATION_SETUP_PROMPT + " Search past sessions.");
     expect(built.volatile).toContain("likes tea");
     expect(built.volatile).toContain("@Fig");
     expect(built.volatile).not.toContain("Search past sessions");
@@ -48,10 +49,13 @@ describe("buildSystemPrompt", () => {
     expect(built.stable).toBe(built.text);
   });
 
-  it("is the persona alone when there is no soul and no parts", () => {
+  it("keeps the shared application setup policy when there is no soul and no parts", () => {
     const built = buildSystemPrompt("You are Kiwi.", "", []);
-    expect(built.text).toBe("You are Kiwi.");
-    expect(built.sections).toEqual([{ id: "persona", label: "Identity", text: "You are Kiwi.", bytes: 13 }]);
+    expect(built.text).toBe("You are Kiwi." + APPLICATION_SETUP_PROMPT);
+    expect(built.sections).toEqual([
+      { id: "persona", label: "Identity", text: "You are Kiwi.", bytes: 13 },
+      { id: "application-setup", label: "Application setup", text: APPLICATION_SETUP_PROMPT, bytes: Buffer.byteLength(APPLICATION_SETUP_PROMPT, "utf8") },
+    ]);
   });
 
   it("concatenates parts in order and drops empty ones, so an empty soul changes nothing", () => {
@@ -61,19 +65,19 @@ describe("buildSystemPrompt", () => {
       { id: "memory", label: "Memory", text: " Your memory file is X." },
     ];
     const built = buildSystemPrompt("You are Kiwi.", "", parts);
-    expect(built.text).toBe("You are Kiwi. You can act on the computer. Your memory file is X.");
-    expect(built.sections.map((s) => s.id)).toEqual(["persona", "computer", "memory"]);
+    expect(built.text).toBe("You are Kiwi." + APPLICATION_SETUP_PROMPT + " You can act on the computer. Your memory file is X.");
+    expect(built.sections.map((s) => s.id)).toEqual(["persona", "application-setup", "computer", "memory"]);
   });
 
   it("puts the soul block directly after the persona and measures it in bytes", () => {
     const built = buildSystemPrompt("You are Kiwi.", "Be brief. é", [
       { id: "memory", label: "Memory", text: " Your memory file is X." },
     ]);
-    expect(built.sections.map((s) => s.id)).toEqual(["persona", "soul", "memory"]);
+    expect(built.sections.map((s) => s.id)).toEqual(["persona", "soul", "application-setup", "memory"]);
     const soul = built.sections[1]!;
     expect(soul.text).toBe(soulSystemPrompt("Be brief. é"));
     expect(soul.bytes).toBe(Buffer.byteLength(soul.text, "utf8"));
-    expect(built.text).toBe("You are Kiwi." + soul.text + " Your memory file is X.");
+    expect(built.text).toBe("You are Kiwi." + soul.text + APPLICATION_SETUP_PROMPT + " Your memory file is X.");
   });
 });
 
