@@ -149,43 +149,6 @@ export function Chat({ visible, session, state, destination, around, drafts, onD
   const renderMessage = useCallback(({ item }: { item: TranscriptMessage }) => <View style={{ gap: 6 }}>{entrances.current.timestamps.has(item.id) && <Label size={13} muted style={{ textAlign: 'center', marginTop: 6 }}>{new Date(item.at).toDateString() === new Date().toDateString() ? 'Today' : new Date(item.at).toLocaleDateString()} {new Date(item.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</Label>}<MessageBubble onEnter={() => entranceRows.claim(item.id)} name={owner?.name} speaker={state.bots.find(bot => bot.id === (peerLine(item)?.botId ?? (destination.kind === 'groups' ? item.from?.botId : undefined)))} message={item} client={session.client} destination={destination} onChanged={refresh} versions={item.role === 'user' && item.kind === 'text' ? (page?.messages ?? []).filter(m => m.role === 'user' && m.kind === 'text' && m.parentId === item.parentId).sort((a, b) => a.at - b.at || a.id.localeCompare(b.id)) : []} /></View>, [destination, entranceRows, messages, owner?.name, page?.messages, refresh, session.client, state.bots]);
   return <View style={{ flex: 1, backgroundColor: c.bg }}>
     {visible && membersOpen && group && <GroupMembers key={group.id} session={session} group={group} bots={state.bots} onClose={() => setMembersOpen(false)} />}
-    <View pointerEvents="box-none" onLayout={event => setHeaderHeight(event.nativeEvent.layout.height)} style={[styles.headerOverlay, { paddingTop: insets.top, paddingBottom: 24 }]}>
-      <Svg pointerEvents="none" width="100%" height={headerHeight} style={{ position: 'absolute', top: 0, left: 0 }}>
-        <Defs><LinearGradient id="headerFade" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor={c.bg} stopOpacity={0.75} /><Stop offset="0.35" stopColor={c.bg} stopOpacity={0.4} /><Stop offset="1" stopColor={c.bg} stopOpacity={0} /></LinearGradient></Defs>
-        <Rect width="100%" height="100%" fill="url(#headerFade)" />
-      </Svg>
-      <View pointerEvents="box-none" style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingTop: 4, gap: 8 }}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={onBack} style={{ flexDirection: 'row', alignItems: 'center', height: 48, paddingLeft: 14, paddingRight: 10, gap: 6, borderRadius: 24, backgroundColor: c.chrome, elevation: 3 }}>
-          <Icon name="back" size={20} color={c.text} />
-          {state.bots.flatMap(b => b.tasks ?? []).some(t => t.unread && t.threadId !== destination.threadId) && <Label size={13} bold style={{ minWidth: 22, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 20, backgroundColor: c.tint, textAlign: 'center' }}>{state.bots.flatMap(b => b.tasks ?? []).filter(t => t.unread && t.threadId !== destination.threadId).length}</Label>}
-        </Pressable>
-        <View style={{ flex: 1, minWidth: 0, alignItems: 'center' }}>
-          {destination.kind === 'bots' && owner && 'color' in owner ? (
-            <Pressable accessibilityRole="button" accessibilityLabel={`Open ${owner.name} settings`} onPress={onProfile} style={[styles.identityChip, { backgroundColor: c.chrome }]}>
-              <Avatar bot={{
-                ...owner, threadId: destination.threadId,
-                messages: transcript,
-                busy: task && 'busy' in task ? task.busy : owner.threadId === destination.threadId ? owner.busy : false,
-                activity: task && 'activity' in task ? task.activity : owner.threadId === destination.threadId ? owner.activity : 'idle',
-                waitingForTeammates: task && 'waitingForTeammates' in task ? task.waitingForTeammates : owner.threadId === destination.threadId ? owner.waitingForTeammates : false,
-                typing: working && !!state.streaming[destination.threadId],
-                reasoning: working && !!state.reasoning[destination.threadId],
-              }} client={session.client} size={36} animated={onScreen} />
-              <Label size={15} bold numberOfLines={1} style={{ flexShrink: 1 }}>{owner.name}</Label>
-            </Pressable>
-          ) : group ? (
-            <GroupChip name={group.name} bots={groupBots} client={session.client} label={`Show ${group.name} details`}
-              expanded={membersOpen} onPress={() => setMembersOpen(true)} style={{ alignSelf: 'center' }} />
-          ) : (
-            <View style={[styles.identityChip, { backgroundColor: c.chrome }]}>
-              <Avatar bot={{ name: owner?.name ?? 'Group', color: 'blue' }} client={session.client} size={36} animated={visible} />
-              <Label size={15} bold numberOfLines={1} style={{ flexShrink: 1 }}>{owner?.name ?? 'Group'}</Label>
-            </View>
-          )}
-        </View>
-        {destination.kind === 'bots' && <IconButton icon="computer" label={`Watch ${owner?.name}'s computer`} onPress={onComputer} />}
-      </View>
-    </View>
       <FlatList style={{ flex: 1 }} ref={list} data={messages} keyExtractor={m => m.id} keyboardShouldPersistTaps="handled" {...scrollProps}
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: headerHeight + 6, paddingBottom: footerHeight + 12, gap: 6, width: '100%', maxWidth: 820, alignSelf: 'center' }}
         scrollIndicatorInsets={{ top: headerHeight, bottom: footerHeight }}
@@ -236,6 +199,44 @@ export function Chat({ visible, session, state, destination, around, drafts, onD
             blurOnSubmit={Platform.OS === 'web'} onSubmitEditing={event => { typeText(event.nativeEvent.text); void send(); }}
             onChangeText={typeText} style={{ color: goalMode ? '#FFFFFF' : c.text, paddingVertical: goalMode ? 8 : 13, paddingLeft: 16, paddingRight: 0, minHeight: 48, maxHeight: 150, fontSize: 17, lineHeight: 22, includeFontPadding: false, textAlignVertical: 'top', letterSpacing: 0.5 }} /></View><View style={{ marginRight: 6 }}><Dictation color={goalMode ? '#FFFFFF' : undefined} surface={goalMode ? '#FFFFFF22' : undefined} text={draft.text} onText={text => update({ text, sendId: undefined })} disabled={action.busy || !!draft.sending} /></View><IconButton icon={goalMode ? 'goal' : 'send'} label={goalMode ? 'Start goal' : 'Send'} size={32} surface={goalMode ? '#FFFFFF22' : canSend ? c.mine : c.muted + '2E'} elevation={0} glyph={16} color={goalMode ? canSend ? '#FFFFFF' : '#FFFFFF66' : canSend ? c.mineText : c.muted} disabled={action.busy || draft.sending || !activeRoom || setupPending || !canSend || state.status === 'revoked'} onPress={() => void send()} /></View></Row>
         </View>
+      </View>
+    </View>
+    {/* Keep navigation last so native touch order matches its visual stacking. */}
+    <View pointerEvents="box-none" onLayout={event => setHeaderHeight(event.nativeEvent.layout.height)} style={[styles.headerOverlay, { paddingTop: insets.top, paddingBottom: 24 }]}>
+      <Svg pointerEvents="none" width="100%" height={headerHeight} style={{ position: 'absolute', top: 0, left: 0 }}>
+        <Defs><LinearGradient id="headerFade" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor={c.bg} stopOpacity={0.75} /><Stop offset="0.35" stopColor={c.bg} stopOpacity={0.4} /><Stop offset="1" stopColor={c.bg} stopOpacity={0} /></LinearGradient></Defs>
+        <Rect width="100%" height="100%" fill="url(#headerFade)" />
+      </Svg>
+      <View pointerEvents="box-none" style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingTop: 4, gap: 8 }}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={onBack} style={{ flexDirection: 'row', alignItems: 'center', minWidth: 48, height: 48, paddingLeft: 14, paddingRight: 10, gap: 6, borderRadius: 24, backgroundColor: c.chrome, elevation: 3 }}>
+          <Icon name="back" size={20} color={c.text} />
+          {state.bots.flatMap(b => b.tasks ?? []).some(t => t.unread && t.threadId !== destination.threadId) && <Label size={13} bold style={{ minWidth: 22, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 20, backgroundColor: c.tint, textAlign: 'center' }}>{state.bots.flatMap(b => b.tasks ?? []).filter(t => t.unread && t.threadId !== destination.threadId).length}</Label>}
+        </Pressable>
+        <View style={{ flex: 1, minWidth: 0, alignItems: 'center' }}>
+          {destination.kind === 'bots' && owner && 'color' in owner ? (
+            <Pressable accessibilityRole="button" accessibilityLabel={`Open ${owner.name} settings`} onPress={onProfile} style={[styles.identityChip, { backgroundColor: c.chrome }]}>
+              <Avatar bot={{
+                ...owner, threadId: destination.threadId,
+                messages: transcript,
+                busy: task && 'busy' in task ? task.busy : owner.threadId === destination.threadId ? owner.busy : false,
+                activity: task && 'activity' in task ? task.activity : owner.threadId === destination.threadId ? owner.activity : 'idle',
+                waitingForTeammates: task && 'waitingForTeammates' in task ? task.waitingForTeammates : owner.threadId === destination.threadId ? owner.waitingForTeammates : false,
+                typing: working && !!state.streaming[destination.threadId],
+                reasoning: working && !!state.reasoning[destination.threadId],
+              }} client={session.client} size={36} animated={onScreen} />
+              <Label size={15} bold numberOfLines={1} style={{ flexShrink: 1 }}>{owner.name}</Label>
+            </Pressable>
+          ) : group ? (
+            <GroupChip name={group.name} bots={groupBots} client={session.client} label={`Show ${group.name} details`}
+              expanded={membersOpen} onPress={() => setMembersOpen(true)} style={{ alignSelf: 'center' }} />
+          ) : (
+            <View style={[styles.identityChip, { backgroundColor: c.chrome }]}>
+              <Avatar bot={{ name: owner?.name ?? 'Group', color: 'blue' }} client={session.client} size={36} animated={visible} />
+              <Label size={15} bold numberOfLines={1} style={{ flexShrink: 1 }}>{owner?.name ?? 'Group'}</Label>
+            </View>
+          )}
+        </View>
+        {(destination.kind === 'bots' || !!group?.memberIds.length) && <IconButton icon="computer" label={`Watch ${owner?.name}'s computer`} onPress={onComputer} />}
       </View>
     </View>
   </View>;

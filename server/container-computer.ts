@@ -45,6 +45,9 @@ export const MANAGED_LABEL = "com.openmausbot.local-vm";
 export const DRIVER_LABEL = "com.openmausbot.cua-driver";
 export const BASE_IMAGE_LABEL = "com.openmausbot.cua-base";
 export const WORKSPACE_LABEL = "com.openmausbot.workspace";
+export const SNAPSHOT_BASE_LABEL = "com.openmausbot.snapshot-base";
+// apt/dpkg manage ownership, modes and protected files; sudo emits audit events.
+export const VM_INSTALL_CAPABILITIES = ["CHOWN", "DAC_OVERRIDE", "FOWNER", "AUDIT_WRITE"] as const;
 export const TARGET_LABEL = "com.openmausbot.local-vm-target";
 export const VM_WORKSPACE_DIR = join(DATA_DIR, "vm-home");
 export const VM_WORKSPACE_GUEST = "/home/cua/workspace";
@@ -94,6 +97,13 @@ export function perBotLocalVmTarget(botId: string): LocalVmTarget {
     viewerPort: null,
     label: digest,
   };
+}
+
+/** Registry instances have an identity independent of any bot or group. */
+export function instanceLocalVmTarget(vmId: string): LocalVmTarget {
+  const digest = createHash("sha256").update(`instance:${vmId}`).digest("hex");
+  return { key: `vm:${vmId}`, containerName: `${CONTAINER}-vm-${digest.slice(0, 16)}`,
+    workspaceDir: join(DATA_DIR, "vm-homes", `vm-${digest.slice(0, 16)}`), viewerPort: null, label: digest };
 }
 
 const LINUX_WHEELS = {
@@ -449,6 +459,25 @@ function viewerPassword(env: string[] | Record<string, string> | undefined): str
   return env?.VNC_PW || null;
 }
 
+/** A retained snapshot must extend the exact prepared image's layers. A label
+ * alone must never turn an unrelated image into a compatible desktop. */
+export async function retainedSnapshotMatches(
+  runner: CommandRunner, runtime: Runtime, imageId: string | undefined,
+  labels: Record<string, string> | undefined, baseId: string | null,
+): Promise<boolean> {
+  if (!baseId || !imageId || labels?.[SNAPSHOT_BASE_LABEL] !== baseId || !imageLabelsMatch(labels)) return false;
+  try {
+    const base = JSON.parse((await runner(runtime, ["image", "inspect", baseId])).stdout)[0];
+    const snapshot = JSON.parse((await runner(runtime, ["image", "inspect", imageId])).stdout)[0];
+    const layers: unknown = base?.RootFS?.Layers;
+    const retained: unknown = snapshot?.RootFS?.Layers;
+    return normalizeImageId(base?.Id) === baseId && normalizeImageId(snapshot?.Id) === normalizeImageId(imageId) &&
+      imageLabelsMatch(snapshot?.Config?.Labels) &&
+      Array.isArray(layers) && layers.length > 0 && Array.isArray(retained) && retained.length >= layers.length &&
+      layers.every((layer, index) => typeof layer === "string" && layer === retained[index]);
+  } catch { return false; }
+}
+
 function viewerUrl(password: string | null, port: number | null): string {
   if (!port) return "";
   const base = `http://127.0.0.1:${port}/vnc.html`;
@@ -571,10 +600,11 @@ export async function containerComputerStatus(
       status.network = dockerPortsAreLocal(detail?.HostConfig?.PortBindings) ? "loopback" : "unsafe";
       status.viewer_port = dockerViewerPort(detail?.NetworkSettings?.Ports, target.viewerPort);
       status.imageMatches =
-        detail?.Config?.Image === IMAGE &&
+        (detail?.Config?.Image === IMAGE &&
         imageLabelsMatch(detail?.Config?.Labels) &&
         status.image_id !== null &&
-        normalizeImageId(detail?.Image) === status.image_id;
+        normalizeImageId(detail?.Image) === status.image_id) ||
+        await retainedSnapshotMatches(runner, status.runtime, detail?.Image, detail?.Config?.Labels, status.image_id);
       status.managed = containerOwnershipLabelsMatch(detail?.Config?.Labels, target);
       status.persistence = dockerWorkspaceMountIsSafe(
         detail?.Mounts,
@@ -585,7 +615,7 @@ export async function containerComputerStatus(
       status.security = (
         status.runtime === "podman"
           ? podmanSecurityIsHardened(detail?.HostConfig, detail?.EffectiveCaps, detail?.BoundingCaps)
-          : dockerSecurityIsHardened(detail?.HostConfig, { restartPolicy: "retained" })
+          : dockerSecurityIsHardened(detail?.HostConfig, { restartPolicy: "retained", localVmInstalls: true })
       ) ? "hardened" : "unsafe";
       status.viewer_url = viewerUrl(viewerPassword(detail?.Config?.Env), status.viewer_port);
     }
@@ -784,19 +814,24 @@ export interface DockerHardeningConfig {
 
 /** One hardening contract for both managed containers (Local VM here, the
  * BYO-VPS backend in vps-computer.ts): exact resource limits, no privilege,
- * no host namespaces or devices, no disabled security profiles. The only
- * runtime-specific capability exception is Podman's Firefox sandbox chroot.
+ * no host namespaces or devices, no disabled security profiles.
+ * Local installer capabilities are opt-in; VPS keeps its existing contract.
+ * Podman additionally needs chroot for its Firefox sandbox.
  * VPS containers require automatic restart. Retained Local VMs accept that
  * policy and the legacy manual-start policy without requiring replacement. */
 export function dockerSecurityIsHardened(
   config: DockerHardeningConfig | undefined,
-  options: { restartPolicy?: "no" | "unless-stopped" | "retained"; podmanBrowserSandbox?: boolean } = {},
+  options: { restartPolicy?: "no" | "unless-stopped" | "retained"; podmanBrowserSandbox?: boolean; localVmInstalls?: boolean } = {},
 ): boolean {
   if (!config) return false;
   const capDrop = (config.CapDrop ?? []).map((cap) => cap.toLowerCase());
   const capAdd = (config.CapAdd ?? [])
     .map((cap) => cap.toLowerCase().replace(/^cap_/, ""))
     .sort();
+  const legacyCaps = options.podmanBrowserSandbox ? "setgid,setuid,sys_chroot" : "setgid,setuid";
+  const installCaps = [...legacyCaps.split(","), ...VM_INSTALL_CAPABILITIES.map(cap => cap.toLowerCase())].sort().join(",");
+  const filesystemCaps = installCaps.split(",").filter(cap => cap !== "audit_write").join(",");
+  const capsOk = capAdd.join(",") === legacyCaps || (options.localVmInstalls === true && [installCaps, filesystemCaps].includes(capAdd.join(",")));
   const unsafeSecurityOption = (config.SecurityOpt ?? []).some((option) => /(?:^|=)(?:unconfined|disable)$/i.test(option));
   const restartPolicy = config.RestartPolicy?.Name;
   const restartPolicyOk =
@@ -810,7 +845,7 @@ export function dockerSecurityIsHardened(
     (config.NanoCpus ?? 0) === NANO_CPUS &&
     config.PidsLimit === PIDS_LIMIT &&
     capDrop.includes("all") &&
-    capAdd.join(",") === (options.podmanBrowserSandbox ? "setgid,setuid,sys_chroot" : "setgid,setuid") &&
+    capsOk &&
     config.Privileged === false &&
     !config.PidMode &&
     config.IpcMode === "private" &&
@@ -841,8 +876,11 @@ export function podmanSecurityIsHardened(
     .map((cap) => cap.toLowerCase().replace(/^cap_/, ""))
     .sort();
   const exactCaps = "setgid,setuid,sys_chroot";
-  if (normalizeCaps(effectiveCaps).join(",") !== exactCaps) return false;
-  if (normalizeCaps(boundingCaps).join(",") !== exactCaps) return false;
+  const actualCaps = normalizeCaps(effectiveCaps).join(",");
+  const installCaps = [...exactCaps.split(","), ...VM_INSTALL_CAPABILITIES.map(cap => cap.toLowerCase())].sort().join(",");
+  const filesystemCaps = installCaps.split(",").filter(cap => cap !== "audit_write").join(",");
+  if (![exactCaps, installCaps, filesystemCaps].includes(actualCaps)) return false;
+  if (normalizeCaps(boundingCaps).join(",") !== actualCaps) return false;
   return dockerSecurityIsHardened({
     ...config,
     CapDrop: ["all"],
@@ -854,7 +892,7 @@ export function podmanSecurityIsHardened(
     UsernsMode: config.UsernsMode === "private" || config.UsernsMode === "keep-id:uid=1000,gid=1000"
       ? "" : config.UsernsMode,
     CgroupnsMode: config.CgroupnsMode || "private",
-  }, { podmanBrowserSandbox: true });
+  }, { podmanBrowserSandbox: true, localVmInstalls: true });
 }
 
 export function containerRunArgs(
@@ -934,6 +972,7 @@ export function containerRunArgs(
       "512m",
     );
   }
+  for (const cap of VM_INSTALL_CAPABILITIES) common.push("--cap-add", cap);
   // Podman's default seccomp profile gates chroot on this capability.
   // Firefox uses chroot inside its own namespace to establish its sandbox.
   if (runtime === "podman") common.push("--cap-add", "SYS_CHROOT");
@@ -956,6 +995,46 @@ export function containerRunArgs(
 async function ensureVmWorkspace(platform: NodeJS.Platform, target: LocalVmTarget): Promise<void> {
   await mkdir(target.workspaceDir, { recursive: true, mode: 0o700 });
   if (platform !== "win32") await chmod(target.workspaceDir, 0o700);
+}
+
+/** Explicit maintenance only: callers must stop bot work and the VM first.
+ * Keep the old container and a full snapshot; never rebuild from a clean image.
+ * Bind-mounted workspace data remains at its original path. */
+export async function recreateDockerVmPreservingDisk(
+  target: LocalVmTarget, runner: CommandRunner = sh,
+): Promise<{ backupContainer: string; snapshotImage: string }> {
+  const before = await containerComputerStatus(runner, process.platform, target, { probeDesktop: false });
+  if (before.runtime !== "docker" || !localVmStartable(before)) {
+    throw new Error("Disk-preserving recreation requires a stopped, compatible, managed Docker VM");
+  }
+  const detail = JSON.parse((await runner("docker", ["inspect", target.containerName])).stdout)[0];
+  const password = viewerPassword(detail?.Config?.Env);
+  if (!password || !before.image_id) throw new Error("Cannot preserve the existing VM identity");
+  const suffix = randomBytes(8).toString("hex");
+  const backupContainer = `${target.containerName}-recovery-${suffix}`;
+  const snapshotImage = `${IMAGE_REPOSITORY}:retained-${suffix}`;
+  await runner("docker", ["commit", "--change", `LABEL ${SNAPSHOT_BASE_LABEL}=${before.image_id}`,
+    target.containerName, snapshotImage], 120_000);
+  let renamed = false;
+  let replacementId: string | undefined;
+  try {
+    await runner("docker", ["rename", target.containerName, backupContainer]);
+    renamed = true;
+    const args = containerRunArgs("docker", password, { ...target, viewerPort: before.viewer_port ?? target.viewerPort });
+    args.splice(0, 2, "create"); // create first so rollback always knows its exact ID
+    args[args.length - 1] = snapshotImage;
+    args.splice(args.length - 1, 0, "--label", `${SNAPSHOT_BASE_LABEL}=${before.image_id}`);
+    replacementId = (await runner("docker", args, 120_000)).stdout.trim();
+    if (!/^[a-f0-9]{64}$/.test(replacementId)) throw new Error("Docker did not return the replacement container ID");
+    await runner("docker", ["start", replacementId]);
+    const after = await containerComputerStatus(runner, process.platform, target, { probeDesktop: false });
+    if (!localVmMountable(after)) throw new Error(after.problem ?? "Repaired VM failed its isolation check");
+    return { backupContainer, snapshotImage };
+  } catch (error) {
+    if (replacementId && /^[a-f0-9]{64}$/.test(replacementId)) await runner("docker", ["rm", "-f", replacementId]);
+    if (renamed) await runner("docker", ["rename", backupContainer, target.containerName]);
+    throw error;
+  }
 }
 
 async function prepareManagedImage(runtime: Runtime, runner: CommandRunner): Promise<void> {

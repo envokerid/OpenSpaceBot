@@ -64,6 +64,8 @@ function Workspace({ visible, session, onSettings, prefs, onPreferences, request
   const insets = useScreenInsets();
   const edgeToEdge = ['roster', 'chat', 'threads', 'profile'].includes(screen);
   const owner = destination?.kind === 'bots' ? state.bots.find(b => b.id === destination.id) : undefined;
+  const computerGroup = destination?.kind === 'groups' ? state.groups.find(group => group.id === destination.id) : undefined;
+  const computerBotId = computerGroup ? computerGroup.busyBotId ?? computerGroup.memberIds[0] : destination?.id;
   return <SafeAreaView edges={edgeToEdge ? [] : insets.bottom ? ['top', 'bottom'] : ['top']} style={{ flex: 1, backgroundColor: c.bg }}>
 
     {!!shared.length && <View style={{ padding: 12, gap: 8 }}><Label bold>{shared.length} shared item{shared.length === 1 ? '' : 's'}</Label><Label muted>{destination && screen === 'chat' ? `Add to this conversation on ${session.client.connection.name}, then review and tap Send.` : 'Choose the conversation you want to share with.'}</Label><Row>
@@ -81,7 +83,7 @@ function Workspace({ visible, session, onSettings, prefs, onPreferences, request
     {(['chat', 'threads', 'profile'].includes(screen)) && destination && <Chat visible={visible && screen === 'chat'} onSelect={open} prefs={prefs} key={destinationKey(destination)} session={session} state={state} destination={destination} around={around} drafts={drafts} onDraft={(key, draft) => setDrafts(d => ({ ...d, [key]: draft }))} onBack={() => setScreen('roster')} onThreads={() => setScreen('threads')} onProfile={() => setScreen('profile')} onComputer={() => setScreen('computer')} />}
     {screen === 'threads' && destination && <Threads session={session} state={state} destination={destination} onSelect={open} onBack={() => setScreen('chat')} />}
     {screen === 'profile' && destination && owner && <Profile session={session} bot={owner} destination={destination} onBack={() => setScreen('chat')} />}
-    {screen === 'computer' && destination && <Computer key={destinationKey(destination)} visible={visible} session={session} state={state} botId={destination.id} threadId={destination.threadId} onBack={() => setScreen('chat')} />}
+    {screen === 'computer' && destination && computerBotId && <Computer key={`${destinationKey(destination)}:${computerBotId}`} visible={visible} session={session} state={state} botId={computerBotId} threadId={destination.threadId} onBack={() => setScreen('chat')} />}
   </SafeAreaView>;
 }
 

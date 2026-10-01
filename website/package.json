@@ -1,0 +1,35 @@
+{
+  "name": "@openmausbot/website",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "build:worker": "opennextjs-cloudflare build",
+    "preview": "pnpm build:worker && opennextjs-cloudflare preview",
+    "deploy": "pnpm build:worker && opennextjs-cloudflare deploy",
+    "upload": "pnpm build:worker && opennextjs-cloudflare upload",
+    "dry-run": "pnpm build:worker && wrangler deploy --dry-run",
+    "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
+    "typecheck": "pnpm cf-typegen && next typegen && tsc --noEmit",
+    "lint": "oxlint --deny-warnings ."
+  },
+  "dependencies": {
+    "@opennextjs/cloudflare": "1.20.7",
+    "next": "16.3.6",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260929.1",
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "oxlint": "1.80.0",
+    "typescript": "^6.0.3",
+    "wrangler": "4.143.0"
+  }
+}

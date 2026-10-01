@@ -259,7 +259,7 @@ beforeAll(async () => {
       });
       return;
     }
-    if (req.url === "/api/internal/computer/select") {
+    if (req.url === "/api/internal/computer/select" || req.url === "/api/internal/mcp/servers") {
       let data = "";
       req.on("data", (chunk) => (data += chunk));
       req.on("end", () => {
@@ -587,6 +587,8 @@ describe("agents-proxy MCP surface", () => {
       "delegate_bot",
       "check_delegation",
       "wait_delegation",
+      "list_mcp_servers",
+      "register_mcp_server",
       "select_computer",
       "list_threads",
       "close_thread",
@@ -623,6 +625,22 @@ describe("agents-proxy MCP surface", () => {
     expect(wait.description).toContain("Never call it in the same turn as delegate_bot");
     expect(credential.description).toContain("freshly QR-paired mobile app show a secure entry card");
     expect(credential.description).toContain("Never claim a secure field opened unless this request succeeds");
+  });
+
+  it("lists and registers MCP servers through the authenticated harness", async () => {
+    computerResponse = { servers: [] };
+    expect((await callTool("list_mcp_servers", {})).result.isError).toBeFalsy();
+    const args = { name: "editor", command: "python3", args: ["/home/cua/workspace/editor.py"], vmId: "personal" };
+    computerResponse = { ok: true, name: "editor", activation: "resume_after_turn" };
+    const result = await callTool("register_mcp_server", args);
+    expect(JSON.parse(result.result.content[0].text)).toEqual(computerResponse);
+    expect(lastAuth).toBe(`Bearer ${TOKEN}`);
+    expect(computerRequests).toEqual([
+      { method: "GET", url: "/api/internal/mcp/servers", body: null },
+      { method: "POST", url: "/api/internal/mcp/servers", body: args },
+    ]);
+    computerStatus = 403; computerResponse = { error: "Registration denied" };
+    expect((await callTool("register_mcp_server", args)).result.isError).toBe(true);
   });
 
   it("select_computer inspects actual choices with a GET when no target is given", async () => {
@@ -670,12 +688,22 @@ describe("agents-proxy MCP surface", () => {
     expect(computerRequests).toHaveLength(1);
   });
 
+  it("select_computer sends a named VM and rejects conflicting destinations", async () => {
+    const selected = await callTool("select_computer", { vmId: "vm-research" });
+    expect(selected.result.isError).toBeFalsy();
+    expect(computerRequests).toEqual([{ method: "POST", url: "/api/internal/computer/select", body: { surface: "vm", vmId: "vm-research" } }]);
+    for (const args of [{ vmId: "" }, { vmId: "../private" }, { vmId: "vm-research", surface: "cloud" }]) {
+      expect((await callTool("select_computer", args)).result.isError).toBe(true);
+    }
+    expect(computerRequests).toHaveLength(1);
+  });
+
   it("advertises read annotations only for the reviewed built-in reads", async () => {
     const list = await rpc("tools/list");
     const readNames = [
       "tool_result_read",
       "list_shared_computers",
-      "list_bots", "list_rooms", "check_delegation", "wait_delegation", "list_threads",
+      "list_bots", "list_rooms", "check_delegation", "wait_delegation", "list_mcp_servers", "list_threads",
       "list_team_setup",
       "session_search", "session_read", "list_routines", "skills_list",
     ];

@@ -22,6 +22,13 @@ describe("mcpServersForBot", () => {
     expect(mcpServersForBot(all, null).map((s) => s.name)).toEqual(["notes", "linear"]);
   });
 
+  it("keeps bot registrations scoped even when another bot selects their name", () => {
+    const servers = [...all, { name: "editor", enabled: true, ownerBotId: "wren" }];
+    expect(mcpServersForBot(servers, ["editor"], "wren").map(s => s.name)).toEqual(["editor"]);
+    expect(mcpServersForBot(servers, ["editor"], "other")).toEqual([]);
+    expect(mcpServersForBot(servers, undefined).map(s => s.name)).toEqual(["notes", "linear"]);
+  });
+
   it("narrows to the bot's own names and never revives a disabled server", () => {
     expect(mcpServersForBot(all, ["linear", "off", "gone"]).map((s) => s.name)).toEqual(["linear"]);
     expect(mcpServersForBot(all, [])).toEqual([]);

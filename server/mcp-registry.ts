@@ -5,23 +5,24 @@ import type { McpServerSpec, RemoteMcpSpec, StdioMcpSpec } from "./contracts.ts"
 /** One server as kept in config.json `mcpServers`. The shape is the block
  * Claude Code, Cursor and Claude Desktop write, so a pasted entry is a
  * stored entry: a command this machine runs, or a URL to connect to. */
-export interface StoredStdioMcpServer extends StdioMcpSpec {
+export interface McpRegistrationScope { ownerBotId?: string; vmId?: string }
+export interface StoredStdioMcpServer extends StdioMcpSpec, McpRegistrationScope {
   enabled: boolean;
 }
-export interface StoredRemoteMcpServer extends RemoteMcpSpec {
+export interface StoredRemoteMcpServer extends RemoteMcpSpec, McpRegistrationScope {
   enabled: boolean;
 }
 export type StoredMcpServer = StoredStdioMcpServer | StoredRemoteMcpServer;
 
 /** What the renderer sees: names of secrets, never their values. */
-export interface StdioMcpServerListing {
+export interface StdioMcpServerListing extends McpRegistrationScope {
   name: string;
   command: string;
   args: string[];
   envKeys: string[];
   enabled: boolean;
 }
-export interface RemoteMcpServerListing {
+export interface RemoteMcpServerListing extends McpRegistrationScope {
   name: string;
   type: "http" | "sse";
   url: string;
@@ -217,7 +218,14 @@ function enabledFor(value: boolean | undefined, mutation: boolean, existing?: St
 export function parseStoredMcpServer(name: string, raw: unknown): Parsed {
   const nameError = mcpServerNameError(name);
   if (nameError) return { ok: false, error: nameError };
-  return looksRemote(raw) ? parseRemote(raw, false) : parseStdio(raw, false);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ok: false, error: "Invalid MCP server." };
+  const { ownerBotId, vmId, ...spec } = raw as Record<string, unknown>;
+  const scope = z.object({ ownerBotId: z.string().regex(/^[\w-]{1,160}$/).optional(), vmId: z.string().regex(/^[\w-]{1,160}$/).optional() }).safeParse({ ownerBotId, vmId });
+  if (!scope.success || (vmId !== undefined && (!ownerBotId || looksRemote(spec)))) return { ok: false, error: "Invalid MCP registration scope." };
+  const parsed = looksRemote(spec) ? parseRemote(spec, false) : parseStdio(spec, false);
+  return parsed.ok ? { ok: true, server: { ...parsed.server,
+    ...(scope.data.ownerBotId ? { ownerBotId: scope.data.ownerBotId } : {}),
+    ...(scope.data.vmId ? { vmId: scope.data.vmId } : {}) } } : parsed;
 }
 
 /** Parse a renderer mutation. `true` is a write-only placeholder meaning
@@ -229,7 +237,10 @@ export function parseMcpServerMutation(
 ): Parsed {
   const nameError = mcpServerNameError(name);
   if (nameError) return { ok: false, error: nameError };
-  return looksRemote(raw) ? parseRemote(raw, true, existing) : parseStdio(raw, true, existing);
+  const parsed = looksRemote(raw) ? parseRemote(raw, true, existing) : parseStdio(raw, true, existing);
+  if (parsed.ok && existing?.vmId && isRemoteMcpServer(parsed.server)) return { ok: false, error: "A VM server must use a command inside its VM." };
+  return parsed.ok && existing ? { ok: true, server: { ...parsed.server,
+    ...(existing.ownerBotId ? { ownerBotId: existing.ownerBotId } : {}), ...(existing.vmId ? { vmId: existing.vmId } : {}) } } : parsed;
 }
 
 export function listMcpServers(raw: Record<string, unknown> | undefined): McpServerListing[] {
@@ -237,9 +248,10 @@ export function listMcpServers(raw: Record<string, unknown> | undefined): McpSer
     const parsed = parseStoredMcpServer(name, value);
     if (!parsed.ok) return [];
     const { server } = parsed;
+    const scope = { ...(server.ownerBotId ? { ownerBotId: server.ownerBotId } : {}), ...(server.vmId ? { vmId: server.vmId } : {}) };
     if (isRemoteMcpServer(server)) {
       return [{
-        name,
+        name, ...scope,
         type: server.type,
         url: server.url,
         headerKeys: Object.keys(server.headers).sort(),
@@ -247,7 +259,7 @@ export function listMcpServers(raw: Record<string, unknown> | undefined): McpSer
       }];
     }
     return [{
-      name,
+      name, ...scope,
       command: server.command,
       args: server.args,
       envKeys: Object.keys(server.env).sort(),

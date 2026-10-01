@@ -47,5 +47,6 @@ const paths = {
 } as const;
 export type IconName = keyof typeof paths;
 export function Icon({ name, size = 24, color = '#1D1B20' }: { name: IconName; size?: number; color?: string }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" accessible={false}><Path fillRule="evenodd" d={paths[name]} fill={color} /></Svg>;
+  // Icons are decorative; the surrounding button owns the touch target.
+  return <Svg pointerEvents="none" width={size} height={size} viewBox="0 0 24 24" accessible={false}><Path fillRule="evenodd" d={paths[name]} fill={color} /></Svg>;
 }

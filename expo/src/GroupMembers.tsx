@@ -3,6 +3,7 @@ import { Pressable, ScrollView, View } from 'react-native';
 import type { Session } from './core/session';
 import { canAdminister, type Bot, type Group } from './core/types';
 import { Avatar } from './Avatar';
+import { VmAssignment } from './settings/VmLibrary';
 import { GroupInstructions } from './GroupInstructions';
 import { Icon } from './Icon';
 import { Button, ErrorNotice, FormSection, Label, SettingsSurface, Sheet, useAction, useTheme } from './ui';
@@ -34,6 +35,7 @@ function GroupMembersContent({ session, group, bots, onClose }: {
 
   return <Sheet slide swipeToDismiss={!action.busy} closing={closing} onDismiss={onClose} title={group.name} closeLabel="Back" headerPaddingHorizontal={16} onClose={close} action={allowed ? <Button title={action.busy ? 'Saving…' : 'Save'} text disabled={!picked.length || action.busy || closing} onPress={() => void save()} /> : <Button title="Done" text onPress={close} />}>
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingTop: 8, paddingBottom: 24, gap: 16 }}>
+      {allowed && <VmAssignment client={session.client} subject={{ kind: "group", id: group.id }} />}
       <GroupInstructions value={allowed ? bulletin : group.bulletin} onChange={allowed ? setBulletin : undefined} disabled={action.busy || closing} />
       <FormSection title="Bots in this group" footer={allowed ? 'Choose the bots in this group. Existing messages stay in the conversation.' : undefined}>
         {candidates.map(bot => <Pressable key={bot.id} accessibilityRole={allowed ? 'checkbox' : undefined} accessibilityLabel={bot.name}

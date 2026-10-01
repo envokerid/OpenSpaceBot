@@ -1,3 +1,5 @@
+import { COMPUTER_CONTROL_REQUEST_TIMEOUT_MS } from "../shared/computer-control-timing.ts";
+
 // The proxy-side half of computer control. The harness keeps the record of
 // who is driving (server/computer-control.ts); the per-turn computer
 // processes consult it through this client before acting, because the
@@ -14,11 +16,11 @@
 // doesn't turn into two dozen loopback round trips.
 
 export interface ControlState {
-  /** The person is driving; actions must be refused, not queued. */
+  /** Actions are blocked by a holder, setup, or an unavailable connection. */
   held: boolean;
   /** A help request the person has neither answered nor dismissed. */
   helpOpen: boolean;
-  /** A different thread owns the same physical computer, not a human hold. */
+  /** Why actions are blocked when this is not a confirmed human hold. */
   blockedReason?: string;
 }
 
@@ -36,7 +38,8 @@ export interface ControlClient {
 }
 
 const DISENGAGED: ControlState = { held: false, helpOpen: false };
-const UNAVAILABLE: ControlState = { held: true, helpOpen: false };
+export const CONTROL_UNAVAILABLE_REFUSAL = "The computer control connection could not be verified. This call was NOT performed. Pause computer work and reconnect the computer tools before continuing.";
+const UNAVAILABLE: ControlState = { held: true, helpOpen: false, blockedReason: CONTROL_UNAVAILABLE_REFUSAL };
 
 export function createControlClient(options?: {
   url?: string;
@@ -56,7 +59,7 @@ export function createControlClient(options?: {
 
   async function read(): Promise<ControlState> {
     try {
-      const res = await fetchImpl(url, { headers, signal: AbortSignal.timeout(2_000) });
+      const res = await fetchImpl(url, { headers, signal: AbortSignal.timeout(COMPUTER_CONTROL_REQUEST_TIMEOUT_MS) });
       if (!res.ok) return UNAVAILABLE;
       const body: any = await res.json().catch(() => null);
       if (typeof body?.held !== "boolean" || typeof body?.helpOpen !== "boolean") return UNAVAILABLE;

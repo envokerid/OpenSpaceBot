@@ -28,6 +28,7 @@
 //                              timeout tests that advance the clock
 //   FAKE_CODEX_DUMP   path to write {pid, argv, env, calls, decision} as JSON
 //   FAKE_CODEX_MCP_ITEM_FILE  optional completed MCP item emitted before a reply
+//   FAKE_CODEX_MCP_STARTUP_FILE  thread-scoped startup notifications (before-thread, turn, or idle)
 //   FAKE_CODEX_ACCOUNT_EMAIL  synthetic ChatGPT identity (default ada@example.test)
 //   FAKE_CODEX_ACCOUNT_MODE   chatgpt (default) | api-key | none | unsupported | error | hang
 //   FAKE_CODEX_RESUME_ERROR   JSON-RPC error object to reject thread/resume
@@ -127,6 +128,8 @@ const notify = (method: string, params: any) => out({
 // chunk. Force that ordering for the baseline fixture instead of relying on
 // the OS to coalesce two writes under load.
 const threadReply = (response: unknown) => {
+  const id = (response as { result?: { thread?: { id?: string } } }).result?.thread?.id;
+  if (id) emitMcpStartup("before-thread", id);
   if (!process.env.FAKE_CODEX_RESTORED_USAGE && turnNumber === 0) return out(response);
   const restored = {
     jsonrpc: "2.0", method: "thread/tokenUsage/updated",
@@ -214,6 +217,7 @@ const finishTurn = () => {
   dump();
   if (mode === "late-request") process.stdout.cork();
   notify("turn/completed", { turn: { status: "completed" } });
+  emitMcpStartup("idle");
   if (mode === "late-request") {
     out({ jsonrpc: "2.0", id: 100, method: "execCommandApproval", params: { command: "echo too late" } });
     process.stdout.uncork();
@@ -221,8 +225,17 @@ const finishTurn = () => {
 };
 
 const emitMcpFixtureItem = () => {
+  emitMcpStartup("turn");
   const path = process.env.FAKE_CODEX_MCP_ITEM_FILE;
   if (path && existsSync(path)) notify("item/completed", { item: JSON.parse(readFileSync(path, "utf8")) });
+};
+
+const emitMcpStartup = (phase: string, threadId = nativeThreadId) => {
+  const path = process.env.FAKE_CODEX_MCP_STARTUP_FILE;
+  if (!path || !existsSync(path)) return;
+  for (const { phase: when = "turn", ...params } of JSON.parse(readFileSync(path, "utf8"))) {
+    if (when === phase) out({ jsonrpc: "2.0", method: "mcpServer/startupStatus/updated", params: { threadId, ...params } });
+  }
 };
 
 const playRoomPlanTurn = (msg: any, planPath: string) => {

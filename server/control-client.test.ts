@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createControlClient } from "./control-client.ts";
+import { CONTROL_UNAVAILABLE_REFUSAL, createControlClient } from "./control-client.ts";
 
 const options = { url: "http://control.test/state", token: "fixture-token" };
-const unavailable = { held: true, helpOpen: false };
+const unavailable = { held: true, helpOpen: false, blockedReason: CONTROL_UNAVAILABLE_REFUSAL };
 
 afterEach(() => vi.restoreAllMocks());
 

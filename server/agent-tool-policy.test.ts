@@ -5,6 +5,7 @@ describe("built-in agent tool read policy", () => {
   it("includes only the reviewed local reads", () => {
     expect([...READ_ONLY_AGENT_TOOL_NAMES]).toEqual([
       "list_bots",
+      "list_mcp_servers",
       "list_team_setup",
       "list_shared_computers",
       "list_rooms",
@@ -29,7 +30,7 @@ describe("built-in agent tool read policy", () => {
   });
 
   it.each([
-    "shared_computer", "ask_bot", "delegate_bot", "start_thread", "close_thread", "post_to_room",
+    "register_mcp_server", "shared_computer", "ask_bot", "delegate_bot", "start_thread", "close_thread", "post_to_room",
     "create_bot", "request_credential", "memory_update", "propose_routine",
     "propose_routine_action", "propose_profile", "skill_manage",
     "propose_team_setup", "propose_bot_deletion",

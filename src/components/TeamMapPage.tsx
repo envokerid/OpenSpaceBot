@@ -16,6 +16,10 @@ import { TeamDialog } from "./TeamDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { t } from "@/lib/i18n";
 import { CanvasComputers } from "./CanvasComputers";
+import { TeamMapGroups } from "./TeamMapGroups";
+import { useVmLibrary, VmLibraryContent, type VmLibraryRequest } from "./VmLibrary";
+import { teamMapVm } from "@/lib/team-map-vms";
+import type { VmSubject } from "../../shared/vm-library";
 import type { TeamComputer } from "../../shared/team-computer";
 
 function EdgeRow({ edge, bots }: { edge: TeamMapEdge; bots: Bot[] }) {
@@ -258,6 +262,15 @@ export function TeamMapPage() {
   const [teamEditor, setTeamEditor] = useState<{ section?: string; rename?: boolean } | null>(null);
   const [deletingTeam, setDeletingTeam] = useState<string | null>(null);
   const [computersOpen, setComputersOpen] = useState(false);
+  const [mapView, setMapView] = useState<"teams" | "groups">("teams");
+  const [vmsOpen, setVmsOpen] = useState(false);
+  const [vmSelection, setVmSelection] = useState<VmLibraryRequest>();
+  const vmLibrary = useVmLibrary(!remoteClient);
+  const groups = state.groups.filter(group => !group.dm);
+  const openVm = (subject?: VmSubject, vmId?: string, create = false) => {
+    setComputersOpen(false); setVmsOpen(true);
+    setVmSelection(previous => ({ nonce: (previous?.nonce ?? 0) + 1, subject, vmId, create }));
+  };
   const [createComputerRequest, setCreateComputerRequest] = useState(0);
   const [computers, setComputers] = useState<TeamComputer[]>([]);
   const [computerDrop, setComputerDrop] = useState<{ id: string; section: string } | null>(null);
@@ -325,8 +338,13 @@ export function TeamMapPage() {
           </div>
           <p className="mt-1 text-[12px] text-ink-secondary">{t("canvas.description")}</p>
         </div>
-        {!remoteClient && <div className="flex items-center gap-2">
-          <button onClick={() => setComputersOpen((value) => !value)} aria-label="Computers" aria-expanded={computersOpen} className="rounded-lg p-2 text-ink-secondary hover:bg-control hover:text-ink"><Monitor size={17} /></button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-lg border border-hairline/50 p-1" role="group" aria-label="Team map view">
+            <button aria-pressed={mapView === "teams"} onClick={() => setMapView("teams")} className={cn("rounded-md px-3 py-1.5 text-[12px]", mapView === "teams" ? "bg-control text-ink" : "text-ink-secondary")}>Teams</button>
+            <button aria-pressed={mapView === "groups"} onClick={() => setMapView("groups")} className={cn("rounded-md px-3 py-1.5 text-[12px]", mapView === "groups" ? "bg-control text-ink" : "text-ink-secondary")}>Groups · {groups.length}</button>
+          </div>
+        {!remoteClient && <>
+          <button onClick={() => { setComputersOpen(false); setVmsOpen(value => !value); }} aria-label="Local VM computers" aria-expanded={vmsOpen} className="flex items-center gap-1.5 rounded-lg p-2 text-[12px] text-ink-secondary hover:bg-control hover:text-ink"><Monitor size={17} />Computers</button>
           <details className="relative" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.removeAttribute("open"); }} onKeyDown={(event) => {
             if (event.key === "Escape") { event.currentTarget.removeAttribute("open"); event.currentTarget.querySelector("summary")?.focus(); }
           }}>
@@ -335,27 +353,39 @@ export function TeamMapPage() {
               const details = event.currentTarget.closest("details"); details?.querySelector("summary")?.focus(); details?.removeAttribute("open");
             }}>
               <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-[12px] hover:bg-control" onClick={() => setTeamEditor({})}><Users size={14} />{t("team.create")}</button>
-              <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-[12px] hover:bg-control" onClick={() => { setComputersOpen(true); setCreateComputerRequest((value) => value + 1); }}><Box size={14} />Box computer</button>
-              <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-[12px] hover:bg-control" onClick={() => dispatch({ type: "toggleAppSettings", section: "computer", open: true })}><Monitor size={14} />Local VM…</button>
+              <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-[12px] hover:bg-control" onClick={() => { setVmsOpen(false); setComputersOpen(true); setCreateComputerRequest((value) => value + 1); }}><Box size={14} />Box computer</button>
+              <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-[12px] hover:bg-control" onClick={() => openVm(undefined, undefined, true)}><Monitor size={14} />Local VM</button>
             </div>
           </details>
-        </div>}
+        </>}
+        </div>
       </header>
-      {(error || refreshError) && <div role="alert" className="flex shrink-0 items-center justify-between gap-3 border-b border-danger/20 bg-danger/10 px-6 py-2 text-[12px] text-danger">
-        {error || refreshError}
-        <button aria-label={t("common.close")} className="rounded p-1 hover:bg-danger/10" onClick={() => { setError(null); setRefreshError(null); }}><X size={14} /></button>
+      {(error || refreshError || vmLibrary.error) && <div role="alert" className="flex shrink-0 items-center justify-between gap-3 border-b border-danger/20 bg-danger/10 px-6 py-2 text-[12px] text-danger">
+        {error || refreshError || vmLibrary.error}
+        <button aria-label={t("common.close")} className="rounded p-1 hover:bg-danger/10" onClick={() => { setError(null); setRefreshError(null); vmLibrary.clearError(); }}><X size={14} /></button>
       </div>}
       <div className="relative flex min-h-0 flex-1">
-      <TeamCanvas sections={sections} canManage={!remoteClient} onMove={requestMove}
+      {mapView === "teams" ? <TeamCanvas sections={sections} canManage={!remoteClient} onMove={requestMove}
         connectedBotIds={state.settingsOpen ? edges.flatMap((edge) => edge.sourceBotId === state.selectedId ? [edge.targetBotId] : edge.targetBotId === state.selectedId ? [edge.sourceBotId] : []) : []}
+        vmLabels={!remoteClient ? Object.fromEntries(bots.map(bot => { const vm = teamMapVm(vmLibrary.data, bot); return [bot.id, `${vm.label}${vm.choices.length > 1 ? ` · ${vm.choices.length} VMs` : ""}`]; })) : {}}
+        onVm={!remoteClient ? bot => openVm({ kind: "bot", id: bot.id }, teamMapVm(vmLibrary.data, bot).vm?.id) : undefined}
         onComputer={(bot) => dispatch({ type: "toggleSettings", botId: bot.id, section: "access", open: true })}
         teamComputers={Object.fromEntries(computers.filter((computer) => computer.section !== null).map((computer) => [computer.section!, { name: computer.name, state: computer.state }]))}
-        onTeamComputer={() => setComputersOpen(true)}
-        onComputerDrop={(id, section) => { if (!remoteClient) { setComputersOpen(true); setComputerDrop({ id, section }); } }}
+        onTeamComputer={() => { setVmsOpen(false); setComputersOpen(true); }}
+        onComputerDrop={(id, section) => { if (!remoteClient) { setVmsOpen(false); setComputersOpen(true); setComputerDrop({ id, section }); } }}
         onInstructions={(section, label) => setContextEditor({ section, label })}
         onEditTeam={(section, rename) => setTeamEditor({ section, rename })}
         onDeleteTeam={setDeletingTeam}
         isEmpty={(key) => ![...state.bots, ...state.groups].some((record) => record.section?.trim() === key)} />
+        : <TeamMapGroups groups={groups} bots={state.bots} library={vmLibrary.data} busy={vmLibrary.busy} onVm={!remoteClient ? openVm : undefined}
+          onAssign={!remoteClient ? (groupId, vmId, grantGroupAccess = false) => vmLibrary.run(() => api(`/api/computer-bindings/group/${groupId}`, {
+            method: "PUT", body: JSON.stringify({ revision: vmLibrary.data!.revision, vmId, ...(grantGroupAccess ? { grantGroupAccess: true } : {}) }),
+          })) : undefined} />}
+      {!remoteClient && vmsOpen && <aside aria-label="Team map Local VM settings" className="absolute inset-y-0 right-0 z-30 w-[min(440px,100%)] overflow-y-auto border-l border-hairline/50 bg-panel p-4 shadow-xl xl:static xl:shrink-0" onKeyDown={event => { if (event.key === "Escape") { setVmsOpen(false); event.stopPropagation(); } }}>
+        <header className="mb-3 flex items-center justify-between gap-2"><h2 className="text-[14px] font-semibold">Computers</h2><button aria-label="Close Local VM settings" className="rounded-lg p-2 text-ink-secondary hover:bg-control" onClick={() => setVmsOpen(false)}><X size={16} /></button></header>
+        <VmLibraryContent library={vmLibrary} selection={vmSelection} />
+        <button className="mt-3 text-[12px] text-ink-secondary hover:text-ink" onClick={() => { setVmsOpen(false); setComputersOpen(true); }}>Manage Box computers</button>
+      </aside>}
       {!remoteClient && <CanvasComputers open={computersOpen} createRequest={createComputerRequest} drop={computerDrop} sections={sections}
         onClose={() => setComputersOpen(false)} onDropHandled={clearComputerDrop} onChange={setComputers} />}
       </div>

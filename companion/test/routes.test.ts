@@ -12,6 +12,16 @@ import { denyReason } from "../src/routes.ts";
 const ask = (method: string, path: string, authenticated = true) =>
   denyReason({ method, path, authenticated });
 
+it.each([
+  ["GET", "/api/vms"], ["POST", "/api/vms"], ["PATCH", "/api/vms/limits"],
+  ["PATCH", "/api/vms/vm_1"], ["POST", "/api/vms/vm_1/actions"],
+  ["PUT", "/api/computer-bindings/group/research"],
+])("requires the settings grant for VM management: %s %s", (method, path) => {
+  expect(denyReason({ method, path, authenticated: true })).toMatchObject({ status: 403 });
+  expect(denyReason({ method, path, authenticated: true, settingsAccess: true })).toBeNull();
+  expect(denyReason({ method, path, authenticated: false, settingsAccess: true })).toMatchObject({ status: 401 });
+});
+
 const allowed = (method: string, path: string) => ask(method, path) === null;
 
 describe("credentials", () => {

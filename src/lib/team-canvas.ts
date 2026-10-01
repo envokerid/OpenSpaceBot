@@ -5,7 +5,7 @@ export interface View extends Point { scale: number }
 export interface Tile extends Point { key: string; width: number; height: number }
 
 export const CARD_WIDTH = 236;
-export const CARD_HEIGHT = 126;
+export const CARD_HEIGHT = 158;
 export const GAP = 16;
 export const TEAM_PADDING = 20;
 export const HEADER_HEIGHT = 64;

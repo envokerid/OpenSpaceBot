@@ -30,6 +30,8 @@ interface StdioMcpListing {
   args: string[];
   envKeys: string[];
   enabled: boolean;
+  ownerBotId?: string;
+  vmId?: string;
 }
 interface RemoteMcpListing {
   name: string;
@@ -37,6 +39,8 @@ interface RemoteMcpListing {
   url: string;
   headerKeys: string[];
   enabled: boolean;
+  ownerBotId?: string;
+  vmId?: string;
 }
 export type McpServerListing = StdioMcpListing | RemoteMcpListing;
 
@@ -578,12 +582,13 @@ export function McpServersPanel() {
                         <span className={cn("rounded-full px-2 py-0.5 text-[10.5px]", server.enabled ? "bg-success/10 text-success" : "bg-raised text-ink-secondary")}>{t(server.enabled ? "mcp.badge.on" : "mcp.badge.off")}</span>
                       </div>
                       <div className="mt-1 truncate font-mono text-[11.5px] text-ink-secondary">{isRemoteMcpListing(server) ? server.url : [server.command, ...server.args].join(" ")}</div>
+                      {server.ownerBotId && <div className="mt-1 text-[11px] text-ink-secondary">Bot registration{server.vmId ? " · Runs inside its assigned VM" : ""}</div>}
                       {isRemoteMcpListing(server)
                         ? server.headerKeys.length > 0 && <div className="mt-1 truncate text-[11px] text-ink-secondary">{t("mcp.headersSaved", { keys: server.headerKeys.join(", ") })}</div>
                         : server.envKeys.length > 0 && <div className="mt-1 truncate text-[11px] text-ink-secondary">{t("mcp.secretsSaved", { keys: server.envKeys.join(", ") })}</div>}
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
-                      <button type="button" disabled={busy !== null} onClick={() => void test(server)} className="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[12px] text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-40">
+                      <button type="button" disabled={busy !== null || !!server.vmId} title={server.vmId ? "Tested through the bot’s active VM connection" : undefined} onClick={() => void test(server)} className="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[12px] text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-40">
                         {busy === `test:${server.name}` ? <Loader2 size={14} className="animate-spin" /> : <FlaskConical size={14} />} {t("mcp.test")}
                       </button>
                       <button type="button" disabled={busy !== null} onClick={() => void toggle(server)} className="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[12px] text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-40" aria-label={t("mcp.toggleAria", {

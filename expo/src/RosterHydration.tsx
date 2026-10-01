@@ -2,9 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, AppState, Easing, StyleSheet, View } from 'react-native';
 import { Label, useTheme } from './ui';
 
-// The group strip reserves the same space before and after the first snapshot.
-export const GROUP_STRIP_HEIGHT = 132;
-
 export function RosterHydration({ ready, connecting, children }: React.PropsWithChildren<{ ready: boolean; connecting: boolean }>) {
   const c = useTheme();
   const reveal = useRef(new Animated.Value(ready ? 1 : 0)).current;
@@ -44,16 +41,17 @@ export function RosterHydration({ ready, connecting, children }: React.PropsWith
       style={[ready ? StyleSheet.absoluteFill : undefined, { opacity: reveal.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>
       <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
         <Label size={13} bold muted style={{ paddingHorizontal: 20, letterSpacing: .4 }}>GROUPS</Label>
-        <Animated.View style={{ height: GROUP_STRIP_HEIGHT, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12, gap: 10, flexDirection: 'row', overflow: 'hidden', opacity: pulse }}>
-          {[0, 1, 2].map(i => <View key={i} style={{ gap: 10 }}>
-            {[0, 1].map(row => <View key={row} style={{ width: 170, height: 50, borderRadius: 24, backgroundColor: c.chrome, flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 6, paddingRight: 14 }}>
-              {block(38, 38, 19)}{block(90, 12)}
-            </View>)}
+        <Animated.View style={{ opacity: pulse }}>
+          {[0, 1].map(i => <View key={i} style={{ minHeight: 76, paddingLeft: 16, paddingRight: 20, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+            {block(52, 52, 26)}<View style={{ flex: 1, gap: 14 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>{block(i ? '44%' : '57%', 16)}{block(38, 10)}</View>
+              {block(i ? '85%' : '72%', 13)}
+            </View>
           </View>)}
         </Animated.View>
         <View style={{ paddingTop: 18, paddingBottom: 4 }}><Label size={13} bold muted style={{ paddingHorizontal: 20, letterSpacing: .4 }}>BOTS</Label></View>
         <Animated.View style={{ opacity: pulse }}>
-          {[0, 1, 2, 3, 4, 5].map(i => <View key={i} style={{ height: 76, paddingLeft: 28, paddingRight: 20, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+          {[0, 1, 2, 3, 4, 5].map(i => <View key={i} style={{ height: 76, paddingLeft: 16, paddingRight: 20, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
             {block(52, 52, 26)}<View style={{ flex: 1, gap: 14 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>{block(i % 2 ? '44%' : '57%', 16)}{block(38, 10)}</View>
               {block(i % 2 ? '85%' : '72%', 13)}

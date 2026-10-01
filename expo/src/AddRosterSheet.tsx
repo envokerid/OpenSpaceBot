@@ -6,11 +6,12 @@ import { Avatar } from './Avatar';
 import { Icon } from './Icon';
 import { Button, ErrorNotice, IconButton, Input, Label, Row, Sheet, useAction, useTheme } from './ui';
 
-export function AddRosterSheet({ session, bots, onClose, onCreated }: {
+export function AddRosterSheet({ session, bots, onClose, onCreated, onCreateGroup }: {
   session: Session;
   bots: Bot[];
   onClose: () => void;
   onCreated: (bot: Bot) => void;
+  onCreateGroup: () => void;
 }) {
   const c = useTheme();
   const action = useAction();
@@ -37,6 +38,13 @@ export function AddRosterSheet({ session, bots, onClose, onCreated }: {
   });
 
   return <Sheet title="Add" onClose={close} action={<IconButton icon="close" label="Close" chrome={false} disabled={action.busy} onPress={close} />}>
+    <Pressable accessibilityRole="button" accessibilityLabel="Create new group" disabled={!allowed || action.busy}
+      accessibilityState={{ disabled: !allowed || action.busy }} onPress={onCreateGroup}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, marginHorizontal: 20, marginBottom: 8, paddingHorizontal: 16, borderRadius: 16, backgroundColor: c.chrome, opacity: !allowed || action.busy ? 0.5 : 1 }}>
+      <Icon name="chat" size={22} color={c.accent} />
+      <Label bold style={{ flex: 1 }}>Create new group</Label>
+      <Icon name="chevron" size={18} color={c.muted} />
+    </Pressable>
     <View accessibilityRole="tablist" style={{ flexDirection: 'row', marginHorizontal: 20, marginTop: 8, marginBottom: 16, padding: 4, borderRadius: 16, backgroundColor: c.chrome }}>
       {(['bot', 'section'] as const).map(option => <Pressable key={option} accessibilityRole="tab" accessibilityLabel={option === 'bot' ? 'Bot' : 'Section'} accessibilityState={{ selected: tab === option, disabled: action.busy }} disabled={action.busy}
         onPress={() => { action.clearError(); setTab(option); }}

@@ -14,6 +14,10 @@ import {
   IMAGE_LAYER_VERSION,
   MANAGED_LABEL,
   TARGET_LABEL,
+  SNAPSHOT_BASE_LABEL,
+  VM_INSTALL_CAPABILITIES,
+  retainedSnapshotMatches,
+  recreateDockerVmPreservingDisk,
   VM_WORKSPACE_DIR,
   VM_WORKSPACE_GUEST,
   WORKSPACE_LABEL,
@@ -902,12 +906,14 @@ describe("setupCommands", () => {
     expect(setupCommands("docker", "linux").start).toBe(`docker start ${CONTAINER}`);
   });
 
-  it("limits resources and retains only the sandbox supervisor's identity-switch caps", () => {
+  it("limits resources and grants the supervisor and package installers their scoped capabilities", () => {
     const command = setupCommands("docker", "linux").run!;
     expect(command).toContain("--memory 4g --memory-swap 4g");
     expect(command).toContain("--cpus 2 --pids-limit 512");
     expect(command).toContain("--ipc private --cgroupns private");
     expect(command).toContain("--cap-drop ALL --cap-add SETUID --cap-add SETGID");
+    for (const cap of VM_INSTALL_CAPABILITIES) expect(command).toContain(`--cap-add ${cap}`);
+    expect(command).not.toContain("--privileged");
     expect(command).toContain(`--label ${MANAGED_LABEL}=1`);
     expect(command).toContain(`--label ${DRIVER_LABEL}=${CUA_DRIVER_VERSION}`);
     expect(command).toContain(`--label ${WORKSPACE_LABEL}=1`);
@@ -1052,5 +1058,76 @@ describe("Auto's Local VM eligibility", () => {
     expect(autoLocalVmAttachable({ ...base, container: "stopped" })).toBe(false);
     expect(autoLocalVmAttachable({ ...base, runtime: null })).toBe(false);
     expect(autoLocalVmAttachable({ ...base, create_supported: false })).toBe(false);
+  });
+});
+
+
+describe("Local VM installer permissions and retained snapshots", () => {
+  it("accepts complete installer capabilities only for local VMs and rejects extra privileges", () => {
+    const config = JSON.parse(readyInspect())[0].HostConfig;
+    config.CapAdd.push(...VM_INSTALL_CAPABILITIES);
+    expect(dockerSecurityIsHardened(config)).toBe(false);
+    expect(dockerSecurityIsHardened(config, { localVmInstalls: true })).toBe(true);
+    expect(dockerSecurityIsHardened({ ...config, CapAdd: [...config.CapAdd, "SYS_ADMIN"] }, { localVmInstalls: true })).toBe(false);
+    expect(dockerSecurityIsHardened({ ...config, CapAdd: [...config.CapAdd, "NET_RAW"] }, { localVmInstalls: true })).toBe(false);
+    expect(dockerSecurityIsHardened({ ...config, CapAdd: ["SETUID", "SETGID", "CHOWN"] }, { localVmInstalls: true })).toBe(false);
+    const caps = [...config.CapAdd, "SYS_CHROOT"];
+    expect(podmanSecurityIsHardened(config, caps, caps)).toBe(true);
+    expect(podmanSecurityIsHardened(config, caps, caps.slice(1))).toBe(false);
+  });
+
+  it("verifies snapshot layer ancestry instead of trusting a compatibility label", async () => {
+    const base = JSON.parse(preparedImageInspect())[0];
+    base.RootFS = { Layers: ["sha256:base-layer"] };
+    const baseId = base.Id.replace(/^sha256:/, "");
+    const labels = { ...base.Config.Labels, [SNAPSHOT_BASE_LABEL]: baseId };
+    const snapshot = { ...base, Id: "sha256:snapshot", Config: { Labels: labels }, RootFS: { Layers: ["sha256:base-layer", "sha256:retained-files"] } };
+    const fake = runner({
+      [`docker image inspect ${baseId}`]: JSON.stringify([base]),
+      "docker image inspect sha256:snapshot": JSON.stringify([snapshot]),
+    });
+    expect(await retainedSnapshotMatches(fake.run, "docker", snapshot.Id, labels, baseId)).toBe(true);
+    expect(await retainedSnapshotMatches(fake.run, "docker", snapshot.Id, { ...labels, [SNAPSHOT_BASE_LABEL]: "wrong" }, baseId)).toBe(false);
+    snapshot.RootFS.Layers[0] = "sha256:unrelated-layer";
+    const unrelated = runner({
+      [`docker image inspect ${baseId}`]: JSON.stringify([base]),
+      "docker image inspect sha256:snapshot": JSON.stringify([snapshot]),
+    });
+    expect(await retainedSnapshotMatches(unrelated.run, "docker", snapshot.Id, labels, baseId)).toBe(false);
+  });
+
+  it("refuses to repair a running VM", async () => {
+    const fake = runner({
+      "/usr/bin/which docker": "docker\n",
+      "/usr/bin/which podman": new Error("missing"),
+      "docker info --format {{.ServerVersion}}": "29\n",
+      [`docker image inspect ${IMAGE}`]: preparedImageInspect(),
+      [`docker inspect ${CONTAINER}`]: readyInspect(),
+    });
+    await expect(recreateDockerVmPreservingDisk(SHARED_LOCAL_VM_TARGET, fake.run)).rejects.toThrow("stopped");
+    expect(fake.calls.some(call => /docker (commit|rename|create)/.test(call))).toBe(false);
+  });
+
+  it("restores the original stopped container name when creating its replacement fails", async () => {
+    const fake = runner({
+      "/usr/bin/which docker": "docker\n",
+      "/usr/bin/which podman": new Error("missing"),
+      "docker info --format {{.ServerVersion}}": "29\n",
+      [`docker image inspect ${IMAGE}`]: preparedImageInspect(),
+      [`docker inspect ${CONTAINER}`]: readyInspect({ State: { Running: false } }),
+    });
+    const mutations: string[][] = [];
+    const repairRunner: CommandRunner = async (command, args) => {
+      if (command === "docker" && ["commit", "rename", "create"].includes(args[0])) {
+        mutations.push(args);
+        if (args[0] === "create") throw new Error("fixture creation failure");
+        return { stdout: "" };
+      }
+      return fake.run(command, args);
+    };
+    await expect(recreateDockerVmPreservingDisk(SHARED_LOCAL_VM_TARGET, repairRunner)).rejects.toThrow("fixture creation failure");
+    const rename = mutations.find(args => args[0] === "rename")!;
+    expect(mutations.at(-1)).toEqual(["rename", rename[2], CONTAINER]);
+    expect(mutations.filter(args => args[0] === "commit")).toHaveLength(1);
   });
 });

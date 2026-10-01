@@ -4,18 +4,14 @@ import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
 import {
   AlertTriangle,
-  Check,
-  Circle,
   Cloud,
-  ExternalLink,
   Loader2,
   Moon,
   RefreshCw,
-  RotateCcw,
   Server,
-  Square,
   Trash2,
 } from "lucide-react";
+import { VmLibraryPanel } from "./VmLibrary";
 import { Card, CommandLine } from "./SettingsPrimitives";
 import { cn } from "@/lib/cn";
 
@@ -69,12 +65,7 @@ export interface LocalVmInventoryInstance {
   inUse: boolean;
 }
 
-interface LocalVmInventoryPayload {
-  instances: LocalVmInventoryInstance[];
-  maxInstances: number;
-  available: boolean;
-  problem: string | null;
-}
+
 
 export interface CloudComputerInventoryInstance {
   boxId: string;
@@ -769,25 +760,6 @@ export function LocalVmInventoryCard({
   );
 }
 
-function Step({ n, title, done, children }: { n: number; title: string; done: boolean; children?: React.ReactNode }) {
-  return (
-    <div className="flex gap-3">
-      <div
-        className={cn(
-          "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-[11px]",
-          done ? "bg-success/20 text-success" : "border border-hairline/50 text-ink-secondary",
-        )}
-      >
-        {done ? <Check size={12} /> : n}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className={cn("text-[14px]", done ? "text-ink-secondary line-through" : "text-ink")}>{title}</div>
-        {!done && children && <div className="mt-2 flex flex-col items-start gap-2 [&>*]:max-w-full">{children}</div>}
-      </div>
-    </div>
-  );
-}
-
 function ActionButton({
   action,
   pending,
@@ -821,15 +793,7 @@ export function LocalComputerSection() {
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<Action | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [policyPending, setPolicyPending] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [inventory, setInventory] = useState<LocalVmInventoryInstance[]>([]);
-  const [inventoryMax, setInventoryMax] = useState(2);
-  const [inventoryLoading, setInventoryLoading] = useState(false);
-  const [inventoryError, setInventoryError] = useState<string | null>(null);
-  const [inventoryUnavailableReason, setInventoryUnavailableReason] = useState<string | null>(null);
-  const [deletingBotId, setDeletingBotId] = useState<string | null>(null);
-  const [inventoryRefreshKey, setInventoryRefreshKey] = useState(0);
   const [cloudInventory, setCloudInventory] = useState<CloudComputerInventoryInstance[]>([]);
   const [cloudConfigured, setCloudConfigured] = useState<boolean | null>(null);
   const [cloudLoading, setCloudLoading] = useState(true);
@@ -858,17 +822,6 @@ export function LocalComputerSection() {
     if (!response.ok) throw new Error(body.error ?? t("vm.err.status", { code: response.status }));
     setStatus(body as Status);
     setError(null);
-  }, []);
-
-  const refreshInventory = useCallback(async (signal?: AbortSignal) => {
-    const response = await fetch(...computerInventoryRequest("local-vms", signal));
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.error ?? t("vm.err.inventory", { code: response.status }));
-    const payload = body as LocalVmInventoryPayload;
-    setInventory(payload.instances);
-    setInventoryMax(payload.maxInstances);
-    setInventoryUnavailableReason(payload.available ? null : (payload.problem ?? t("vm.err.runtimeUnavailable")));
-    setInventoryError(null);
   }, []);
 
   const refreshCloudInventory = useCallback(async (signal?: AbortSignal) => {
@@ -936,28 +889,6 @@ export function LocalComputerSection() {
       if (timer !== undefined) window.clearTimeout(timer);
     };
   }, [refresh, refreshKey]);
-
-  useEffect(() => {
-    if (status?.mode !== "per-bot") {
-      setInventory([]);
-      setInventoryLoading(false);
-      setInventoryError(null);
-      setInventoryUnavailableReason(null);
-      return;
-    }
-    const controller = new AbortController();
-    setInventoryLoading(true);
-    void refreshInventory(controller.signal)
-      .catch((e) => {
-        if (!(e instanceof DOMException && e.name === "AbortError")) {
-          setInventoryError(e instanceof Error ? e.message : String(e));
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setInventoryLoading(false);
-      });
-    return () => controller.abort();
-  }, [inventoryRefreshKey, refreshInventory, status?.mode]);
 
   // Box account listing is deliberately not polled. It can be expensive and
   // Settings must remain an observation-only surface until the person clicks
@@ -1044,51 +975,6 @@ export function LocalComputerSection() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setPending(null);
-    }
-  };
-
-  const savePolicy = async (mode: Status["mode"], maxInstances: number) => {
-    setPolicyPending(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/config", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ localVm: { mode, maxInstances } }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error ?? t("vm.policyError"));
-      setStatus((current) => current ? { ...current, mode, max_instances: maxInstances } : current);
-      await refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setPolicyPending(false);
-    }
-  };
-
-  const deletePerBotVm = async (instance: LocalVmInventoryInstance) => {
-    if (!instance.managed) {
-      setInventoryError(t("vm.unmanagedError"));
-      return;
-    }
-    const request = confirmComputerAction(
-      perBotLocalVmDeletePlan(instance),
-      (message) => window.confirm(message),
-    );
-    if (!request) return;
-    setDeletingBotId(instance.botId);
-    setInventoryError(null);
-    try {
-      const response = await fetch(...request);
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error ?? t("vm.deleteError"));
-      await refreshInventory();
-      setAnnouncement(t("vm.announce.deletedBot", { name: instance.name }));
-    } catch (e) {
-      setInventoryError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setDeletingBotId(null);
     }
   };
 
@@ -1208,23 +1094,6 @@ export function LocalComputerSection() {
     }
   };
 
-  const c = status?.commands;
-  const ready = status?.ready === true;
-  const existing = status?.container !== "missing";
-  const needsRecreate = Boolean(
-    existing &&
-      (!status?.imageMatches ||
-        !status?.managed ||
-        status?.network === "unsafe" ||
-        status?.security === "unsafe" ||
-        status?.persistence === "unsafe"),
-  );
-  const unavailable = !loading && !status;
-  const host = status?.platform === "darwin" ? t("vm.host.mac") : t("vm.host.computer");
-  const perBot = status?.mode === "per-bot";
-  const perBotRuntimeUnsupported = perBot && status?.runtime === "container";
-  const headerReady = perBot ? Boolean(status?.daemonUp && status?.image && !perBotRuntimeUnsupported) : ready;
-
   return (
     <>
       <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">{announcement}</p>
@@ -1252,231 +1121,13 @@ export function LocalComputerSection() {
         onRemove={(instance) => void removeVpsComputer(instance)}
       />
 
-      <Card
-        title={t("vm.main.title")}
-        subtitle={perBot
-          ? t("vm.main.perBotPersistentSubtitle", { host })
-          : t("vm.main.sharedPersistentSubtitle", { host })}
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <span
-            aria-live="polite"
-            className={cn(
-              "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12.5px]",
-              headerReady ? "bg-success/15 text-success" : "bg-control text-ink-secondary",
-            )}
-          >
-            {loading ? <Loader2 size={12} className="animate-spin" /> : headerReady ? <Check size={12} /> : <Circle size={9} />}
-            {loading
-              ? t("common.checking")
-              : unavailable
-                ? t("vm.main.statusUnavailable")
-                : perBot && headerReady
-                  ? t("vm.main.readyPerBot")
-                  : perBotRuntimeUnsupported
-                    ? t("vm.main.perBotUnsupported")
-                  : ready
-                    ? t("vm.main.ready")
-                    : (status?.problem ?? t("vm.main.notReady"))}
-          </span>
-          <button
-            onClick={() => {
-              setLoading(true);
-              setRefreshKey((key) => key + 1);
-              setInventoryRefreshKey((key) => key + 1);
-            }}
-            disabled={loading || pending !== null}
-            className="flex items-center gap-1.5 rounded-lg border border-hairline/40 px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-control hover:text-ink disabled:opacity-40"
-          >
-            <RefreshCw size={12} /> {t("vm.main.recheck")}
-          </button>
-          {ready && !perBot && (
-            <a
-              href={status?.viewer_url ?? c?.view}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-1.5 rounded-lg border border-hairline/40 px-2.5 py-1 text-[12.5px] text-ink hover:bg-control"
-            >
-              <ExternalLink size={12} /> {t("vm.main.watch")}
-            </a>
-          )}
-        </div>
-        {error && <div role="alert" className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-[12px] text-danger">{error}</div>}
-      </Card>
-
-      <Card
-        title={t("vm.isolation.title")}
-        subtitle={t("vm.isolation.persistentSubtitle")}
-      >
-        <div className="flex overflow-hidden rounded-lg border border-hairline/40">
-          {(["shared", "per-bot"] as const).map((mode, index) => (
-            <button
-              key={mode}
-              type="button"
-              disabled={!status || policyPending}
-              onClick={() => void savePolicy(mode, status?.max_instances ?? 2)}
-              className={cn(
-                "flex-1 px-3 py-2 text-[13px] disabled:opacity-50",
-                index > 0 && "border-l border-hairline/40",
-                status?.mode === mode ? "bg-control text-ink" : "text-ink-secondary hover:text-ink",
-              )}
-            >
-              {mode === "shared" ? t("vm.isolation.shared") : t("vm.isolation.perBot")}
-            </button>
-          ))}
-        </div>
-        {/* The cap only applies to per-bot VMs; shared mode runs exactly one. */}
-        {perBot && (
-          <div className="mt-3 flex items-center justify-between gap-3">
-            <div>
-              <div className="text-[13px] text-ink">{t("vm.isolation.max")}</div>
-              <div className="text-[11.5px] text-ink-secondary">{t("vm.isolation.maxDetail")}</div>
-            </div>
-            <select
-              aria-label={t("vm.isolation.maxAria")}
-              value={status?.max_instances ?? 2}
-              disabled={!status || policyPending}
-              onChange={(event) => void savePolicy(status?.mode ?? "shared", Number(event.target.value))}
-              className="rounded-lg border border-hairline/40 bg-control px-2.5 py-1.5 text-[13px] text-ink disabled:opacity-50"
-            >
-              {[1, 2, 3, 4].map((value) => <option key={value} value={value}>{value}</option>)}
-            </select>
-          </div>
-        )}
-        {policyPending && <div className="mt-2 flex items-center gap-1.5 text-[12px] text-ink-secondary"><Loader2 size={12} className="animate-spin" /> {t("vm.saving")}</div>}
-      </Card>
-
-      <Card title={t("vm.setup.title")} subtitle={t("vm.setup.subtitle")}>
-        <div className="flex flex-col gap-4">
-          <Step n={1} title={t("vm.setup.step1")} done={Boolean(status?.runtime)}>
-            <div className="text-[13px] leading-relaxed text-ink-secondary">
-              {t("vm.setup.step1Detail")}
-            </div>
-            {c?.install ? (
-              <CommandLine command={c.install} />
-            ) : (
-              <a href="https://podman.io/docs/installation" target="_blank" rel="noreferrer" className="text-[13px] text-accent hover:underline">
-                {t("vm.setup.podmanGuide")}
-              </a>
-            )}
-          </Step>
-
-          <Step
-            n={2}
-            title={
-              status?.runtime && !status.daemonUp
-                ? t("vm.setup.step2Open", { runtime: status.runtime })
-                : t("vm.setup.step2")
-            }
-            done={Boolean(status?.daemonUp)}
-          >
-            {!status?.runtime ? null : c?.runtimeStart ? (
-              <CommandLine command={c.runtimeStart} />
-            ) : (
-              <div className="text-[13px] text-ink-secondary">{t("vm.setup.step2Detail")}</div>
-            )}
-          </Step>
-
-          <Step n={3} title={t("vm.setup.step3")} done={Boolean(status?.image)}>
-            {status?.daemonUp && (
-              <ActionButton action="pull" pending={pending} onClick={() => void act("pull")}>{t("vm.setup.prepare")}</ActionButton>
-            )}
-            {c?.pull && <details className="text-[12px] text-ink-secondary"><summary className="cursor-pointer">{t("vm.setup.showPull")}</summary><div className="mt-2"><CommandLine command={c.pull} /></div></details>}
-          </Step>
-
-          <Step
-            n={4}
-            title={
-              perBot
-                ? t("vm.setup.step4PerBot")
-                : needsRecreate
-                  ? t("vm.setup.step4Recreate")
-                  : t("vm.setup.step4")
-            }
-            done={!perBot && ready}
-          >
-            {perBot ? (
-              <div className="text-[13px] leading-relaxed text-ink-secondary">
-                {perBotRuntimeUnsupported
-                  ? t("vm.setup.applePort")
-                  : t("vm.setup.perBotHint")}
-              </div>
-            ) : needsRecreate ? (
-              <>
-                <div className="flex gap-2 text-[13px] text-warning">
-                  <AlertTriangle size={15} className="mt-0.5 shrink-0" />
-                  <span>{status?.problem}</span>
-                </div>
-                {status?.image ? (
-                  <ActionButton action="recreate" pending={pending} onClick={() => void act("recreate")} danger>
-                    <RotateCcw size={13} /> {t("vm.setup.recreate")}
-                  </ActionButton>
-                ) : (
-                  <div className="text-[13px] text-ink-secondary">{t("vm.setup.prepareFirst")}</div>
-                )}
-              </>
-            ) : status?.container === "stopped" ? (
-              <ActionButton action="start" pending={pending} onClick={() => void act("start")}>{t("vm.setup.start")}</ActionButton>
-            ) : status?.container === "running" ? (
-              <div className="flex items-center gap-2 text-[13px] text-ink-secondary"><Loader2 size={13} className="animate-spin" /> {t("vm.setup.waiting")}</div>
-            ) : status?.image ? (
-              <ActionButton action="run" pending={pending} onClick={() => void act("run")}>{t("vm.setup.create")}</ActionButton>
-            ) : null}
-            {c?.run && <details className="text-[12px] text-ink-secondary"><summary className="cursor-pointer">{t("vm.setup.showCommand")}</summary><div className="mt-2"><CommandLine command={c.run} /></div></details>}
-          </Step>
-        </div>
-      </Card>
-
-      {perBot && (
-        <LocalVmInventoryCard
-          instances={inventory}
-          maxInstances={inventoryMax || status?.max_instances || 2}
-          loading={inventoryLoading}
-          deletingBotId={deletingBotId}
-          error={inventoryError}
-          unavailableReason={inventoryUnavailableReason}
-          onRefresh={() => setInventoryRefreshKey((key) => key + 1)}
-          onDelete={(instance) => void deletePerBotVm(instance)}
-        />
-      )}
-
-      {unavailable && (
-        <Card>
-          <div className="flex gap-2 text-[13px] text-ink-secondary">
-            <AlertTriangle size={15} className="mt-0.5 shrink-0 text-warning" />
-            <span>{t("vm.inspectFailed")}</span>
-          </div>
-        </Card>
-      )}
-
-      <Card
-        title={t("vm.safety.title")}
-        subtitle={
-          perBot
-            ? t("vm.safety.perBotPersistent", { path: status?.workspace_guest_path ?? "/home/cua/workspace" })
-            : t("vm.safety.sharedPersistent", { path: status?.workspace_guest_path ?? "/home/cua/workspace" })
-        }
-      >
-        {existing && (
-          <div className="flex flex-wrap gap-2">
-            {status?.container === "running" && (
-              <ActionButton action="stop" pending={pending} onClick={() => void act("stop")}>
-                <Square size={12} /> {t("vm.safety.stop")}
-              </ActionButton>
-            )}
-            <ActionButton action="remove" pending={pending} onClick={() => void act("remove")} danger>
-              <Trash2 size={12} /> {perBot ? t("vm.safety.deleteLegacy") : t("vm.safety.deleteVm")}
-            </ActionButton>
-          </div>
-        )}
-        <div className="mt-3 break-all text-[11px] text-ink-secondary">
-          {t("vm.safety.workspace", {
-            path: status?.workspace_path ?? t("vm.safety.notCreated"),
-            driver: status?.driver_version ?? "0.20.0",
-            image: status?.image_ref ?? t("vm.safety.notPrepared"),
-          })}
-          {status?.base_image_ref ? <> · {t("vm.safety.baseImage", { image: status.base_image_ref })}</> : null}
-        </div>
+      <VmLibraryPanel />
+      <Card title="VM runtime and image">
+        <p className="text-[13px] text-ink-secondary">Runtime: {status?.runtime ?? "Not installed"} · {status?.daemonUp ? "Running" : "Stopped"} · Image: {status?.image ? "Prepared" : "Not prepared"}</p>
+        {error && <p role="alert" className="text-danger">{error}</p>}
+        <div className="mt-3 flex gap-2"><ActionButton action="pull" pending={pending} onClick={() => void act("pull")}>Prepare image for new VMs</ActionButton><button className="text-[13px] text-ink" disabled={loading} onClick={() => setRefreshKey(key => key + 1)}>Refresh runtime</button></div>
+        {status?.commands?.install && !status.runtime && <CommandLine command={status.commands.install} />}
+        {status?.commands?.runtimeStart && !status.daemonUp && <CommandLine command={status.commands.runtimeStart} />}
       </Card>
     </>
   );

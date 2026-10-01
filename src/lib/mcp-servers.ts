@@ -9,6 +9,8 @@ import { api } from "@/state/store";
 export interface McpServerSummary {
   name: string;
   enabled: boolean;
+  ownerBotId?: string;
+  vmId?: string;
 }
 
 let cached: { servers: McpServerSummary[] | null; error: boolean } = { servers: null, error: false };
@@ -66,8 +68,8 @@ export function useMcpServers(): { servers: McpServerSummary[] | null; error: bo
 /** The servers a bot actually mounts: its own list when it has one (names
  * that no longer exist fall away), else every enabled server. Mirrors
  * server/config.ts customMcpServers so the controls and the turn agree. */
-export function mcpServersForBot(all: McpServerSummary[], own: string[] | null | undefined): McpServerSummary[] {
-  const enabled = all.filter((server) => server.enabled);
+export function mcpServersForBot(all: McpServerSummary[], own: string[] | null | undefined, botId?: string): McpServerSummary[] {
+  const enabled = all.filter((server) => server.enabled && (!server.ownerBotId || server.ownerBotId === botId));
   if (own == null) return enabled;
   return enabled.filter((server) => own.includes(server.name));
 }

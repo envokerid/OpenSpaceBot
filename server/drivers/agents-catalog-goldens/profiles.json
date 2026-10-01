@@ -1,7 +1,7 @@
 {
   "direct": {
-    "bytes": 38270,
-    "sha256": "304990bd53ef0935042969bbc2918b5be83f692e11a9a8db31ff9aa2f7a4469a",
+    "bytes": 40709,
+    "sha256": "27adad8191590aa89f9ec3e6f04d728275c0cfa3f78a801f291aaa5a4c38ede1",
     "tools": [
       "tool_result_read",
       "list_bots",
@@ -10,6 +10,8 @@
       "delegate_bot",
       "check_delegation",
       "wait_delegation",
+      "list_mcp_servers",
+      "register_mcp_server",
       "select_computer",
       "list_threads",
       "close_thread",
@@ -34,8 +36,8 @@
     ]
   },
   "direct+shared": {
-    "bytes": 40015,
-    "sha256": "2ae4376f94e2fe4235db1710ff3661c46100dd9f7402922bb65683f07614d39f",
+    "bytes": 42454,
+    "sha256": "1c7e4758a7a9e509d4e61c2a8747caa403d5f030bbb1e639a9ccb18ae117b7ad",
     "tools": [
       "tool_result_read",
       "list_shared_computers",
@@ -46,6 +48,8 @@
       "delegate_bot",
       "check_delegation",
       "wait_delegation",
+      "list_mcp_servers",
+      "register_mcp_server",
       "select_computer",
       "list_threads",
       "close_thread",
@@ -70,8 +74,8 @@
     ]
   },
   "direct+skills": {
-    "bytes": 40196,
-    "sha256": "bf24a28be6c74a108f0a482b316f4d16f99072e3922982f192aa828a711608f0",
+    "bytes": 42635,
+    "sha256": "939cf2c14e4e7a75adf1d23e60fb99027a2444b77a8210292c00c7b70e24387c",
     "tools": [
       "tool_result_read",
       "list_bots",
@@ -80,6 +84,8 @@
       "delegate_bot",
       "check_delegation",
       "wait_delegation",
+      "list_mcp_servers",
+      "register_mcp_server",
       "select_computer",
       "list_threads",
       "close_thread",
@@ -106,8 +112,8 @@
     ]
   },
   "direct+skills+shared": {
-    "bytes": 41941,
-    "sha256": "0799b856f0df1315cdd17a332934d5ca9ba15596437fbeed626b8b06b33d58ea",
+    "bytes": 44380,
+    "sha256": "65e5399d81b08e9bafc382602ad74e87e7e4a4f5cd795a3bfb23740d086484f4",
     "tools": [
       "tool_result_read",
       "list_shared_computers",
@@ -118,6 +124,8 @@
       "delegate_bot",
       "check_delegation",
       "wait_delegation",
+      "list_mcp_servers",
+      "register_mcp_server",
       "select_computer",
       "list_threads",
       "close_thread",
@@ -144,14 +152,16 @@
     ]
   },
   "room": {
-    "bytes": 36111,
-    "sha256": "251798f8e011f1b4e4680c4f935803be6a0a561bc01a6b6287d15cdcaf480c0d",
+    "bytes": 38550,
+    "sha256": "5db928b8391aad07f882eb2d6a7942b7d7f90050a9d141b16b91a8c24a8a86d1",
     "tools": [
       "tool_result_read",
       "list_room_targets",
       "coordinate_bots",
       "list_bots",
       "list_rooms",
+      "list_mcp_servers",
+      "register_mcp_server",
       "select_computer",
       "list_threads",
       "close_thread",
@@ -175,8 +185,8 @@
     ]
   },
   "room+shared": {
-    "bytes": 37856,
-    "sha256": "8044656188f438400915380219f3af1cff91e6322819d65d52b3d25f4df3e052",
+    "bytes": 40295,
+    "sha256": "30cb18f44dab6b36ef9b9af1532157d03c789946fc5aad5ebde83987d5d7d2a1",
     "tools": [
       "tool_result_read",
       "list_shared_computers",
@@ -185,6 +195,8 @@
       "coordinate_bots",
       "list_bots",
       "list_rooms",
+      "list_mcp_servers",
+      "register_mcp_server",
       "select_computer",
       "list_threads",
       "close_thread",
@@ -208,14 +220,16 @@
     ]
   },
   "room+skills": {
-    "bytes": 38037,
-    "sha256": "a230a9c91787ab40aeb38af9f6b487bbbd364572bac12fd51211fae996080a06",
+    "bytes": 40476,
+    "sha256": "8b14cb26fa7a32bc6583569ad9ea9aad7dc0a26acc246753500e3e8bf75003ca",
     "tools": [
       "tool_result_read",
       "list_room_targets",
       "coordinate_bots",
       "list_bots",
       "list_rooms",
+      "list_mcp_servers",
+      "register_mcp_server",
       "select_computer",
       "list_threads",
       "close_thread",
@@ -241,8 +255,8 @@
     ]
   },
   "room+skills+shared": {
-    "bytes": 39782,
-    "sha256": "fb97d47a0bcd25647a5a54e5df42e17955ebc42140afe1c4c769073021227099",
+    "bytes": 42221,
+    "sha256": "1e02b3edd6dd562bebbec5ef259c634f389a7f8dbde33352fdfbcb7973945b40",
     "tools": [
       "tool_result_read",
       "list_shared_computers",
@@ -251,6 +265,8 @@
       "coordinate_bots",
       "list_bots",
       "list_rooms",
+      "list_mcp_servers",
+      "register_mcp_server",
       "select_computer",
       "list_threads",
       "close_thread",
@@ -276,14 +292,16 @@
     ]
   },
   "room+own-thread": {
-    "bytes": 37398,
-    "sha256": "0402d86c0c6fe501c593f130819c950abd09289f82f34b2afbd9d59cc502bcb3",
+    "bytes": 39837,
+    "sha256": "9038783cd3bb52576f925b2cca805b6d4f48fb33234d6c2325c0e55e52ef608e",
     "tools": [
       "tool_result_read",
       "list_room_targets",
       "coordinate_bots",
       "list_bots",
       "list_rooms",
+      "list_mcp_servers",
+      "register_mcp_server",
       "select_computer",
       "list_threads",
       "close_thread",
@@ -308,8 +326,8 @@
     ]
   },
   "room+own-thread+shared": {
-    "bytes": 39143,
-    "sha256": "7f8adf7e53e60c5cc0cc4445890d673a83ff546ec931dfe80a41e38879f1b7de",
+    "bytes": 41582,
+    "sha256": "bf1157be56558fb41d1e9ad391276ddf620e57a217915d85deb2b5672ac377e1",
     "tools": [
       "tool_result_read",
       "list_shared_computers",
@@ -318,6 +336,8 @@
       "coordinate_bots",
       "list_bots",
       "list_rooms",
+      "list_mcp_servers",
+      "register_mcp_server",
       "select_computer",
       "list_threads",
       "close_thread",
@@ -342,14 +362,16 @@
     ]
   },
   "room+own-thread+skills": {
-    "bytes": 39324,
-    "sha256": "252c6b78f639837ba81a3affab8ad21476584cb6535f134abb4398acb8d20e1c",
+    "bytes": 41763,
+    "sha256": "0c73160af2bc1f225df2d227057db60245ec530f427c2cd625c8b8df8e776973",
     "tools": [
       "tool_result_read",
       "list_room_targets",
       "coordinate_bots",
       "list_bots",
       "list_rooms",
+      "list_mcp_servers",
+      "register_mcp_server",
       "select_computer",
       "list_threads",
       "close_thread",
@@ -376,8 +398,8 @@
     ]
   },
   "room+own-thread+skills+shared": {
-    "bytes": 41069,
-    "sha256": "8b3aa59728ed91e247d60bfc286a371c1c6fab12213c746342f44f3a424785e9",
+    "bytes": 43508,
+    "sha256": "d31836274e9455bb4673ca2f2805e1eac05abc0f58410c27355936215c6df95c",
     "tools": [
       "tool_result_read",
       "list_shared_computers",
@@ -386,6 +408,8 @@
       "coordinate_bots",
       "list_bots",
       "list_rooms",
+      "list_mcp_servers",
+      "register_mcp_server",
       "select_computer",
       "list_threads",
       "close_thread",

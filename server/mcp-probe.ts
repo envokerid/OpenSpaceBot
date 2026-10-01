@@ -1,3 +1,4 @@
+import { parseRegisteredVmMcp } from "./registered-mcp.ts";
 import { augmentedPath } from "./env-path.ts";
 import {
   PROVIDER_CREDENTIAL_ENV,
@@ -177,7 +178,7 @@ function probeStdioMcpServer(
         finish({ ok: false, error: publicProbeError("protocol") });
         return;
       }
-      finish({ ok: true, tools: publicTools(result.tools, server.env) });
+      finish({ ok: true, tools: publicTools(result.tools, { ...server.env, ...(server.env.OMB_VM_MCP_SPEC ? parseRegisteredVmMcp(server.env.OMB_VM_MCP_SPEC).env : {}) }) });
     });
 
     timer = setTimeout(() => {

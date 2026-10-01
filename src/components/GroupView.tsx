@@ -1,3 +1,4 @@
+import { VmAssignment } from "./VmLibrary";
 // A room: several bots + you in one shared thread. The sidebar and call view
 // carry the personality; avatars inside the room stay still so a busy group
 // does not become a wall of competing motion. Plain messages go to the room's
@@ -1097,6 +1098,7 @@ export function GroupView({ group }: { group: Group }) {
   ));
 
   return (
+    <div className="flex h-full min-w-0 flex-1">
     <main className="relative flex h-full min-w-0 flex-1 flex-col bg-app">
       <GroupCallOverlay group={group} members={members} />
       {membersOpen && !group.dm && (
@@ -1401,5 +1403,9 @@ export function GroupView({ group }: { group: Group }) {
       </div>
       </div>
     </main>
+    <aside aria-label="Group computers" className="hidden h-full w-80 shrink-0 overflow-y-auto border-l border-hairline/40 bg-panel md:block">
+      <VmAssignment subject={{ kind: "group", id: group.id }} threadId={group.threadId} />
+    </aside>
+    </div>
   );
 }

@@ -98,6 +98,7 @@ const ACTION_VERB: Record<PeerAction, string> = {
   ask_bot: "contact",
   delegate_bot: "delegate to",
   post_to_room: "post in",
+  register_mcp_server: "register MCP server",
 };
 
 function pushApprovalCard(
@@ -109,15 +110,15 @@ function pushApprovalCard(
   requestId: string,
   sourceThreadId: string,
 ): Message {
-  const subtitle = message.length > 200 ? `${message.slice(0, 200)}…` : message;
+  const subtitle = action === "register_mcp_server" ? message : message.length > 200 ? `${message.slice(0, 200)}…` : message;
   const note = bus.store.appendMessage(sourceThreadId, {
     role: "bot",
     kind: "options",
     card: {
       // a room is named as a room; only a bot gets an @
-      title: `@${from.name} wants to ${ACTION_VERB[action]} ${action === "post_to_room" ? `“${target.name}”` : `@${target.name}`}`,
+      title: `@${from.name} wants to ${ACTION_VERB[action]} ${(action === "post_to_room" || action === "register_mcp_server") ? `“${target.name}”` : `@${target.name}`}`,
       subtitle,
-      options: ["Allow", "Deny", "Always allow"],
+      options: action === "register_mcp_server" ? ["Allow", "Deny"] : ["Allow", "Deny", "Always allow"],
       requestId,
       tool: action,
       allowKey: peerAllowKey(action, target.id),

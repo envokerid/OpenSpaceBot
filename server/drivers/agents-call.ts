@@ -624,12 +624,19 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     }
     return { text: `Task ${taskId} ended without a reply — ${String(r.status ?? "unknown")}${r.result ? `: ${String(r.result)}` : ""}.`, isError: true };
   }
+  if (name === "list_mcp_servers" || name === "register_mcp_server") {
+    const result = await api("/api/internal/mcp/servers", name === "list_mcp_servers" ? undefined : { method: "POST", body: JSON.stringify(args) });
+    return { text: JSON.stringify(result), ...(result.ok === false ? { isError: true } : {}) };
+  }
   if (name === "select_computer") {
+    if (args.vmId !== undefined && (typeof args.vmId !== "string" || !/^[\w-]{1,160}$/.test(args.vmId) || (args.surface !== undefined && args.surface !== "vm"))) {
+      return { text: "Choose a VM id from the vms list, with surface vm or omitted.", isError: true };
+    }
     if (args.surface !== undefined && (typeof args.surface !== "string" || !["auto", "cloud", "vm", "local", "browser"].includes(args.surface))) {
       return { text: "Choose auto, cloud, vm, local or browser; omit surface to inspect connected choices.", isError: true };
     }
-    const result = await api("/api/internal/computer/select", args.surface === undefined ? undefined : {
-      method: "POST", body: JSON.stringify({ surface: args.surface }),
+    const result = await api("/api/internal/computer/select", args.surface === undefined && args.vmId === undefined ? undefined : {
+      method: "POST", body: JSON.stringify({ surface: args.vmId === undefined ? args.surface : "vm", ...(args.vmId === undefined ? {} : { vmId: args.vmId }) }),
     });
     return { text: JSON.stringify(result) };
   }

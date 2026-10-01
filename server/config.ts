@@ -1267,7 +1267,9 @@ function skipMcpEntry(name: string, why: string): void {
 }
 
 /** The validated, normalized custom servers from config — or {}. */
-export function customMcpServers(cfg: AppConfig, only?: string[]): Record<string, CustomMcpServer> {
+export function customMcpServers(cfg: AppConfig, only?: string[], context?: {
+  botId: string; vmId?: string; wrapVm?: (server: CustomMcpServer) => CustomMcpServer;
+}): Record<string, CustomMcpServer> {
   const out: Record<string, CustomMcpServer> = {};
   for (const [name, raw] of Object.entries(cfg.mcpServers ?? {})) {
     // a bot with its own list gets exactly those names; a bot without one
@@ -1278,10 +1280,12 @@ export function customMcpServers(cfg: AppConfig, only?: string[]): Record<string
       skipMcpEntry(name, `${parsed.error} Expected { "command": "npx", "args": [...], "env": { ... } } or { "type": "http", "url": "https://…", "headers": { ... } }`);
       continue;
     }
-    if (!parsed.server.enabled) continue;
+    if (!parsed.server.enabled || (parsed.server.ownerBotId && parsed.server.ownerBotId !== context?.botId)) continue;
+    if (parsed.server.vmId && (parsed.server.vmId !== context?.vmId || !context?.wrapVm)) continue;
     out[name] = isRemoteMcpServer(parsed.server)
       ? { type: parsed.server.type, url: parsed.server.url, headers: parsed.server.headers }
       : { command: parsed.server.command, args: parsed.server.args, env: parsed.server.env };
+    if (parsed.server.vmId) out[name] = context!.wrapVm!(out[name]);
   }
   return out;
 }

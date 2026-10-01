@@ -13,10 +13,10 @@ function section(key: string, chiefs = 0, members = 0): TeamMapSection {
 
 describe("team canvas geometry", () => {
   it("sizes empty, single-column and Chief/member teams", () => {
-    expect(teamSize(section("Empty"))).toEqual({ width: 276, height: 210 });
-    expect(teamSize(section("Members", 0, 3))).toEqual({ width: 276, height: 494 });
-    expect(teamSize(section("Chiefs", 2))).toEqual({ width: 276, height: 352 });
-    expect(teamSize(section("Team", 1, 3))).toEqual({ width: 552, height: 494 });
+    expect(teamSize(section("Empty"))).toEqual({ width: 276, height: 242 });
+    expect(teamSize(section("Members", 0, 3))).toEqual({ width: 276, height: 590 });
+    expect(teamSize(section("Chiefs", 2))).toEqual({ width: 276, height: 416 });
+    expect(teamSize(section("Team", 1, 3))).toEqual({ width: 552, height: 590 });
   });
 
   it("uses the widest first column and tallest row while preserving saved positions", () => {
@@ -26,7 +26,7 @@ describe("team canvas geometry", () => {
       { key: "A", x: 40, y: 40 },
       { key: "B", x: 648, y: 40 },
       { key: "C", x: -80, y: 950 },
-      { key: "D", x: 648, y: 590 },
+      { key: "D", x: 648, y: 686 },
     ]);
     expect(layoutTeams([], {})).toEqual([]);
     expect(layoutTeams([section("constructor")], {})[0]).toMatchObject({ x: 40, y: 40 });
@@ -34,7 +34,7 @@ describe("team canvas geometry", () => {
 
   it("fits negative coordinates with padding and centers the actual bounds", () => {
     const tiles: Tile[] = [
-      { key: "A", x: -100, y: -200, width: 276, height: 210 },
+      { key: "A", x: -100, y: -200, width: 276, height: 242 },
       { key: "B", x: 400, y: 300, width: 552, height: 352 },
     ];
     const view = fitTeams(tiles, 900, 700);
@@ -49,7 +49,7 @@ describe("team canvas geometry", () => {
   });
 
   it("clamps fit scale and handles empty layouts", () => {
-    const tile = { key: "A", x: 40, y: 40, width: 276, height: 210 };
+    const tile = { key: "A", x: 40, y: 40, width: 276, height: 242 };
     expect(fitTeams([tile], 1000, 1000).scale).toBe(1);
     expect(fitTeams([tile], 50, 50).scale).toBe(0.3);
     expect(fitTeams([], 900, 700)).toEqual({ x: 0, y: 0, scale: 1 });

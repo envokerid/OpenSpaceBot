@@ -1,3 +1,4 @@
+import { registeredVmMcpLaunch } from "../registered-mcp.ts";
 // Codex driver contract tests, run against the scripted fake app-server
 // in server/testing/fake-codex-app-server.ts — the driver must drive the
 // JSON-RPC handshake, normalize notifications into canonical events, and
@@ -428,6 +429,40 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(replacement.calls.some((call: any) => call.method === "thread/resume")).toBe(false);
     expect(processIsAlive(first.pid)).toBe(false);
     expect(processIsAlive(other.pid)).toBe(true);
+  });
+
+  it.each([
+    ["before-thread", [{ status: "failed" }], true],
+    ["turn", [{ status: "failed" }], true],
+    ["idle", [{ status: "failed" }], true],
+    ["turn", [{ status: "failed", threadId: "helper-thread" }], false],
+    ["turn", [{ status: "failed" }, { status: "ready" }], false],
+    ["turn", [{ status: "failed" }, { status: "ready", name: "agents" }], true],
+    ["turn", [{ status: "ready" }], false],
+  ] as const)("recovers unresolved MCP startup failures from %s (%j)", async (phase, statuses, restart) => {
+    const dump = join(scratch, "mcp-startup-runtime.json");
+    const startupFile = join(scratch, "mcp-startup.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    await create({ mode: "resume", environment: { FAKE_CODEX_MCP_STARTUP_FILE: startupFile } });
+    writeFileSync(startupFile, JSON.stringify(statuses.map(status => ({
+      phase, name: "openmausbot_connectors", ...status,
+    }))));
+    const send = async (text: string) => {
+      const turn = await instance.adapter.sendTurn({ threadId: "startup-recovery", text });
+      await expect(recorder.until(e => e.type === "turn.completed" && e.turnId === turn.turnId)).resolves.toMatchObject({ ok: true });
+      return JSON.parse(readFileSync(dump, "utf8"));
+    };
+    const first = await send("first request");
+    writeFileSync(startupFile, "[]");
+    const second = await send("try again");
+    expect(second.pid !== first.pid).toBe(restart);
+    expect(recorder.events.some(e => e.type === "turn.retrying")).toBe(false);
+    if (restart) {
+      expect(processIsAlive(first.pid)).toBe(false);
+      expect(second.calls.find((call: any) => call.method === "thread/resume")?.params.threadId).toBe("codex-thread-1");
+      expect(second.calls.filter((call: any) => call.method === "turn/start")).toHaveLength(1);
+    }
+    expect((await send("healthy follow-up")).pid).toBe(second.pid);
   });
 
   it.each([
@@ -1011,6 +1046,33 @@ describe("CodexDriver turns (fake app-server)", () => {
     // server does NOT — its tool calls arrive as approval cards
     expect(argv).toContain('mcp_servers.openmausbot_connectors.default_tools_approval_mode');
     expect(argv).not.toContain('mcp_servers.notes.default_tools_approval_mode');
+  });
+
+  it("mounts VM registrations with separate private payloads and preserves computer credentials", async () => {
+    await create();
+    const dump = join(scratch, "vm-mcp.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    const computer = { command: process.execPath, args: ["/tmp/container-mcp.js", "docker", "fixture", "/run/user/1000/cua.sock"],
+      env: { OMB_CONTROL_TOKEN: "control-secret", OMB_CONTROL_TOKEN_FILE: "/tmp/turn-token", OMB_CONTROL_URL: "http://127.0.0.1:9/control" } };
+    const first = registeredVmMcpLaunch({ command: "/vm/node", args: ["files.js"], env: { TOKEN: "files-secret" } }, computer);
+    const second = registeredVmMcpLaunch({ command: "/vm/node", args: ["lint.js"], env: { TOKEN: "lint-secret" } }, computer);
+    await instance.adapter.sendTurn({ threadId: "t-vm-mcp", text: "go", integrations: { localComputer: computer, custom: { files: first, lint: second } } });
+    await recorder.until(e => e.type === "turn.completed");
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    const argv = seen.argv.join(" ");
+    for (const [name, secret, file] of [["files", "files-secret", "files.js"], ["lint", "lint-secret", "lint.js"]]) {
+      const key = `OMB_VM_MCP_SPEC_${Buffer.from(name).toString("hex").toUpperCase()}`;
+      expect(argv).toContain(key);
+      expect(argv).not.toContain(secret);
+      expect(JSON.parse(seen.env[key])).toMatchObject({ command: "/vm/node", args: [file], env: { TOKEN: secret } });
+      expect(argv).not.toContain(`mcp_servers.${name}.default_tools_approval_mode`);
+    }
+    expect(seen.env.OMB_CONTROL_TOKEN).toBe("control-secret");
+    expect(argv).not.toContain("control-secret");
+    expect(seen.env.OMB_VM_MCP_SPEC).toBeUndefined();
+    // Copying the fields does not turn an untrusted custom server into a
+    // harness-owned bridge, even if its command resembles our entry point.
+    await expect(instance.adapter.sendTurn({ threadId: "t-spoofed-vm", text: "go", integrations: { custom: { fake: { ...first } } } })).rejects.toThrow(/reserved environment variable/);
   });
 
   it("mounts a custom server under its own name when the user's config.toml already has one by that name", async () => {

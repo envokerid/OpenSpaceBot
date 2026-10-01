@@ -13,6 +13,10 @@ An MCP call that fails with `Transport closed` marks the waiting runtime for
 replacement before the next message, even if the model finishes its reply
 successfully. The replacement resumes the same native conversation. It does
 not replay the failed call or the previous user request.
+An MCP server that fails during startup also marks the runtime for replacement
+before the next message. Startup status belongs to the native thread, without a
+turn ID, and is tracked during setup and idle time. A later ready status clears
+that server's failure; helper-thread failures do not restart the parent.
 Team, browser, connector, and gated computer proxies snapshot the current turn's credential
 from a private file for each request. In-flight requests keep their original
 credential; completion removes the file and revokes that turn's authority.
@@ -32,8 +36,11 @@ in the transcript. Both use the same process, with one `initialize` and two
 credential rotation. A third reply reports a scripted computer transport
 closure; a fourth message must replace the process, resume the same native
 thread, and exercise the real team-tools bridge again. The failed request
-must not be replayed. The fixture is then stopped and removed. The computer
-error is synthetic; this check does not open or control a real desktop.
+must not be replayed. A fifth reply reports a connector startup failure; the
+sixth message must replace that runtime and resume the same conversation, again
+without replay. The fixture is then stopped and removed. The computer and
+connector errors are synthetic; this check does not open a real desktop or
+execute calls against connected accounts.
 
 The persistent server log has a sibling `.codex-session.json` evidence file
 containing the command sequence, wait results, bounded transcript and process

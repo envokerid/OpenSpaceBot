@@ -6,7 +6,7 @@ import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { containerRunArgs, containerComputerStatus, localVmMountable, type LocalVmTarget } from "../server/container-computer.ts";
+import { containerRunArgs, containerComputerStatus, localVmMountable, recreateDockerVmPreservingDisk, VM_INSTALL_CAPABILITIES, type LocalVmTarget } from "../server/container-computer.ts";
 import { launchVerificationServer, runControlOmb } from "./control-omb.ts";
 
 if (process.argv[2] !== "--docker") throw new Error("Pass --docker to use an isolated container on the local Docker engine");
@@ -18,13 +18,17 @@ const target: LocalVmTarget = { key: "persistence-fixture", label: "persistence-
 const evidence: unknown[] = [];
 const fixture = await launchVerificationServer();
 let created = false;
+const repairs: { backupContainer: string; snapshotImage: string }[] = [];
 try {
   evidence.push({ fixture: fixture.info, doctor: await runControlOmb(["doctor", "--url", fixture.info.url]) });
   const response = await fetch(fixture.info.url + "/api/local-computer");
   const state = await response.json() as { idle_timeout_ms: number };
   if (!response.ok || state.idle_timeout_ms !== 0) throw new Error("Automatic idle cleanup must be disabled");
   evidence.push({ idleTimeoutMs: state.idle_timeout_ms });
-  await docker(...containerRunArgs("docker", randomUUID(), target));
+  // Start with the legacy capability profile to reproduce the reported failure.
+  const legacyArgs = containerRunArgs("docker", randomUUID(), target);
+  for (const cap of VM_INSTALL_CAPABILITIES) legacyArgs.splice(legacyArgs.indexOf(cap) - 1, 2);
+  await docker(...legacyArgs);
   created = true;
   const inspected = await containerComputerStatus(undefined, undefined, target, { probeDesktop: false });
   if (!localVmMountable(inspected)) throw new Error(`Fixture failed the production ownership/isolation check: ${inspected.problem}`);
@@ -77,8 +81,46 @@ try {
     test "$(cat /home/cua/workspace/omb-persistence)" = retained
   `);
   evidence.push({ containerIdPreserved: true, displayResumed: true, retained });
+  let blocked = false;
+  try { await docker("exec", "-u", "cua", target.containerName, "sudo", "-n", "chown", "root:root", "/var/cache/apt/archives/partial"); }
+  catch (error) { blocked = String(error).includes("Operation not permitted"); }
+  if (!blocked) throw new Error("Legacy installer restriction was not reproduced");
+  await docker("stop", "--time", "10", target.containerName);
+  const repair = await recreateDockerVmPreservingDisk(target);
+  repairs.push(repair);
+  await ready();
+  const sudo = await exec("docker", ["exec", "-u", "cua", target.containerName, "sudo", "-n", "id"], { timeout: 15000 });
+  if (sudo.stderr.includes("Operation not permitted")) throw new Error("sudo audit permission is still missing");
+  // Use the same sudo path as the desktop user, without APT sandbox workarounds.
+  await docker("exec", "-u", "cua", target.containerName, "sudo", "-n", "sh", "-ec", `
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git
+    test -z "$(dpkg --audit)"
+    git --version
+    test "$(/usr/local/bin/omb-persistence-fixture)" = persistent-app
+    for path in /etc/omb-persistence /opt/omb-fixture/file /home/cua/Downloads/omb-persistence /home/cua/workspace/omb-persistence; do
+      test "$(cat "$path")" = retained
+    done
+  `);
+  // Recreate again after a real APT installation, including the snapshot chain.
+  await docker("stop", "--time", "10", target.containerName);
+  repairs.push(await recreateDockerVmPreservingDisk(target));
+  await ready();
+  await docker("exec", target.containerName, "sh", "-ec", 'git --version; test -z "$(dpkg --audit)"; test "$(cat /home/cua/Downloads/omb-persistence)" = retained');
+  const repairedId = await docker("inspect", "--format", "{{.Id}}", target.containerName);
+  await docker("stop", "--time", "10", target.containerName);
+  await docker("start", target.containerName);
+  await ready();
+  if (await docker("inspect", "--format", "{{.Id}}", target.containerName) !== repairedId) throw new Error("Repaired VM was replaced after restart");
+  await docker("exec", target.containerName, "git", "--version");
+  if (await docker("inspect", "--format", "{{.Id}}", repair.backupContainer) !== beforeId) throw new Error("Rollback container was lost");
+  evidence.push({ legacyInstallDenied: true, repairedAptInstall: true, packageAuditClean: true, allFilesRetained: true, rollbackRetained: true, repairedRestartRetained: true });
 } finally {
   if (created) await docker("rm", "-f", target.containerName);
+  for (const repair of repairs.reverse()) {
+    await docker("rm", repair.backupContainer);
+    await docker("image", "rm", repair.snapshotImage);
+  }
   await fixture.close();
   await rm(home, { recursive: true, force: true });
   const directory = join(tmpdir(), "openmausbot-verification-evidence");

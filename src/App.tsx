@@ -211,19 +211,21 @@ function Shell() {
   // here (always mounted) when a bot's viewer closes. release() is idempotent.
   useEffect(() => {
     return window.ogb?.desktopViewer?.onState((viewer) => {
-      if (viewer.open || !viewer.contextId) return;
-      const botId = viewer.contextId;
-      void fetch(`/api/bots/${botId}/computer/control`, {
+      if (viewer.open || !viewer.contextId || viewer.contextId.startsWith("vm-preview:")) return;
+      const [botId, threadId, controlLeaseId] = viewer.contextId.split(":");
+      if (!/^[\w-]+$/.test(botId) || (threadId && !/^[\w-]+$/.test(threadId)) || (controlLeaseId && !/^[\w-]{16,120}$/.test(controlLeaseId))) return;
+      const query = threadId ? `?threadId=${encodeURIComponent(threadId)}` : "";
+      void fetch(`/api/bots/${botId}/computer/control${query}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "release" }),
+        body: JSON.stringify({ action: "release", ...(controlLeaseId ? { controlLeaseId } : {}) }),
       })
         .then((res) => (res.ok ? res.json() : null))
         .then((snap) => {
           if (snap) dispatch({ type: "computerControl", botId, held: snap.held === true, helpReason: snap.helpReason ?? null });
         })
         .catch(() => {});
-      void fetch(`/api/bots/${botId}/computer/viewer-close`, {
+      void fetch(`/api/bots/${botId}/computer/viewer-close${query}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: "{}",

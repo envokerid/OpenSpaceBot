@@ -211,6 +211,14 @@ The [Local VM persistence recipe](local-vm-persistence.md) checks disabled idle
 deletion, non-destructive resume, and installed apps and files across a Docker
 stop/start cycle in an isolated container.
 
+The [persistent VM library checks](vm-library.md) cover migration, creation,
+shared/isolated assignments, group tool routing, lifecycle, and control ownership
+through an isolated production server.
+
+The [bot MCP registration checks](mcp-registration.md) cover persistent, bot-scoped
+registration, approval, direct/group continuation and guest execution inside an
+isolated Docker VM.
+
 ## Evidence
 
 The [Japanese desktop font recipe](japanese-desktop.md) checks real Firefox and

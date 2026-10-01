@@ -16,10 +16,11 @@ it("keeps healthy Codex tools ready and rebuilds closed transports across isolat
     const dump = join(directory, "codex-runtime.json");
     const plan = join(directory, "codex-plan.json");
     const mcpItem = join(directory, "mcp-item.json");
+    const mcpStartup = join(directory, "mcp-startup.json");
     const wrapper = join(directory, "codex-fixture.mjs");
     writeFileSync(wrapper, [
       "#!/usr/bin/env node",
-      `Object.assign(process.env, ${JSON.stringify({ FAKE_CODEX_MODE: "resume", FAKE_CODEX_DUMP: dump, FAKE_CODEX_ROOM_PLAN: plan, FAKE_CODEX_MCP_ITEM_FILE: mcpItem })});`,
+      `Object.assign(process.env, ${JSON.stringify({ FAKE_CODEX_MODE: "resume", FAKE_CODEX_DUMP: dump, FAKE_CODEX_ROOM_PLAN: plan, FAKE_CODEX_MCP_ITEM_FILE: mcpItem, FAKE_CODEX_MCP_STARTUP_FILE: mcpStartup })});`,
       `await import(${JSON.stringify(new URL("./testing/fake-codex-app-server.ts", import.meta.url).href)});`,
     ].join("\n"), { mode: 0o700 });
     const response = await fetch(fixture.info.url + "/api/instances/codex", {
@@ -36,6 +37,8 @@ it("keeps healthy Codex tools ready and rebuilds closed transports across isolat
       { steps: [{ tool: "list_bots", arguments: {} }], reply: "SECOND_WAITING_REPLY" },
       { steps: [{ tool: "list_bots", arguments: {} }], reply: "CLOSED_TRANSPORT_REPLY" },
       { steps: [{ tool: "list_bots", arguments: {} }], reply: "RECOVERED_TRANSPORT_REPLY" },
+      { steps: [{ tool: "list_bots", arguments: {} }], reply: "FAILED_CONNECTOR_STARTUP_REPLY" },
+      { steps: [{ tool: "list_bots", arguments: {} }], reply: "RECOVERED_CONNECTOR_STARTUP_REPLY" },
     ] } }));
     await cli("send", "--bot", bot.id, "--text", "First request");
     expect((await cli("wait", "--bot", bot.id, "--timeout", "30")).status).toBe("settled");
@@ -75,11 +78,29 @@ it("keeps healthy Codex tools ready and rebuilds closed transports across isolat
     expect(recoveredTranscript).toContain("RECOVERED_TRANSPORT_REPLY");
     expect(readFileSync(plan + ".evidence.jsonl", "utf8")).not.toContain('"isError":true');
     evidence.push({ replacedProcess: failed.pid, recoveredProcess: recovered.pid, resumedThread: "codex-thread-1", replayedTurns: 0 });
+    writeFileSync(mcpStartup, JSON.stringify([{ name: "openmausbot_connectors", status: "failed",
+      error: "MCP startup failed: connector service returned HTTP 500" }]));
+    await cli("send", "--bot", bot.id, "--text", "Observe the fixture connector startup failure");
+    expect((await cli("wait", "--bot", bot.id, "--timeout", "30")).status).toBe("settled");
+    const startupFailed = JSON.parse(readFileSync(dump, "utf8"));
+    expect(startupFailed.pid).toBe(recovered.pid);
+    writeFileSync(mcpStartup, "[]");
+    await cli("send", "--bot", bot.id, "--text", "Retry after the connector service recovers");
+    expect((await cli("wait", "--bot", bot.id, "--timeout", "30")).status).toBe("settled");
+    const startupRecovered = JSON.parse(readFileSync(dump, "utf8"));
+    expect(startupRecovered.pid).not.toBe(startupFailed.pid);
+    expect(startupRecovered.calls.find((call: any) => call.method === "thread/resume")?.params.threadId).toBe("codex-thread-1");
+    expect(startupRecovered.calls.filter((call: any) => call.method === "turn/start")).toHaveLength(1);
+    const startupTranscript = JSON.stringify(await cli("messages", "--bot", bot.id, "--limit", "30"));
+    expect(startupTranscript).toContain("FAILED_CONNECTOR_STARTUP_REPLY");
+    expect(startupTranscript).toContain("RECOVERED_CONNECTOR_STARTUP_REPLY");
+    expect(readFileSync(plan + ".evidence.jsonl", "utf8")).not.toContain('"isError":true');
+    evidence.push({ startupFailedProcess: startupFailed.pid, startupRecoveredProcess: startupRecovered.pid, resumedThread: "codex-thread-1", replayedTurns: 0 });
     const deletion = await fetch(fixture.info.url + `/api/bots/${bot.id}`, { method: "DELETE" });
     expect(deletion.ok).toBe(true);
     const deletionResult = await deletion.json();
     await expect.poll(() => {
-      try { process.kill(recovered.pid, 0); return true; } catch { return false; }
+      try { process.kill(startupRecovered.pid, 0); return true; } catch { return false; }
     }).toBe(false);
     evidence.push({ method: "DELETE", botId: bot.id, result: deletionResult, waitingProcessStopped: true });
   } finally {

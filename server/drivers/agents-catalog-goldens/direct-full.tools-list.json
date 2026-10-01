@@ -224,8 +224,77 @@
       }
     },
     {
+      "name": "list_mcp_servers",
+      "description": "List MCP servers available to you, including your registered servers, without revealing saved secrets. Use before registering to avoid duplicates.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "register_mcp_server",
+      "description": "Register and test an MCP server in OpenMausBot for your own use when the user requests tools or an integration. Saves a durable connection and adds it to your permitted MCP servers; never edits another bot's servers. Full Access applies immediately; otherwise an in-app approval asks before executing or connecting. Use command/args/env for stdio, or url/type/headers for HTTP/SSE. For software installed inside a Local VM, supply vmId from select_computer and guest command paths; select that VM first. Without vmId, a command runs on the OpenMausBot host. Do not point host commands at guest paths or claim a tool is connected until this succeeds. On resume_after_turn, end this turn immediately: the app resumes the original request with fresh tools. Otherwise tools load next turn. Installed software must already exist.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Unique name: lowercase letter followed by lowercase letters, digits, underscores or hyphens; at most 32 characters."
+          },
+          "command": {
+            "type": "string"
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Write-only environment values. Do not put credentials in args."
+          },
+          "vmId": {
+            "type": "string",
+            "description": "Run the command inside this permitted, selected Local VM. Omit for a host command or remote URL."
+          },
+          "url": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "http",
+              "sse"
+            ]
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Write-only HTTP headers."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
       "name": "select_computer",
-      "description": "Choose where this conversation does computer work. Call with no arguments to inspect actual available choices and the current place. For a task needing computer interaction, select the requested place, or auto to choose a suitable configured computer without asking the user to use menus. OpenMausBot reuses an existing computer first; with a configured provider it can start or provision one when needed. Do not provision for ordinary chat or just to inspect availability. A pending result means end this turn immediately: OpenMausBot updates the conversation selector and resumes the original request with that computer's real tools. Do not use the old tools after requesting a switch, repeat the task, or claim the action is done. This cannot change permissions, override Off, or switch a teammate/routine/channel.",
+      "description": "Choose where this conversation does computer work. Call with no arguments to inspect actual available choices and the current place. For a task needing computer interaction, select the requested place, or auto to choose a suitable configured computer without asking the user to use menus. OpenMausBot reuses an existing computer first; with a configured provider it can start or provision one when needed. Do not provision for ordinary chat or just to inspect availability. A pending result means end this turn immediately: OpenMausBot updates the conversation selector and resumes the original request with that computer's real tools. Do not use the old tools after requesting a switch, repeat the task, or claim the action is done. A bot or group can have several permitted Local VMs: inspect vms and choose vmId by name and purpose. Groups can select vmId only. Switching never changes access or default assignments and cannot override Off or switch another conversation.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
@@ -240,6 +309,10 @@
               "browser"
             ],
             "description": "auto = suitable configured computer, cloud = remote Box/VPS, vm = isolated Local VM, local = user's own desktop, browser = built-in browser. Omit to list."
+          },
+          "vmId": {
+            "type": "string",
+            "description": "Choose a named Local VM by its id from the vms list. Only VMs permitted for this bot or group are listed. Implies surface vm. The choice applies to this conversation; defaults and access stay unchanged."
           }
         }
       }

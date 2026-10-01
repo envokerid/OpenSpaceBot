@@ -18,6 +18,7 @@ import { codexConfigMcpServerNames, mountedMcpServerName } from "./codex-mcp-nam
 import { stripWorkspaceCredentialEnv } from "../config.ts";
 import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../procs.ts";
 import { isHarnessOwnedMcpEnvName } from "../mcp-registry.ts";
+import { isRegisteredVmMcpLaunch, namespacedRegisteredVmMcp } from "../registered-mcp.ts";
 
 import type {
   DriverCreateInput,
@@ -638,6 +639,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       usedByTurn: boolean;
       /** MCP children cannot be revived by reusing the app-server process. */
       mcpTransportClosed?: boolean;
+      failedMcpServers: Set<string>;
       preparationTimer?: ReturnType<typeof setTimeout>;
       usageBaseline?: { input: number; output: number; cachedInput: number };
       onMessage: (message: any) => void;
@@ -723,7 +725,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       // explicit mode, which takes precedence.
       const approvalMode: ApprovalMode = turn.approvalMode ?? (config.fullAuto ? "full" : "ask");
       for (const [name, server] of Object.entries(turn.integrations?.custom ?? {})) {
-        if ("url" in server) continue;
+        if ("url" in server || isRegisteredVmMcpLaunch(server)) continue;
         const reserved = Object.keys(server.env).find(isHarnessOwnedMcpEnvName);
         if (reserved) {
           throw new Error(`Custom MCP server “${name}” cannot set reserved environment variable “${reserved}”`);
@@ -798,7 +800,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           }
           const mountName = mountedMcpServerName(name, declaredInCodexConfig);
           if (mountName !== name) noteRenamedMcpServer(name, mountName);
-          mountMcpServer(appServerArgs, env, mountName, server, false);
+          mountMcpServer(appServerArgs, env, mountName, "url" in server ? server : namespacedRegisteredVmMcp(server, mountName), false);
         }
         if (turn.integrations?.phone) {
           const bridge = turn.integrations.phone;
@@ -819,7 +821,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         })).digest("hex");
         let session = sessions.get(threadId);
         if (session && !preparation) clearTimeout(session.preparationTimer);
-        if (session && (session.key !== key || turn.sessionReset || session.mcpTransportClosed ||
+        if (session && (session.key !== key || turn.sessionReset || session.mcpTransportClosed || session.failedMcpServers.size > 0 ||
             (turn.resumeCursor && turn.resumeCursor !== session.nativeId) ||
             session.child.exitCode !== null || session.child.signalCode !== null)) {
           // Reserve the thread while waiting for the old process to stop.
@@ -843,7 +845,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             cwd: turn.cwd ?? homedir(), env, stdio: ["pipe", "pipe", "pipe"],
           });
           session = { child, key, initialized: false, nextId: 1, sensitiveResponseIds: new Set(), nativeId: null, usedByTurn: false,
-            onMessage: () => {}, onError: () => {}, onStderr: () => {}, onClose: () => {} };
+            failedMcpServers: new Set(), onMessage: () => {}, onError: () => {}, onStderr: () => {}, onClose: () => {} };
           sessions.set(threadId, session);
           const created = session;
           let buffer = "";
@@ -875,6 +877,17 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       let codexTurnId: string | null = null;
       let startingNativeTurn = false;
       const earlyNotifications: any[] = [];
+      const earlyMcpStartup: Array<{ threadId: string; name: string; status: string }> = [];
+      const recordMcpStartup = (p: { threadId: string; name: string; status: string }) => {
+        if (!codexThreadId) {
+          // Startup can precede the thread/start or thread/resume response.
+          if (earlyMcpStartup.length < 256) earlyMcpStartup.push(p);
+          return;
+        }
+        if (p.threadId !== codexThreadId) return;
+        if (p.status === "failed") liveSession.failedMcpServers.add(p.name);
+        else if (p.status === "ready") liveSession.failedMcpServers.delete(p.name);
+      };
       const state = {
         settled: false,
         lastError: "",
@@ -1407,6 +1420,16 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         stderrSinceOutput = "";
         const loggedMessage = codexNativeIncomingLogMessage(msg, sensitiveResponseIds);
         appendNative(threadId, { dir: "in", source: "codex.app-server", msg: loggedMessage });
+        if (msg.method === "mcpServer/startupStatus/updated") {
+          // This is a thread notification, with no turnId, and can also
+          // arrive while idle. A failed startup exposes no callable tool,
+          // so the ordinary Transport closed recovery cannot detect it.
+          const p = msg.params;
+          if (typeof p?.threadId === "string" && typeof p.name === "string" && typeof p.status === "string") {
+            recordMcpStartup(p);
+          }
+          return;
+        }
         if (msg.id !== undefined && (msg.result !== undefined || msg.error !== undefined)) {
           const pend = rpcPending.get(msg.id);
           if (pend) {
@@ -1663,6 +1686,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           startedModel = started?.model ?? null;
         }
         if (!codexThreadId) throw new Error("Codex did not return a native thread id");
+        for (const status of earlyMcpStartup.splice(0)) recordMcpStartup(status);
         const rulesUpdated = resumedNativeThread && preservePreparedInstructions ? false :
           await syncCodexInstructions(instanceId, codexThreadId, developerInstructions, resumedNativeThread, request);
         if (turn.systemVolatile !== undefined) {

@@ -5,8 +5,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon, type IconName } from './Icon';
 import { useSheetSlide } from './useSheetSlide';
 
-const light = { dark: false, mineText: '#FFFFFF', accentInk: '#FFFFFF', bg: '#FEF7FF', card: '#F3EDF7', text: '#1D1B20', muted: '#49454F', line: '#CAC4D0', accent: '#009957', tint: '#E8DEF8', danger: '#B3261E', chrome: '#ECE6F0', mine: '#377FE6', bubble: '#E9E9EB', outline: '#79747E', sheet: '#F7F2FA' };
-const dark: typeof light = { dark: true, mineText: '#FFFFFF', accentInk: '#FFFFFF', bg: '#141218', card: '#211F26', text: '#E6E0E9', muted: '#CAC4D0', line: '#49454F', accent: '#009957', tint: '#4A4458', danger: '#F2B8B5', chrome: '#2B2930', mine: '#377FE6', bubble: '#262629', outline: '#938F99', sheet: '#1D1B20' };
+const light = { dark: false, mineText: '#FFFFFF', accentInk: '#FFFFFF', bg: '#FEF7FF', card: '#F3EDF7', text: '#1D1B20', muted: '#49454F', line: '#CAC4D0', accent: skins.daylight.accent as string, tint: '#E8DEF8', danger: '#B3261E', chrome: '#ECE6F0', mine: '#377FE6', bubble: '#E9E9EB', outline: '#79747E', sheet: '#F7F2FA' };
+const dark: typeof light = { dark: true, mineText: '#FFFFFF', accentInk: '#FFFFFF', bg: '#141218', card: '#211F26', text: '#E6E0E9', muted: '#CAC4D0', line: '#49454F', accent: skins.midnight.accent, tint: '#4A4458', danger: '#F2B8B5', chrome: '#2B2930', mine: '#377FE6', bubble: '#262629', outline: '#938F99', sheet: '#1D1B20' };
 const Theme = createContext(light);
 const DialogTypography = createContext(false);
 const SettingsStyle = createContext(false);
@@ -16,8 +16,8 @@ export const useSettingsStyle = () => useContext(SettingsStyle);
 export function SettingsSurface({ children, modal = false }: React.PropsWithChildren<{ modal?: boolean }>) {
   const c = useTheme();
   const theme = c.dark
-    ? { ...c, bg: c.bg, sheet: '#171717', card: '#202020', chrome: '#292929', text: '#FFFFFF', muted: '#A7A7A7', line: '#303030', outline: '#5E5E5E', accent: '#FFFFFF', accentInk: '#000000' }
-    : { ...c, bg: c.bg, sheet: '#FFFFFF', card: '#F0F0F0', chrome: '#E6E6E6', text: '#0A0A0A', muted: '#747474', line: '#E8E8E8', outline: '#A2A2A2', accent: '#111111', accentInk: '#FFFFFF' };
+    ? { ...c, bg: c.bg, sheet: '#171717', card: '#202020', chrome: '#292929', text: '#FFFFFF', muted: '#A7A7A7', line: '#303030', outline: '#5E5E5E' }
+    : { ...c, bg: c.bg, sheet: '#FFFFFF', card: '#F0F0F0', chrome: '#E6E6E6', text: '#0A0A0A', muted: '#747474', line: '#E8E8E8', outline: '#A2A2A2' };
   return <SettingsStyle.Provider value><Theme.Provider value={theme}>{modal ? children : <View style={{ flex: 1, backgroundColor: theme.bg }}>{children}</View>}</Theme.Provider></SettingsStyle.Provider>;
 }
 export const useTheme = () => useContext(Theme);

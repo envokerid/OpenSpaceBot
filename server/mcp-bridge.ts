@@ -27,7 +27,7 @@
 import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 
-import { CONTROL_REFUSAL_PLAIN, createControlClient } from "./control-client.ts";
+import { CONTROL_REFUSAL_PLAIN, CONTROL_UNAVAILABLE_REFUSAL, createControlClient } from "./control-client.ts";
 import { augmentedPath } from "./env-path.ts";
 import { createToolListNormalizer } from "./mcp-tool-schema.ts";
 import { turnToken } from "./turn-token.ts";
@@ -286,7 +286,7 @@ export function runMcpBridge(options: BridgeOptions): void {
       refusalReason = undefined;
       // A removed file revokes the turn. Never fall back to a launch token
       // or to the control client's unconfigured/disengaged behavior.
-      if (!token) return true;
+      if (!token) { refusalReason = CONTROL_UNAVAILABLE_REFUSAL; return true; }
       const state = await client.state(true);
       refusalReason = state.blockedReason;
       return state.held;

@@ -1,0 +1,125 @@
+<style>
+ #omb-vm-plan{--omb-bg:light-dark(#fff,#191919);--omb-side:light-dark(#f6f6f5,#202020);--omb-line:light-dark(#e4e4e0,#393939);--omb-ink:light-dark(#252525,#ededeb);--omb-muted:light-dark(#686862,#b4b4ad);--omb-selected:light-dark(#eaeae5,#353530);--omb-good:light-dark(#277143,#8bcea3);color:var(--omb-ink);font-family:system-ui,sans-serif;background:var(--omb-bg);border:1px solid var(--omb-line);border-radius:12px;overflow:hidden}
+ #omb-vm-plan *{box-sizing:border-box}#omb-vm-plan button,#omb-vm-plan input,#omb-vm-plan select{font:inherit;color:inherit}#omb-vm-plan button{background:var(--omb-bg);border:1px solid var(--omb-line);border-radius:7px;padding:8px 12px;cursor:pointer}#omb-vm-plan button:hover{background:var(--omb-selected)}#omb-vm-plan button:disabled{opacity:.5;cursor:default}#omb-vm-plan button.omb-primary{background:var(--omb-ink);color:var(--omb-bg);border-color:var(--omb-ink)}#omb-vm-plan button[aria-pressed=true]{background:var(--omb-selected)}
+ #omb-vm-plan .omb-top{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--omb-line)}#omb-vm-plan .omb-shell{display:grid;grid-template-columns:166px minmax(0,1fr)}#omb-vm-plan .omb-nav{background:var(--omb-side);padding:18px 10px;display:flex;flex-direction:column;gap:8px}#omb-vm-plan .omb-nav button{text-align:left;border-color:transparent;background:transparent}#omb-vm-plan .omb-nav button[aria-pressed=true]{background:var(--omb-selected)}
+ #omb-vm-plan .omb-main{padding:24px;min-width:0}#omb-vm-plan h2,#omb-vm-plan h3,#omb-vm-plan p{margin:0}#omb-vm-plan h2,#omb-vm-plan h3,#omb-vm-plan strong{font-weight:500}#omb-vm-plan .omb-muted{color:var(--omb-muted)}#omb-vm-plan .omb-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap}#omb-vm-plan .omb-sub{margin-bottom:20px;color:var(--omb-muted)}#omb-vm-plan .omb-list{border:1px solid var(--omb-line);border-radius:10px;overflow:hidden}
+ #omb-vm-plan .omb-vm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:16px;border-bottom:1px solid var(--omb-line)}#omb-vm-plan .omb-vm:last-child{border-bottom:0}#omb-vm-plan .omb-vm p{margin-top:5px;overflow-wrap:anywhere}#omb-vm-plan .omb-vm button{align-self:center}#omb-vm-plan .omb-good{color:var(--omb-good)}#omb-vm-plan .omb-tag{display:inline-block;padding:2px 7px;border-radius:5px;background:var(--omb-side);margin-left:6px}#omb-vm-plan .omb-detail{margin-top:20px;padding:18px;background:var(--omb-side);border:1px solid var(--omb-line);border-radius:10px}#omb-vm-plan .omb-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+ #omb-vm-plan dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px 20px;margin:16px 0}#omb-vm-plan dt{color:var(--omb-muted)}#omb-vm-plan dd{margin:0;overflow-wrap:anywhere}#omb-vm-plan .omb-form{display:grid;gap:18px;max-width:600px}#omb-vm-plan label{display:grid;gap:7px}#omb-vm-plan input,#omb-vm-plan select{width:100%;min-width:0;background:var(--omb-bg);border:1px solid var(--omb-line);padding:10px;border-radius:7px}#omb-vm-plan fieldset{border:1px solid var(--omb-line);border-radius:8px;padding:14px;margin:0}#omb-vm-plan .omb-check{display:flex;flex-direction:row;align-items:center;gap:10px;margin:8px 0}#omb-vm-plan .omb-check input{width:auto}#omb-vm-plan .omb-two{display:grid;grid-template-columns:1fr 1fr;gap:14px}#omb-vm-plan .omb-notice{margin-top:16px;color:var(--omb-good)}#omb-vm-plan .omb-danger{color:light-dark(#a02525,#f4acac)}#omb-vm-plan [hidden]{display:none!important}
+ #omb-vm-plan[data-density=compact] .omb-vm{padding:11px 16px}#omb-vm-plan[data-mobile=true] .omb-shell{grid-template-columns:1fr}#omb-vm-plan[data-mobile=true] .omb-nav{flex-direction:row;flex-wrap:wrap}#omb-vm-plan[data-mobile=true]{max-width:420px;margin:auto}#omb-vm-plan[data-mobile=true] .omb-main{padding:16px}#omb-vm-plan[data-mobile=true] .omb-two{grid-template-columns:1fr}
+ @media(max-width:620px){#omb-vm-plan .omb-shell{grid-template-columns:1fr}#omb-vm-plan .omb-nav{flex-direction:row;flex-wrap:wrap;padding:10px}#omb-vm-plan .omb-main{padding:16px}#omb-vm-plan .omb-two{grid-template-columns:1fr}#omb-vm-plan dl{grid-template-columns:1fr;gap:5px}#omb-vm-plan dd{margin-bottom:8px}}
+ @media(pointer:coarse){#omb-vm-plan button,#omb-vm-plan input,#omb-vm-plan select{min-height:44px}}
+</style>
+<div id="omb-vm-plan" aria-label="OpenMausBot VM management proposal">
+ <div class="omb-top"><strong>OpenMausBot</strong><span class="omb-muted">Design preview</span></div>
+ <div class="omb-shell">
+  <nav class="omb-nav" aria-label="Computer settings">
+   <button data-page="library" aria-pressed="true">Local VMs</button>
+   <button data-page="bots" aria-pressed="false">Bot computer</button>
+   <button data-page="groups" aria-pressed="false">Group computer</button>
+  </nav>
+  <main class="omb-main"><div id="omb-vm-content"></div><p id="omb-vm-notice" class="omb-notice" role="status" aria-live="polite"></p></main>
+ </div>
+</div>
+<script>
+(() => {
+ const root=document.getElementById('omb-vm-plan');
+ const content=root.querySelector('#omb-vm-content');
+ const notice=root.querySelector('#omb-vm-notice');
+ const subjects=[{id:'chief',name:'Chief',kind:'bot'},{id:'writer',name:'Writer',kind:'bot'},{id:'research',name:'Research',kind:'group'},{id:'marketing',name:'Marketing',kind:'group'}];
+ const vms=[
+  {id:'shared',name:'Shared desktop',scope:'shared',grants:['chief','writer','research','marketing'],power:'running',holder:'Chief · Marketing',disk:'8.2 GiB',last:'Now',default:true},
+  {id:'research-vm',name:'Research lab',scope:'isolated',grants:['research'],power:'running',holder:'',disk:'6.4 GiB',last:'12 minutes ago',disconnected:true},
+  {id:'chief-vm',name:'Chief desktop',scope:'isolated',grants:['chief'],power:'stopped',holder:'',disk:'5.1 GiB',last:'Yesterday'},
+  {id:'archive',name:'Project archive',scope:'shared',grants:[],power:'stopped',holder:'',disk:'9.6 GiB',last:'4 days ago'}
+ ];
+ const bindings={chief:'default',writer:'shared',research:'research-vm',marketing:'shared'};
+ let page='library',selected='shared',subject='chief',createFrom=null,counter=0;
+ const appearance={density:'comfortable',mobile:false};
+ const escape=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const name=id=>subjects.find(s=>s.id===id)?.name||id;
+ const title=vm=>vm.scope==='shared'?'Shared':`Isolated for ${name(vm.grants[0])}`;
+ const status=vm=>vm.power==='stopped'?'Stopped':vm.disconnected?'Running · control disconnected':vm.holder?'In use':'Ready';
+ const assignments=vm=>subjects.filter(s=>bindings[s.id]===vm.id||(bindings[s.id]==='default'&&vm.default)).map(s=>s.name).join(', ')||'Unassigned';
+ const eligible=(vm,id)=>vm.grants.includes(id);
+ const feedback=text=>{notice.textContent=text;};
+ const running=()=>vms.filter(vm=>vm.power==='running').length;
+ function render(){
+  root.dataset.density=appearance.density;root.dataset.mobile=String(appearance.mobile);
+  root.querySelectorAll('[data-page]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.page===page)));
+  feedback('');
+  if(page==='library')renderLibrary();else if(page==='create')renderCreate();else renderAssignment();
+ }
+ function renderLibrary(){
+  const vm=vms.find(item=>item.id===selected);
+  content.innerHTML=`<div class="omb-header"><h2>Local VMs</h2><button class="omb-primary" data-action="new">New VM</button></div>
+   <p class="omb-sub">${running()} running · ${vms.length} saved · running limit 3</p>
+   <div class="omb-list">${vms.map(item=>`<div class="omb-vm"><div><strong>${escape(item.name)}</strong>${item.default?'<span class="omb-tag">Default</span>':''}<p class="${item.power==='running'&&!item.disconnected?'omb-good':'omb-muted'}">${escape(status(item))} · ${escape(title(item))}</p><p class="omb-muted">${escape(assignments(item))} · ${item.disk}</p></div><button data-detail="${item.id}" aria-label="Details for ${escape(item.name)}">Details</button></div>`).join('')}</div>
+   ${vm?`<section class="omb-detail" aria-label="Selected VM details"><div class="omb-header"><h3>${escape(vm.name)}</h3><span>${escape(status(vm))}</span></div>
+    <dl><dt>Current control</dt><dd>${escape(vm.holder||'No one')}</dd><dt>Allowed access</dt><dd>${vm.grants.map(name).map(escape).join(', ')||'No bots or groups'}</dd><dt>Assigned to</dt><dd>${escape(assignments(vm))}</dd><dt>Resources</dt><dd>${vm.cpu||2} CPUs · ${vm.memory||4} GiB memory</dd><dt>Last used</dt><dd>${vm.last}</dd><dt>Persistence</dt><dd>Apps and files retained when stopped</dd></dl>
+    <div class="omb-actions"><button data-action="power" ${vm.holder?'disabled':''}>${vm.power==='running'?'Stop VM':'Start VM'}</button>${vm.disconnected?'<button data-action="reconnect">Reconnect control</button>':''}<button data-action="delete" class="omb-danger" ${vm.holder?'disabled':''}>Delete…</button></div>${vm.holder?`<p class="omb-muted" style="margin-top:12px">${escape(vm.holder)} must release control before this VM can stop.</p>`:''}
+    <div id="omb-delete" hidden style="margin-top:18px"><label>Type ${escape(vm.name)} to delete this VM<input id="omb-delete-name" autocomplete="off"></label><p class="omb-danger" style="margin-top:10px">Installed apps and container files will be deleted. The workspace folder is retained. Affected assignments: ${escape(assignments(vm))}.</p><div class="omb-actions"><button data-action="confirm-delete" class="omb-danger">Delete VM</button><button data-action="cancel-delete">Cancel</button></div></div>
+   </section>`:''}`;
+ }
+ function renderAssignment(){
+  const kind=page==='bots'?'bot':'group';
+  if(!subjects.some(s=>s.id===subject&&s.kind===kind))subject=subjects.find(s=>s.kind===kind).id;
+  const choice=bindings[subject]||'inherit';
+  const list=vms.filter(vm=>eligible(vm,subject));
+  content.innerHTML=`<div class="omb-header"><h2>${kind==='bot'?'Bot':'Group'} computer</h2></div>
+   <form id="omb-assignment" class="omb-form"><label>${kind==='bot'?'Bot':'Group'}<select id="omb-subject">${subjects.filter(s=>s.kind===kind).map(s=>`<option value="${s.id}" ${s.id===subject?'selected':''}>${s.name}</option>`).join('')}</select></label>
+    ${kind==='bot'?'<p>Computer: <strong>Local VM</strong></p>':''}
+    <label>${kind==='group'?'Computer for group work':'Use VM'}<select id="omb-binding">${kind==='group'?`<option value="inherit" ${choice==='inherit'?'selected':''}>Use each bot's computer</option>`:`<option value="inherit" ${choice==='inherit'?'selected':''}>No VM selected</option><option value="default" ${choice==='default'?'selected':''}>Workspace default · Shared desktop</option>`}${list.map(vm=>`<option value="${vm.id}" ${choice===vm.id?'selected':''}>${escape(vm.name)} · ${escape(title(vm))} · ${escape(status(vm))}</option>`).join('')}</select></label>
+    <div id="omb-choice-detail" class="omb-detail" style="margin-top:0"></div>
+    <div class="omb-actions" style="margin-top:0"><button class="omb-primary" type="submit">Save assignment</button><button type="button" data-action="isolated">Create isolated VM</button></div>
+   </form>`;
+  content.querySelector('#omb-subject').onchange=event=>{subject=event.target.value;render();};
+  content.querySelector('#omb-binding').onchange=renderChoice;
+  content.querySelector('#omb-assignment').onsubmit=event=>{event.preventDefault();if(subject==='marketing'){feedback('Chief is using this group’s VM. Finish or stop that turn before changing its assignment.');return;}bindings[subject]=content.querySelector('#omb-binding').value;feedback(`Assignment saved for ${name(subject)}. Existing VM data stays where it is.`);};
+  renderChoice();
+ }
+ function renderChoice(){
+  const value=content.querySelector('#omb-binding').value;
+  const vm=vms.find(item=>item.id===(value==='default'?'shared':value));
+  content.querySelector('#omb-choice-detail').innerHTML=vm?`<strong>${escape(vm.name)}</strong><p style="margin-top:8px">${page==='groups'?"Members share this desktop in this group. Their direct chats keep their own computer settings.":'Uses the existing desktop, including its installed apps, files, and browser sessions.'}</p><p class="omb-muted" style="margin-top:8px">${vm.holder?`Currently controlled by ${escape(vm.holder)}. Computer work waits for release.`:vm.power==='stopped'?'Stopped. Start this VM from Local VMs when ready. Saving does not start it.':vm.disconnected?'Running. Reconnect control from Local VMs before use.':'Ready for use.'}</p>`:page==='groups'?"<p>Each speaker uses its own computer settings in this group.</p>":"<p>Choose an existing VM or create an isolated one.</p>";
+ }
+ function renderCreate(){
+  content.innerHTML=`<div class="omb-header"><h2>New VM</h2><button data-action="cancel-create">Cancel</button></div><form id="omb-create" class="omb-form">
+   <label>Name<input name="vmName" value="${createFrom?escape(name(createFrom)+' desktop'):''}" placeholder="e.g. Research desktop" required maxlength="80"></label>
+   <label>Access<select name="scope" id="omb-scope"><option value="shared" ${!createFrom?'selected':''}>Shared with selected bots/groups</option><option value="isolated" ${createFrom?'selected':''}>Isolated for one bot/group</option></select></label>
+   <fieldset id="omb-shared"><legend>Allow access</legend>${subjects.map(s=>`<label class="omb-check"><input type="checkbox" name="grants" value="${s.id}">${s.name} · ${s.kind}</label>`).join('')}</fieldset>
+   <label id="omb-owner-label">Isolated for<select name="owner">${subjects.map(s=>`<option value="${s.id}" ${s.id===createFrom?'selected':''}>${s.name} · ${s.kind}</option>`).join('')}</select></label>
+   <div class="omb-two"><label>CPU limit<select name="cpu"><option value="2">2 CPUs</option><option value="4">4 CPUs</option></select></label><label>Memory limit<select name="memory"><option value="4">4 GiB</option><option value="8">8 GiB</option></select></label></div>
+   <p class="omb-muted">New desktop with the managed base image. Apps and files are retained when stopped.</p>
+   <div class="omb-actions" style="margin-top:0"><button type="submit" value="running" class="omb-primary">Create & start</button><button type="submit" value="stopped">Create stopped</button></div></form>`;
+  const update=()=>{const isolated=content.querySelector('#omb-scope').value==='isolated';content.querySelector('#omb-shared').hidden=isolated;content.querySelector('#omb-owner-label').hidden=!isolated;};
+  content.querySelector('#omb-scope').onchange=update;update();
+  content.querySelector('#omb-create').onsubmit=event=>{
+   event.preventDefault();const form=event.target;const data=new FormData(form);const power=event.submitter?.value||'running';
+   if(power==='running'&&running()>=3){feedback('Running limit reached. Stop an unused VM or choose Create stopped.');return;}
+   const vmName=String(data.get('vmName')).trim();if(!vmName){feedback('Enter a VM name.');return;}
+   const scope=String(data.get('scope'));const grants=scope==='isolated'?[String(data.get('owner'))]:data.getAll('grants').map(String);
+   const id=`new-${++counter}`;vms.push({id,name:vmName,scope,grants,power,holder:'',disk:'Pending measurement',last:'Never',cpu:Number(data.get('cpu')),memory:Number(data.get('memory'))});
+   if(createFrom&&grants.includes(createFrom))bindings[createFrom]=id;
+   selected=id;page='library';createFrom=null;render();feedback(`${vmName} created ${power==='running'?'and started':'stopped'}.`);
+  };
+ }
+ root.addEventListener('click',event=>{
+  const button=event.target.closest('button');if(!button||!root.contains(button)||button.disabled)return;
+  if(button.dataset.page){page=button.dataset.page;createFrom=null;render();return;}
+  if(button.dataset.detail){selected=button.dataset.detail;render();return;}
+  const vm=vms.find(item=>item.id===selected);
+  switch(button.dataset.action){
+   case 'new':createFrom=null;page='create';render();break;
+   case 'isolated':createFrom=subject;page='create';render();break;
+   case 'cancel-create':page=createFrom?(subjects.find(s=>s.id===createFrom).kind==='bot'?'bots':'groups'):'library';createFrom=null;render();break;
+   case 'power':if(vm.holder)return;if(vm.power==='stopped'&&running()>=3){feedback('Running limit reached. Stop an unused VM first.');return;}vm.power=vm.power==='running'?'stopped':'running';render();feedback(`${vm.name} ${vm.power}. Installed apps and files retained.`);break;
+   case 'reconnect':vm.disconnected=false;render();feedback(`Control connection restored for ${vm.name}.`);break;
+   case 'delete':content.querySelector('#omb-delete').hidden=false;break;
+   case 'cancel-delete':content.querySelector('#omb-delete').hidden=true;break;
+   case 'confirm-delete':if(vm.holder)return;if(content.querySelector('#omb-delete-name').value!==vm.name){feedback('The VM name must match.');return;}for(const id of Object.keys(bindings)){if(bindings[id]===vm.id)bindings[id]='inherit';}vms.splice(vms.indexOf(vm),1);selected=vms[0]?.id;render();feedback(`${vm.name} deleted; workspace folder retained.`);break;
+  }
+ });
+ render();
+ if(globalThis.Tweak){const tweaks=new globalThis.Tweak({container:root,onChange:()=>{root.dataset.density=appearance.density;root.dataset.mobile=String(appearance.mobile);}});tweaks.addSelect(appearance,'density',{label:'Row spacing',options:['comfortable','compact']});tweaks.addToggle(appearance,'mobile',{label:'Mobile layout'});}
+})();
+</script>

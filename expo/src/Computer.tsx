@@ -7,13 +7,16 @@ import { routeId } from './core/client';
 import { captureComputer, computerPreview } from './core/computer';
 import { useAuthenticatedImage } from './images';
 import { Icon } from './Icon';
-import { Button, ErrorNotice, Label, Row, useAction } from './ui';
+import { Button, ErrorNotice, Label, Row, Sheet, SettingsSurface, useAction } from './ui';
+import { VmAssignment } from './settings/VmLibrary';
+import { canAdminister } from './core/types';
 import { VmControl } from './VmControl';
 
 export function Computer({ session, state, botId, threadId, visible = true, onBack }: {
  session: Session; state: State; botId: string; threadId: string; visible?: boolean; onBack: () => void;
 }) {
  const action = useAction();
+ const group = state.groups.find(group => group.threadId === threadId || group.tasks?.some(task => task.threadId === threadId));
  const { bot, busy, cloud, live, savedPath } = computerPreview(state, botId, threadId);
  const [foreground, setForeground] = useState(AppState.currentState === 'active');
  const [attempt, setAttempt] = useState(0);
@@ -23,6 +26,7 @@ export function Computer({ session, state, botId, threadId, visible = true, onBa
  const [capture, setCapture] = useState<string>();
  const [failedImage, setFailedImage] = useState<string>();
  const [controlling, setControlling] = useState(false);
+ const [assignmentOpen, setAssignmentOpen] = useState(false);
  const active = visible && foreground && !controlling;
  const saved = useAuthenticatedImage(session.client, active && !live && !capture ? savedPath : undefined, attempt);
  const uri = capture ?? saved.uri;
@@ -79,9 +83,11 @@ export function Computer({ session, state, botId, threadId, visible = true, onBa
   </View>
   {problem && <View style={{ padding: 12, gap: 8 }}>{uri && !imageError && <Label size={13} style={{ color: '#FFFFFFB3' }}>{problem}</Label>}<Button title="Retry preview" onPress={retry} /></View>}
   {resolvedSurface === 'vm' && <View style={{ paddingHorizontal: 18, paddingVertical: 12, gap: 8 }}>
+   {canAdminister(session.client.connection) && <Button title="VM assignment" onPress={() => setAssignmentOpen(true)} />}
    <Button title="Take control" primary disabled={state.status !== 'connected'} onPress={() => setControlling(true)} />
    <Label size={12} style={{ textAlign: 'center', color: '#999999' }}>Pause the bot and use the VM from your phone. Enable Cloud desktop access for this phone in Settings → Remote access on the host.</Label>
   </View>}
+  {assignmentOpen && <SettingsSurface modal><Sheet title="VM assignment" onClose={() => setAssignmentOpen(false)}><VmAssignment client={session.client} subject={group ? { kind: "group", id: group.id } : { kind: "bot", id: botId }} /></Sheet></SettingsSurface>}
   <Modal visible={controlling && visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setControlling(false)}>
    {controlling && visible && <VmControl key={`${botId}:${threadId}`} client={session.client} botId={botId} threadId={threadId} onClose={() => { setControlling(false); setAttempt(value => value + 1); }} />}
   </Modal>

@@ -107,8 +107,9 @@ function WorkingFolder({ bot }: { bot: Bot }) {
  * list so later additions in Plugins do not silently reach this bot. */
 function McpServersCard({ bot, patch }: { bot: Bot; patch: (patch: { mcpServers: string[] | null }) => void }) {
   const { dispatch } = useStore();
-  const { servers, error, refresh } = useMcpServers();
-  const mounted = new Set((servers ? mcpServersForBot(servers, bot.mcpServers) : []).map((server) => server.name));
+  const { servers: allServers, error, refresh } = useMcpServers();
+  const servers = allServers?.filter(server => !server.ownerBotId || server.ownerBotId === bot.id) ?? null;
+  const mounted = new Set((servers ? mcpServersForBot(servers, bot.mcpServers, bot.id) : []).map((server) => server.name));
   const usesAll = bot.mcpServers == null;
 
   const toggle = (name: string) => {

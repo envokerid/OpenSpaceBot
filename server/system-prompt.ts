@@ -85,6 +85,8 @@ export function customMcpPrompt(names: string[]): string {
   const list = names.map((name) => `"${name}"`).join(", ");
   return ` The user also added ${names.length === 1 ? "an MCP server" : "MCP servers"} for you: ${list}. Use their available tools under the engine's normal approval rules.`;
 }
+export const MCP_REGISTRATION_PROMPT =
+  " When the user requests new tools or an MCP integration, use list_mcp_servers and register_mcp_server to connect it directly in OpenMausBot. For a server installed in a Local VM, select that VM and pass vmId with guest command paths. Registration is saved, tested and scoped to you; follow its activation result and end the turn when it schedules an automatic refresh. Never claim a prepared config file is a connected server.";
 export const CREDENTIAL_PROMPT =
   " If a supported API key is missing for the service actually needed, use request_credential to create a secure credential request. Before requesting a computer-provider key, inspect the configured targets with select_computer; an existing self-hosted VPS does not need Box credentials. Do not request a different provider's key merely because a task mentions cloud. A freshly QR-paired mobile app or the desktop app can show the secure entry card. Never claim it opened unless the request succeeded, and never ask the user to paste credentials into chat.";
 export const THREADS_PROMPT =

@@ -1,7 +1,9 @@
 import React from "react";
 import { Alert } from "react-native";
 import { Button, ErrorNotice, Label, Row, Section } from "../ui";
-import { Form, options, useResource, type SettingsProps } from "./shared";
+import { useResource, type SettingsProps } from "./shared";
+
+import { VmLibraryPanel } from "./VmLibrary";
 
 interface ComputerStatus {
   runtime?: string;
@@ -122,7 +124,7 @@ function Inventory({
     </Section>
   );
 }
-export function ComputerSettings({ client, config, reload }: SettingsProps) {
+export function ComputerSettings({ client }: SettingsProps) {
   const { data, load, action } = useResource<ComputerStatus>(
     client,
     "/api/local-computer",
@@ -171,89 +173,14 @@ export function ComputerSettings({ client, config, reload }: SettingsProps) {
               onPress={() => void run("pull")}
             />
           )}
-          {data?.image && data.container === "missing" && (
-            <Button
-              title="Create VM"
-              disabled={action.busy}
-              onPress={() => void run("run")}
-            />
-          )}
-          {data?.container === "stopped" && (
-            <Button
-              title="Start VM"
-              disabled={action.busy}
-              onPress={() => void run("start")}
-            />
-          )}
-          {data?.container === "running" && (
-            <Button
-              title="Stop VM"
-              disabled={action.busy}
-              onPress={() => void run("stop")}
-            />
-          )}
         </Row>
-        {data?.container && data.container !== "missing" && (
-          <Row>
-            {["recreate", "remove"].map((operation) => (
-              <Button
-                key={operation}
-                title={operation === "remove" ? "Remove VM" : "Recreate VM"}
-                danger
-                disabled={action.busy}
-                onPress={() =>
-                  Alert.alert(
-                    operation === "remove"
-                      ? "Remove the VM?"
-                      : "Recreate the VM?",
-                    "The VM will stop. Files outside its persistent workspace may be lost.",
-                    [
-                      { text: "Cancel", style: "cancel" },
-                      {
-                        text: "Continue",
-                        style: "destructive",
-                        onPress: () => void run(operation),
-                      },
-                    ],
-                  )
-                }
-              />
-            ))}
-          </Row>
-        )}
         <Label muted>
           Network: {data?.network ?? "Unknown"} · Security:{" "}
           {data?.security ?? "Unknown"} · Storage:{" "}
           {data?.persistence ?? "Unknown"}
         </Label>
       </Section>
-      <Form
-        title="VM isolation"
-        fields={[
-          {
-            key: "mode",
-            label: "Isolation",
-            options: options("shared", "per-bot"),
-          },
-          {
-            key: "maxInstances",
-            label: "Maximum running VMs",
-            options: options("1", "2", "3", "4"),
-          },
-        ]}
-        initial={{
-          mode: config.localVm?.mode ?? "shared",
-          maxInstances: String(config.localVm?.maxInstances ?? 2),
-        }}
-        onSave={async (v) => {
-          await client.request("/api/config", "PATCH", {
-            localVm: { mode: v.mode, maxInstances: Number(v.maxInstances) },
-          });
-          await reload();
-          await load();
-        }}
-      />
-      <Inventory client={client} kind="local" />
+      <VmLibraryPanel client={client} />
       <Inventory client={client} kind="boxes" />
       <Inventory client={client} kind="vps" />
     </>

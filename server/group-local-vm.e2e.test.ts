@@ -645,10 +645,10 @@ describe("Group Local VM ownership on the real isolated server", () => {
     if (failure === "stall") vmState({ stall: true });
     await idle(bots[0].id);
     expect((await gate(c)).status).toBe(401);
-    // Mode changes reject stale localVmActiveThreads even after the bot is idle.
-    await api("PATCH", "/api/config", { localVm: { mode: "per-bot", maxInstances: 2 } });
-    vmState({ noContainers: true });
-    await api("PATCH", "/api/config", { localVm: { mode: "shared", maxInstances: 2 } });
-    vmState();
+    // Registry edits reject stale mounted targets/leases after a turn is idle.
+    const inventory = await api("GET", "/api/vms");
+    const vm = inventory.instances.find((vm: any) => vm.id === "legacy-shared");
+    expect(vm.inUse).toBe(false);
+    await api("PATCH", `/api/vms/${vm.id}`, { revision: inventory.revision, name: vm.name });
   });
 });
