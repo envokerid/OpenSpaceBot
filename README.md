@@ -67,7 +67,7 @@ already have:
 - **Local first.** One small harness server on `127.0.0.1` owns every agent process. Transcripts, keys, and
   events live in `~/.openmausbot`, not a cloud.
 - **Agents with hands.** Each bot can use a cloud Linux desktop, an isolated Local VM, or—where the platform
-  safety boundary is currently certified—your own computer, plus 500+ apps through Composio. Host control is
+  safety boundary is currently certified—your own computer, plus OpenClaw plugins and remote MCP integrations. Host control is
   available on macOS and Ubuntu Xorg after explicit opt-in. Ubuntu Wayland host control remains disabled while
   issue #345 is resolved.
 
@@ -111,8 +111,8 @@ permission broker turns every risky action into a decision you make, for cloud a
 
 ### 🔌 Connected apps
 
-A one-click marketplace over Composio Sessions: Gmail, Slack, GitHub, Notion, Linear and hundreds more.
-OAuth once, and every bot can use them as tools.
+OpenClaw channel plugins and remote MCP integrations with guided connection flows.
+Connect an account, then approve exactly which bots may use it.
 
 <img src="docs/screenshots/marketplace.png" alt="Connected apps marketplace" width="100%">
 
@@ -193,7 +193,7 @@ expressions · screenshots of the bot's work folded into the transcript.
 ![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB)
 ![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind%20CSS-0F172A?logo=tailwindcss&logoColor=38BDF8)
-![Composio](https://img.shields.io/badge/Composio-e6493a)
+![OpenClaw](https://img.shields.io/badge/OpenClaw-e6493a)
 ![Cua](https://img.shields.io/badge/Cua%20Driver-1f2937)
 ![ElevenLabs](https://img.shields.io/badge/ElevenLabs-000000?logo=elevenlabs&logoColor=white)
 ![Fish Audio](https://img.shields.io/badge/Fish%20Audio-2563eb)
@@ -207,7 +207,7 @@ expressions · screenshots of the bot's work folded into the transcript.
 | **Electron** | Desktop shells for macOS, Windows, and Ubuntu |
 | **React + Vite + Tailwind CSS** | The chat app UI and its build |
 | **Box** ([box.ascii.dev](https://box.ascii.dev)) | Each bot's cloud computer |
-| **Composio** | Connected apps — Gmail, Slack, GitHub, and more |
+| **OpenClaw** | Native channel plugins and remote MCP integrations |
 | **Cua Driver** | Native computer use on your own machine |
 | **ElevenLabs · Fish Audio** | Hosted voices for bots that talk back |
 | **Polar** | One-time and monthly project support |
@@ -237,7 +237,7 @@ flowchart LR
     REG --> CL & CX & GR
     CL & CX & GR -- "permission requests" --> BROKER
     server -- "Box API" --> BOX[("Cloud computer<br/>box.ascii.dev")]
-    server -- "Composio Session" --> APPS[("Gmail · Slack · GitHub · …")]
+    server -- "OpenClaw Gateway" --> APPS[("Channel plugins · Remote MCP")]
 ```
 
 | Layer | Where | What it does |
@@ -301,7 +301,7 @@ pnpm package:linux    # Ubuntu x64: .deb + AppImage + verified CUA runtime
 | Capability | macOS | Ubuntu 24.04 Xorg | Ubuntu 24.04 Wayland |
 |---|---|---|---|
 | Packaged app, embedded harness, local agent CLIs | Supported | Beta | Beta |
-| Composio and Box/cloud computers | Supported | Beta | Beta |
+| Connected apps and Box/cloud computers | Supported | Beta | Beta |
 | Explicit preview-only local screen capture | Supported | Beta | Beta |
 | Bot control of this computer | Supported | Beta, explicit opt-in | Disabled: Wayland safety gate |
 | Native on-device dictation | Supported | Planned | Planned |
@@ -325,12 +325,12 @@ in the sidebar footer) when you want to enable its integration:
 
 | Credential | What it enables | Where to get it |
 |---|---|---|
-| Composio project key (`ak_…`) | Connect Gmail, GitHub, Slack, Notion, and other apps to your bots | [OpenMausBot Composio setup](docs/composio.md) |
+| Provider credentials | Connect OpenClaw channels and remote MCP accounts | [Connected apps setup](docs/openclaw-connectors.md) |
 | Box API key | Give bots an isolated remote Linux computer with a desktop and terminal | [Box API key guide](https://docs.ascii.dev/box/api-keys) |
 | ElevenLabs key | Read replies aloud, and call your bots | [ElevenLabs API keys](https://elevenlabs.io/app/settings/api-keys) |
 | Fish Audio key | Read replies aloud with Fish Audio voices, and call your bots | [Fish Audio API keys](https://fish.audio/app/api-keys/) |
 
-Composio and Box are third-party services with their own accounts and terms. Box is a paid service after
+Connected providers and Box have their own accounts and terms. Box is a paid service after
 its trial, and using a cloud computer may incur charges.
 
 ```sh

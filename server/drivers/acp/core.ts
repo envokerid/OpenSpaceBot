@@ -575,13 +575,13 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         if (agents) {
           servers.push({ name: "agents", command: agents.command, args: agents.args, env: acpEnv(agents.env) });
         }
-        const composio = turn.integrations?.composio;
-        if (composio) {
+        const connectors = turn.integrations?.connectors;
+        if (connectors) {
           servers.push({
-            name: "composio",
-            command: composio.command,
-            args: composio.args,
-            env: acpEnv(composio.env),
+            name: "connectors",
+            command: connectors.command,
+            args: connectors.args,
+            env: acpEnv(connectors.env),
           });
         }
         const browser = turn.integrations?.browser;
@@ -1615,7 +1615,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             agentsMcp: true,
         customMcp: true,
             computerMcp: true,
-            composioMcp: true,
+            connectorsMcp: true,
             browserMcp: true,
             images: support.images !== false,
             nativeImageInput: support.images === true,

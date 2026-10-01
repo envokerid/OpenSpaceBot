@@ -231,6 +231,40 @@ describe("StdioMcp", () => {
 });
 
 describe("Pi MCP extension registration", () => {
+  it("asks before connector execution and prevents dispatch when denied", async () => {
+    const script = fakeMcpScript(`
+      import { createInterface } from "node:readline";
+      createInterface({ input: process.stdin }).on("line", line => {
+        const msg = JSON.parse(line);
+        if (msg.id === undefined) return;
+        const result = msg.method === "initialize" ? { capabilities: { tools: {} } }
+          : msg.method === "tools/list" ? { tools: ["connectors_list_accounts", "connectors_execute_tool"].map(name => ({ name, inputSchema: { type: "object" } })) }
+          : { content: [{ type: "text", text: "executed" }] };
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result }) + "\\n");
+      });
+    `);
+    const config = join(tempDir(), "mcp.json");
+    writeFileSync(config, JSON.stringify({ mcpServers: { connectors: { command: process.execPath, args: [script] } } }));
+    process.env.OMB_MCP_CONFIG = config;
+    const tools: RegisteredTool[] = [];
+    let shutdown: ShutdownHandler | undefined;
+    await extension({ registerTool: tool => tools.push(tool), on: (_event, handler) => { shutdown = handler; } });
+    const confirm = vi.fn(async () => false);
+    const dispatch = vi.spyOn(StdioMcp.prototype, "callTool");
+    try {
+      await tools[0].execute("list", {}, undefined, undefined, { ui: { confirm } });
+      expect(confirm).not.toHaveBeenCalled();
+      dispatch.mockClear();
+      await expect(tools[1].execute("deny", { tool: "send" }, undefined, undefined, { ui: { confirm } }))
+        .resolves.toMatchObject({ content: [{ text: "Blocked by the user." }] });
+      expect(confirm).toHaveBeenCalledWith("connectors_execute_tool", expect.any(String));
+      expect(dispatch).not.toHaveBeenCalled();
+      confirm.mockResolvedValue(true);
+      await tools[1].execute("allow", { tool: "send" }, undefined, undefined, { ui: { confirm } });
+      expect(dispatch).toHaveBeenCalledTimes(1);
+    } finally { await shutdown?.(); }
+  });
+
   it("keeps earlier tools alive when a later registration fails", async () => {
     const script = fakeMcpScript(`
       let buffer = "";

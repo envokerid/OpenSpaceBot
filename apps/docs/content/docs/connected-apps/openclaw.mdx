@@ -1,0 +1,30 @@
+---
+title: OpenClaw runtime
+description: Server-owned plugins and MCP credentials
+---
+
+OpenMausBot runs a pinned OpenClaw Gateway for each connected account on your
+server. It supports Telegram, Slack and Discord bot credentials, WhatsApp QR
+pairing, and remote Streamable HTTP MCP servers with OAuth, bearer tokens or
+no authentication. Additional integrations must be added with their MCP URL.
+
+Remote MCP OAuth requires a public client and standard discovery. Use a
+public HTTPS workspace address and register `/oauth/mcp/callback` at that
+origin where the provider requires it. Expo opens the sign-in link and polls
+status. A server does not need a browser. QR-only providers require another
+screen; open the same pending account there and scan with your phone.
+
+OpenClaw owns the credentials. They stay in the account profile on your
+server, protected by filesystem permissions; do not assume keychain encryption.
+Workspace backups exclude these profiles. Connecting an account does not
+grant access to a bot. Approve each exact account in bot Access settings.
+
+The app uses OpenClaw's Gateway protocol. A pinned adapter inside OpenClaw
+uses its experimental plugin SDK for remote MCP discovery and execution.
+The SDK is not imported by the app. Runtime upgrades require the real
+Gateway/MCP/OAuth contract test.
+
+Source installs use `pnpm install`. Desktop packaging includes OpenClaw and a
+real Node runtime; container and npm distributions include pinned dependencies.
+The former connection service's tokens cannot be transferred: reconnect
+accounts and approve their new identities.

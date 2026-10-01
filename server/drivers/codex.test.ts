@@ -982,15 +982,15 @@ describe("CodexDriver turns (fake app-server)", () => {
 
   it("mounts connected apps without placing credential values in argv", async () => {
     await create();
-    const dump = join(scratch, "composio.json");
+    const dump = join(scratch, "connectors.json");
     process.env.FAKE_CODEX_DUMP = dump;
-    expect(instance.adapter.capabilities.composioMcp).toBe(true);
+    expect(instance.adapter.capabilities.connectorsMcp).toBe(true);
 
     await instance.adapter.sendTurn({
-      threadId: "t-composio",
+      threadId: "t-connectors",
       text: "check mail",
       integrations: {
-        composio: {
+        connectors: {
           command: process.execPath,
           args: ["/tmp/connector-proxy.js"],
           env: {
@@ -1027,7 +1027,7 @@ describe("CodexDriver turns (fake app-server)", () => {
         custom: {
           notes: { command: "npx", args: ["-y", "@x/notes-mcp"], env: { NOTES_TOKEN: "tok-notes" } },
         },
-        composio: {
+        connectors: {
           command: process.execPath,
           args: ["/tmp/connector-proxy.js"],
           env: { OMB_COMMS_TOKEN: "per-boot-token" },

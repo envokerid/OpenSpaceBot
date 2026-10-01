@@ -1,23 +1,24 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  DEFAULT_APPROVED_MCP_TOOL,
+  CONNECTOR_EXECUTE_TOOL,
   effectiveMcpToolApprovals,
   mcpApprovalKey,
   mcpToolApproved,
 } from "./approved-commands.ts";
 
 describe("approved MCP commands", () => {
-  it("approves Composio multi-execute for every bot unless explicitly revoked", () => {
+  it("requires explicit approval for connector execution", () => {
     for (const name of [
-      DEFAULT_APPROVED_MCP_TOOL,
-      "mcp__composio__COMPOSIO_MULTI_EXECUTE_TOOL",
-      "composio__COMPOSIO_MULTI_EXECUTE_TOOL",
-      "composio_composio_multi_execute_tool",
+      CONNECTOR_EXECUTE_TOOL,
+      "mcp__connectors__CONNECTORS_EXECUTE_TOOL",
+      "connectors__CONNECTORS_EXECUTE_TOOL",
+      "connectors_connectors_execute_tool",
+      "mcp__openmausbot_connectors__connectors_execute_tool",
     ]) {
-      expect(mcpToolApproved(undefined, name)).toBe(true);
-      expect(mcpToolApproved({ [DEFAULT_APPROVED_MCP_TOOL]: false }, name)).toBe(false);
-      expect(mcpToolApproved({ [DEFAULT_APPROVED_MCP_TOOL]: true }, name)).toBe(true);
+      expect(mcpToolApproved(undefined, name)).toBe(false);
+      expect(mcpToolApproved({ [CONNECTOR_EXECUTE_TOOL]: false }, name)).toBe(false);
+      expect(mcpToolApproved({ [CONNECTOR_EXECUTE_TOOL]: true }, name)).toBe(true);
     }
   });
 
@@ -27,27 +28,25 @@ describe("approved MCP commands", () => {
     expect(mcpToolApproved({ "mcp__notes__search": false }, "mcp__notes__search")).toBe(false);
   });
 
-  it("shows the built-in default explicitly while preserving a bot override", () => {
-    expect(effectiveMcpToolApprovals(undefined)).toEqual({
-      [DEFAULT_APPROVED_MCP_TOOL]: true,
-    });
-    expect(effectiveMcpToolApprovals({ [DEFAULT_APPROVED_MCP_TOOL]: false })).toEqual({
-      [DEFAULT_APPROVED_MCP_TOOL]: false,
+  it("has no implicit tool approval and preserves an explicit bot override", () => {
+    expect(effectiveMcpToolApprovals(undefined)).toEqual({});
+    expect(effectiveMcpToolApprovals({ [CONNECTOR_EXECUTE_TOOL]: false })).toEqual({
+      [CONNECTOR_EXECUTE_TOOL]: false,
     });
   });
 
   it("normalizes the default aliases and refuses unsafe stored labels", () => {
-    expect(mcpApprovalKey(" MCP__COMPOSIO__COMPOSIO_MULTI_EXECUTE_TOOL ")).toBe(DEFAULT_APPROVED_MCP_TOOL);
+    expect(mcpApprovalKey(" MCP__CONNECTORS__CONNECTORS_EXECUTE_TOOL ")).toBe(CONNECTOR_EXECUTE_TOOL);
     expect(mcpApprovalKey("notes_search")).toBe("notes_search");
     expect(mcpApprovalKey("notes\nsearch")).toBeNull();
     expect(mcpApprovalKey("x".repeat(241))).toBeNull();
   });
 
   it("inherits saved defaults while keeping explicit bot revocations", () => {
-    const defaults = { "mcp__notes__write": true, [DEFAULT_APPROVED_MCP_TOOL]: false };
+    const defaults = { "mcp__notes__write": true, [CONNECTOR_EXECUTE_TOOL]: false };
     expect(mcpToolApproved(undefined, "mcp__notes__write", defaults)).toBe(true);
     expect(mcpToolApproved({ "mcp__notes__write": false }, "mcp__notes__write", defaults)).toBe(false);
-    expect(mcpToolApproved(undefined, DEFAULT_APPROVED_MCP_TOOL, defaults)).toBe(false);
+    expect(mcpToolApproved(undefined, CONNECTOR_EXECUTE_TOOL, defaults)).toBe(false);
     expect(effectiveMcpToolApprovals(undefined, defaults)).toEqual(defaults);
   });
 });

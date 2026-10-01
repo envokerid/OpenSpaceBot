@@ -54,12 +54,12 @@ describe("redactSecrets", () => {
     expect(out).toContain("«redacted 24 chars»");
   });
 
-  it("masks a Composio key in an MCP header and an env object", () => {
+  it("masks a provider key in an MCP header and an env object", () => {
     const config = {
       mcpServers: {
-        composio: {
+        connectors: {
           type: "http",
-          url: "https://app.composio.dev/tool_router/v3/trs_test/mcp",
+          url: "https://mcp.example.test/tools",
           headers: { "x-api-key": "ak_live_supersecret" },
         },
         computer: { env: { ELECTRON_RUN_AS_NODE: "1", OGB_BOX_TOKEN: "box_live_zzz" } },
@@ -69,7 +69,7 @@ describe("redactSecrets", () => {
     const out = flat(redactSecrets(config));
     expect(out).not.toContain("ak_live_supersecret");
     expect(out).not.toContain("box_live_zzz");
-    expect(out).toContain("app.composio.dev");
+    expect(out).toContain("mcp.example.test");
     expect(out).toContain("ELECTRON_RUN_AS_NODE");
     expect(out).toContain('"1"'); // a non-secret value is untouched
   });

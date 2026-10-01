@@ -489,7 +489,7 @@ export function toTypebox(schema: unknown): TSchema {
 }
 
 /** pi tool names are lowercase snake identifiers; MCP tool names are not
- * (COMPOSIO_SEARCH_TOOLS, browser_navigate, mcp__x…). Normalize and prefix
+ * (CONNECTORS_SEARCH_TOOLS, browser_navigate, mcp__x…). Normalize and prefix
  * with the server so two servers can never collide. */
 function sanitizeToolName(server: string, tool: string): string {
   const raw = `${server}_${tool}`.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
@@ -594,10 +594,10 @@ export default async function (pi: PiExtensionApi): Promise<void> {
             // Host tools ask first, using pi's native permission card
             // (ctx.ui.confirm → extension_ui_request → Allow/Deny card). This
             // mirrors ACP's session/request_permission and Codex's elicitation.
-            if (gated) {
+            if (gated || (serverName === "connectors" && toolName === "connectors_execute_tool")) {
               const detail = summarizeParams(params);
               const allowed = await ctx.ui.confirm(
-                `Allow ${toolName} on your computer?`,
+                gated ? `Allow ${toolName} on your computer?` : toolName,
                 detail || `Run ${serverName}:${toolName}`,
               );
               if (!allowed) {

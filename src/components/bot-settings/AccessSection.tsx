@@ -316,7 +316,7 @@ export function AccessSection({
             disabled={
               !connectedAppsEnabled && (!connectedAppsConfigured || !canUseConnectedApps)
             }
-            onClick={() => patch({ composio: !connectedAppsEnabled })}
+            onClick={() => patch({ connectors: !connectedAppsEnabled })}
             title={
               !connectedAppsEnabled && !connectedAppsConfigured
                 ? "Connect apps in App Settings first"

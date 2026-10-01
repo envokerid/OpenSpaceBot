@@ -129,7 +129,7 @@ describe("workspace credential env", () => {
         fishAudioKey: "fish-secret",
         opencodeGoApiKey: "ocg-secret",
         openaiImageApiKey: "image-secret",
-        composioApiKey: "ak_handled-separately",
+        unrelatedCredential: "kept-separately",
       }),
     ).toEqual({
       XAI_API_KEY: "xai-secret",
@@ -152,4 +152,11 @@ describe("workspace credential env", () => {
     const env = workspaceCredentialEnv(credentials);
     expect(Object.keys(env).sort()).toEqual(WORKSPACE_CREDENTIALS.map((c) => c.env).sort());
   });
+});
+
+it("retires the old connector configuration and broker credentials without touching other secrets", () => {
+  const result = migrateWorkspaceCredentials({ composio: { apiKey: "old" }, profile: { name: "Ada" } }, { composioApiKey: "old", composioBrokerToken: "broker", composioInstallationId: "id", boxToken: "kept" });
+  expect(result.config).toEqual({ profile: { name: "Ada" } });
+  expect(result.credentials).toEqual({ boxToken: "kept" });
+  expect(result.configChanged).toBe(true); expect(result.credentialsChanged).toBe(true);
 });

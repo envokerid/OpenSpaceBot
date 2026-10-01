@@ -12,13 +12,12 @@ import {
   onlyLatestConnectorResponses,
   type ConnectorStatus,
 } from "./PluginsPanel";
-import { managedConnectorUnavailableReason } from "../../shared/connector-availability";
 import type { Bot, InstanceInfo } from "@/state/store";
 
 // Narrow fixtures: the helper reads four fields and nothing else, so the
 // casts keep the test about the rule rather than about Bot's full shape.
-const engine = (instanceId: string, composioMcp: boolean) =>
-  ({ instanceId, capabilities: { composioMcp } }) as unknown as InstanceInfo;
+const engine = (instanceId: string, connectorsMcp: boolean) =>
+  ({ instanceId, capabilities: { connectorsMcp } }) as unknown as InstanceInfo;
 const bot = (id: string, fields: Partial<Bot> = {}) =>
   ({ id, name: id, modelSelection: { instanceId: "claude" }, ...fields }) as unknown as Bot;
 
@@ -38,30 +37,30 @@ describe("connected apps a bot cannot see", () => {
   it("names the bots whose own grant is off, and only those", () => {
     const bots = [
       bot("allowed"),
-      bot("off", { composio: false, connectorAccounts: { gmail: ["ca_work"] } }),
-      bot("also-off", { composio: false, connectorAccounts: { gmail: ["ca_work"] } }),
-      bot("no-accounts", { composio: false }),
+      bot("off", { connectors: false, connectorAccounts: { gmail: ["ca_work"] } }),
+      bot("also-off", { connectors: false, connectorAccounts: { gmail: ["ca_work"] } }),
+      bot("no-accounts", { connectors: false }),
     ];
     expect(botsMissingConnectedApps(bots, instances).map((b) => b.id)).toEqual(["off", "also-off"]);
   });
 
   it("treats an absent grant as allowed, the way every turn does", () => {
-    // `composio !== false` is the server's rule; undefined must not be
+    // `connectors !== false` is the server's rule; undefined must not be
     // reported as switched off or the notice nags about working bots.
-    expect(botsMissingConnectedApps([bot("fresh"), bot("explicit", { composio: true })], instances)).toEqual([]);
+    expect(botsMissingConnectedApps([bot("fresh"), bot("explicit", { connectors: true })], instances)).toEqual([]);
   });
 
   it("leaves out a bot whose engine could never mount the tools", () => {
     // Its switch is disabled, so pointing the person at it moves the dead
     // end instead of ending it.
-    const bots = [bot("grok-bot", { composio: false, modelSelection: { instanceId: "grok" } as Bot["modelSelection"] })];
+    const bots = [bot("grok-bot", { connectors: false, modelSelection: { instanceId: "grok" } as Bot["modelSelection"] })];
     expect(botsMissingConnectedApps(bots, instances)).toEqual([]);
     // an engine the workspace no longer has is the same case
-    expect(botsMissingConnectedApps([bot("orphan", { composio: false, modelSelection: { instanceId: "gone" } as Bot["modelSelection"] })], instances)).toEqual([]);
+    expect(botsMissingConnectedApps([bot("orphan", { connectors: false, modelSelection: { instanceId: "gone" } as Bot["modelSelection"] })], instances)).toEqual([]);
   });
 
   it("leaves out hidden bots, which the person cannot act on from here", () => {
-    expect(botsMissingConnectedApps([bot("ghost", { composio: false, hidden: true })], instances)).toEqual([]);
+    expect(botsMissingConnectedApps([bot("ghost", { connectors: false, hidden: true })], instances)).toEqual([]);
   });
 });
 
@@ -77,10 +76,6 @@ describe("connected-app status races", () => {
         hasAccounts, failed: false,
       })).toBe("Continue");
     }
-  });
-  it("does not render a dead Twitter connect action for managed installs", () => {
-    expect(managedConnectorUnavailableReason("managed", "twitter")).toMatch(/self-hosted/i);
-    expect(managedConnectorUnavailableReason("self-hosted", "twitter")).toBeNull();
   });
   it("does not let an older not_connected response erase a newer OAuth attempt", async () => {
     const generations = new Map([["gmail", 0]]);
@@ -247,8 +242,8 @@ describe("an answer the server was not sure about", () => {
   });
 
   it("still clears an app the server authoritatively no longer lists", () => {
-    // disconnection has to remain possible: revoking from Composio's
-    // dashboard must show up here on the next successful check
+    // disconnection has to remain possible: revoking from the workspace
+    // settings must show up here on the next successful check
     const merged = mergeCompleteConnectorStatus(connectedGmail, {}, new Map(), new Map(), true);
     expect(merged.gmail.connected).toBe(false);
     expect(merged.gmail.status).toBe("not_connected");

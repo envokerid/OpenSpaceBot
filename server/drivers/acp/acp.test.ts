@@ -489,14 +489,14 @@ describe("ACP turns (fake CLI)", () => {
   // same harness-owned bridge as Claude and Codex.
   it("mounts connected apps as a stdio MCP server", async () => {
     await create();
-    const dump = join(scratch, "composio.json");
+    const dump = join(scratch, "connectors.json");
     process.env.FAKE_ACP_DUMP = dump;
-    expect(instance.adapter.capabilities.composioMcp).toBe(true);
+    expect(instance.adapter.capabilities.connectorsMcp).toBe(true);
     await instance.adapter.sendTurn({
-      threadId: "t-composio",
+      threadId: "t-connectors",
       text: "go",
       integrations: {
-        composio: {
+        connectors: {
           command: process.execPath,
           args: ["/tmp/connector-proxy.js"],
           env: { OMB_CONNECTOR_UPSTREAM_URL: "http://127.0.0.1:8799/api/internal/connectors/mcp" },
@@ -505,7 +505,7 @@ describe("ACP turns (fake CLI)", () => {
     });
     await recorder.until((event) => event.type === "turn.completed");
     expect(JSON.parse(readFileSync(`${dump}.mcp.json`, "utf8"))).toContainEqual({
-      name: "composio",
+      name: "connectors",
       command: process.execPath,
       args: ["/tmp/connector-proxy.js"],
       env: [{ name: "OMB_CONNECTOR_UPSTREAM_URL", value: "http://127.0.0.1:8799/api/internal/connectors/mcp" }],
@@ -717,9 +717,9 @@ describe("ACP turns (fake CLI)", () => {
 
   it("preserves MCP tool provenance and its provider-visible command name", async () => {
     process.env.FAKE_ACP_PERMISSION_TOOL_CALL = JSON.stringify({
-      toolCallId: "fixture-composio",
+      toolCallId: "fixture-connectors",
       kind: "other",
-      title: "composio__COMPOSIO_MULTI_EXECUTE_TOOL",
+      title: "connectors__CONNECTORS_EXECUTE_TOOL",
       rawInput: { tools: [{ slug: "fixture" }] },
     });
     await create(GrokAgentDriver, "permission");
@@ -727,7 +727,7 @@ describe("ACP turns (fake CLI)", () => {
     const opened = await recorder.until((event) => event.type === "request.opened");
     expect(opened).toMatchObject({
       requestType: "permission",
-      tool: "composio__COMPOSIO_MULTI_EXECUTE_TOOL",
+      tool: "connectors__CONNECTORS_EXECUTE_TOOL",
       mcpTool: true,
     });
     await instance.adapter.respondToRequest("t-mcp-permission", opened.requestId!, { behavior: "allow" });

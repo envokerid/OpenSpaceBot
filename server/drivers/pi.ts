@@ -100,7 +100,7 @@ export function piThinkingLevel(effort: EffortLevel): (typeof EFFORT_LEVELS)[num
  * there is nothing to mount (the common case). */
 export function buildMcpServers(turn: SendTurnInput): Record<string, unknown> | null {
   const servers: Record<string, unknown> = {};
-  if (turn.integrations?.composio) servers.composio = { ...turn.integrations.composio };
+  if (turn.integrations?.connectors) servers.connectors = { ...turn.integrations.connectors };
   if (turn.integrations?.localComputer) {
     const local = turn.integrations.localComputer;
     servers.computer = {
@@ -528,7 +528,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
       }
 
       // integrations → stdio MCP servers for the pi-mcp-extension. The config
-      // carries credentials (box token, composio key, comms token), so it goes
+      // carries credentials (box token, connector bearer, comms token), so it goes
       // into a 0600 temp file removed when the turn settles — never on argv.
       const mcpServers = buildMcpServers(turn);
       let mcpTempDir: string | null = null;
@@ -538,7 +538,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
           writeFileSync(join(mcpTempDir, "mcp.json"), JSON.stringify({ mcpServers }), { mode: 0o600 });
         } catch (err) {
           // A failed write must not leave the temp dir behind — a partial file
-          // could still hold the box token / composio key / comms token.
+          // could still hold the box token / connector bearer / comms token.
           try {
             rmSync(mcpTempDir, { recursive: true, force: true });
           } catch {
@@ -550,7 +550,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
       const childArgs = mcpServers ? [...PI_ARGS, "-e", SPAWNED_PROXIES.piMcpExtension] : PI_ARGS;
 
       // spawnCli can throw synchronously (unresolvable CLI); if it does, the
-      // 0600 temp file with the box token / composio key / comms token must
+      // 0600 temp file with the box token / connector bearer / comms token must
       // not be left on disk — settle() never runs because no child existed.
       const child = (() => {
         try {
@@ -724,6 +724,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
                 type: "request.opened",
                 requestType: isQuestion ? "question" : "permission",
                 tool: String(evt.title ?? "pi"),
+                ...(evt.title === "connectors_execute_tool" ? { mcpTool: true, allowSession: false } : {}),
                 summary: String(evt.title ?? "pi wants confirmation"),
               });
             }
@@ -894,7 +895,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
           // pi-mcp-extension (pi core has no MCP client of its own).
           agentsMcp: true,
           computerMcp: true,
-          composioMcp: true,
+          connectorsMcp: true,
           phoneMcp: true,
           // Host control (the user's real Mac) rides the pi-native permission
           // card (`ctx.ui.confirm` → extension_ui_request) gated in the

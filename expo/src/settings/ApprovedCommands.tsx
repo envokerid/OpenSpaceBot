@@ -21,7 +21,7 @@ export function ApprovedCommandsSettings({ client, session }: SettingsProps & { 
   const tools = [...new Set([...(data?.tools ?? []), ...added])].sort().filter(name => name.toLowerCase().includes(query.toLowerCase()));
   return <>
     <Section title="MCP tools">
-      <Label muted>Approve MCP tools for each bot across all its conversations. Composio multi-execute is approved by default. Turning a switch off removes this standing approval; the bot’s normal permission mode still applies. Tools that request permission appear automatically, or you can add one by its exact MCP name.</Label>
+      <Label muted>Approve MCP tools for each bot across all its conversations. Connector execution requires approval. Turning a switch off removes this standing approval; the bot’s normal permission mode still applies. Tools that request permission appear automatically, or you can add one by its exact MCP name.</Label>
       <ErrorNotice error={action.error} />
       <Button title="Refresh approved commands" disabled={action.busy} onPress={() => void action.run(load)} />
       {!data && !action.error && <Label muted>Loading approved commands…</Label>}
@@ -29,7 +29,7 @@ export function ApprovedCommandsSettings({ client, session }: SettingsProps & { 
       <Input label="MCP tool name" placeholder="mcp__server__tool" value={tool} onChangeText={setTool} autoCapitalize="none" />
       <Button title="Add tool" disabled={!tool.trim() || action.busy} onPress={() => void action.run(async () => {
         const key = mcpApprovalKey(tool.trim());
-        if (!key) throw new Error("Use mcp__server__tool, or composio_multi_execute_tool.");
+        if (!key) throw new Error("Use mcp__server__tool, or connectors_execute_tool.");
         setAdded(previous => [...new Set([...previous, key])]); setTool(""); setQuery("");
       })} />
     </Section>

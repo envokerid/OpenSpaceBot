@@ -75,9 +75,9 @@ export function computerPrompt(kind: ComputerPromptKind | null): string {
   return COMPUTER_PARAGRAPH[kind] + SIGN_IN_PROMPT;
 }
 
-export const COMPOSIO_PROMPT =
+export const CONNECTORS_PROMPT =
   " You may only use connector accounts explicitly approved for this bot. If an account is missing, ask the user to add it in your Access sidebar or the connected account’s Approved bots list. Connecting or signing in alone does not grant access. " +
-  " The user's connected apps (Gmail, Calendar, Slack, Notion, and the rest) are reachable through the composio tools — find the right one with COMPOSIO_SEARCH_TOOLS, read its arguments with COMPOSIO_GET_TOOL_SCHEMAS, then run it with COMPOSIO_MULTI_EXECUTE_TOOL. Reach for them before telling the user you have no access to a service.";
+  " Connected Apps uses OpenClaw plugins and remote MCP accounts. Call connectors_list_accounts, then connectors_list_tools with an exact service and account ID to discover its tool schemas. Use connectors_execute_tool only with a listed tool and approved account. If an account is unavailable, ask through connectors_request_connection and stop; the user must connect it and explicitly grant access. Never request credentials in chat or assume that connecting an account grants permission to use it.";
 /** Names the user-added MCP servers a turn actually mounted, so the bot
  * reaches for them instead of saying it has no such tool. Empty when none. */
 export function customMcpPrompt(names: string[]): string {

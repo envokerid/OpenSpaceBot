@@ -114,7 +114,7 @@ describe("screenTouchingTool", () => {
     // the person's hands, not the bot's
     "computer_request_help", "browser_request_takeover",
     // not computer tools at all
-    "Bash", "Read", "mcp__agents__ask_bot", "mcp__composio__GMAIL_SEND_EMAIL", "screenshot_helper",
+    "Bash", "Read", "mcp__agents__ask_bot", "mcp__connectors__GMAIL_SEND_EMAIL", "screenshot_helper",
   ];
   for (const tool of bystanders) {
     it(`ignores: ${tool}`, () => expect(screenTouchingTool(tool)).toBe(false));

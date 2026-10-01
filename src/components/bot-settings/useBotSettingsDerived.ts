@@ -33,7 +33,7 @@ export type BotPatch = Partial<
     | "chiefOfStaff"
     | "managedSections"
     | "approvePeerComms"
-    | "composio"
+    | "connectors"
     | "browser"
     | "mcpServers"
     | "modelSelection"
@@ -57,10 +57,10 @@ export function useBotSettingsDerived(bot: Bot) {
   const approvalMode = approvalModeFor(bot);
   const trustedModesAvailable = Boolean(window.ogb?.approvals && capabilities.host.packaged);
   const canCoordinate = engine?.capabilities?.agentsMcp === true;
-  const canUseConnectedApps = engine?.capabilities?.composioMcp === true;
+  const canUseConnectedApps = engine?.capabilities?.connectorsMcp === true;
   const canUseVps = engine?.capabilities?.computerMcp === true && engine.driverKind !== "boxAgent";
-  const connectedAppsConfigured = state.config?.composio?.configured === true;
-  const connectedAppsEnabled = bot.composio !== false;
+  const connectedAppsConfigured = state.config?.connectors?.configured === true;
+  const connectedAppsEnabled = bot.connectors !== false;
   const canUseBrowser = engine?.capabilities?.browserMcp === true;
   const desktopBrowser = browserAvailable(state.config);
   const browserBlockedOnWindows = window.ogb?.platform === "win32" && !desktopBrowser;

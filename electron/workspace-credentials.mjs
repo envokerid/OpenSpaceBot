@@ -1,6 +1,5 @@
 // Workspace credentials the desktop shell keeps OS-encrypted (credentials.bin
-// via safeStorage) instead of leaving in plaintext config.json — the same
-// treatment the Composio project key already gets in main.mjs. Pure functions:
+// via safeStorage) instead of leaving in plaintext config.json. Pure functions:
 // main.mjs owns the fs and safeStorage plumbing, so the migration decisions
 // stay testable without an Electron runtime.
 //
@@ -43,6 +42,11 @@ export function migrateWorkspaceCredentials(config, credentials) {
   const nextCredentials = { ...credentials };
   let configChanged = false;
   let credentialsChanged = false;
+  // The retired connector broker cannot be used after this migration.
+  if (Object.hasOwn(nextConfig, "composio")) { delete nextConfig.composio; configChanged = true; }
+  for (const name of ["composioApiKey", "composioBrokerToken", "composioInstallationId"]) {
+    if (Object.hasOwn(nextCredentials, name)) { delete nextCredentials[name]; credentialsChanged = true; }
+  }
   for (const { section, field, name } of WORKSPACE_CREDENTIALS) {
     const home = nextConfig?.[section];
     if (!home || typeof home !== "object" || Array.isArray(home)) continue;

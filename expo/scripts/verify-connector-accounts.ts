@@ -13,42 +13,15 @@ import { parseInvite } from "../src/core/pairing.ts";
 import { Session } from "../src/core/session.ts";
 import type { Bot } from "../src/core/types.ts";
 
-const accounts = ["work", "personal", "pending"].map((alias) => ({
-  id: `ca_${alias}`,
-  alias,
-  status: alias === "pending" ? "INITIATED" : "ACTIVE",
-  toolkit: { slug: "gmail" },
+const accounts = ["work", "personal", "pending"].map((alias, index) => ({
+  id: `00000000-0000-4000-8000-00000000000${index + 1}`, alias, slug: "gmail", status: alias === "pending" ? "PENDING" : "ACTIVE",
 }));
 const provider = createServer((req, res) => {
-  const path = new URL(req.url ?? "/", "http://fixture").pathname;
-  res.setHeader("Content-Type", "application/json");
-  if (path.endsWith("/connected_accounts"))
-    return res.end(JSON.stringify({ items: accounts }));
-  if (path.endsWith("/auth_configs"))
-    return res.end(JSON.stringify({ items: [] }));
-  if (path.endsWith("/toolkits"))
-    return res.end(
-      JSON.stringify({
-        items: [
-          {
-            slug: "gmail",
-            name: "Gmail",
-            description: "Fixture mail accounts",
-            connected_account: accounts[0],
-          },
-        ],
-      }),
-    );
-  if (path === "/api/v3.1/tool_router/session/trs_fixture")
-    return res.end(
-      JSON.stringify({
-        session_id: "trs_fixture",
-        mcp: { type: "http", url: "https://app.composio.dev/fixture-unused" },
-        config: { user_id: "fixture_user", multi_account: { enable: true } },
-      }),
-    );
-  res.writeHead(404);
-  res.end(JSON.stringify({ error: "No provider execution in this fixture" }));
+  res.setHeader("content-type", "application/json");
+  if (req.url === "/connector-inventory") return res.end(JSON.stringify({ version: 1, accounts, providers: [
+    { slug: "gmail", label: "Fixture mail", blurb: "Synthetic accounts", logo: null, domain: "fixture.invalid", remote: { url: "https://fixture.invalid/mcp", auth: "none" } },
+  ] }));
+  res.writeHead(404); res.end("{}");
 });
 provider.listen(0, "127.0.0.1");
 await once(provider, "listening");
@@ -117,49 +90,49 @@ try {
   const disabled = await fetch(`${fixture.info.url}/api/bots/${bot.id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ composio: false }),
+    body: JSON.stringify({ connectors: false }),
   });
   assert.equal(disabled.status, 200);
   session = new Session(client);
   session.start();
   await until(() => session!.state.status === "connected");
-  await client.request(route(bot.id, "ca_work"), "POST");
+  await client.request(route(bot.id, "00000000-0000-4000-8000-000000000001"), "POST");
   await until(
     () =>
       session!.state.bots
         .find((b) => b.id === bot.id)
-        ?.connectorAccounts?.gmail?.includes("ca_work") === true,
+        ?.connectorAccounts?.gmail?.includes("00000000-0000-4000-8000-000000000001") === true,
   );
-  assert.equal(session.state.bots.find((b) => b.id === bot.id)?.composio, true);
-  await client.request(route(bot.id, "ca_personal"), "POST");
-  await client.request(route(bot.id, "ca_work"), "POST");
+  assert.equal(session.state.bots.find((b) => b.id === bot.id)?.connectors, true);
+  await client.request(route(bot.id, "00000000-0000-4000-8000-000000000002"), "POST");
+  await client.request(route(bot.id, "00000000-0000-4000-8000-000000000001"), "POST");
   await session.refresh();
   assert.deepEqual(
     session.state.bots.find((b) => b.id === bot.id)?.connectorAccounts,
-    { gmail: ["ca_work", "ca_personal"] },
+    { gmail: ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"] },
   );
   assert.deepEqual(
     session.state.bots.find((b) => b.id === other.id)?.connectorAccounts ?? {},
     {},
   );
   for (const path of [
-    route(bot.id, "ca_pending"),
+    route(bot.id, "00000000-0000-4000-8000-000000000003"),
     route(bot.id, "ca_missing"),
-    route(bot.id, "ca_work", "slack"),
+    route(bot.id, "00000000-0000-4000-8000-000000000001", "slack"),
   ])
     await assert.rejects(client.request(path, "POST"), /active account/i);
   await assert.rejects(
-    client.request(route(bot.id, "ca_work"), "PATCH"),
+    client.request(route(bot.id, "00000000-0000-4000-8000-000000000001"), "PATCH"),
     /not exposed|not available|no route/i,
   );
   await assert.rejects(
     new Client(paired.connection, "invalid").request(
-      route(bot.id, "ca_work"),
+      route(bot.id, "00000000-0000-4000-8000-000000000001"),
       "POST",
     ),
     /pair|unauthorized/i,
   );
-  await client.request(route(bot.id, "ca_work"), "DELETE");
+  await client.request(route(bot.id, "00000000-0000-4000-8000-000000000001"), "DELETE");
   await until(
     () =>
       session!.state.bots.find((b) => b.id === bot.id)?.connectorAccounts?.gmail
@@ -168,7 +141,7 @@ try {
   const stored = JSON.parse(
     readFileSync(join(fixture.info.dataDir, "bots.json"), "utf8"),
   ).find((b: Bot) => b.id === bot.id);
-  assert.deepEqual(stored.connectorAccounts, { gmail: ["ca_personal"] });
+  assert.deepEqual(stored.connectorAccounts, { gmail: ["00000000-0000-4000-8000-000000000002"] });
   evidence.push({
     action:
       "Add two exact accounts, idempotent add, enable connected apps, stream updates, wrong/pending/missing account refusal, method/auth rejection, remove and persisted state",
@@ -176,7 +149,7 @@ try {
     stored: stored.connectorAccounts,
     status: "passed",
   });
-  await client.request(route(bot.id, "ca_personal"), "DELETE");
+  await client.request(route(bot.id, "00000000-0000-4000-8000-000000000002"), "DELETE");
   await session.refresh();
   assert.deepEqual(
     session.state.bots.find((b) => b.id === bot.id)?.connectorAccounts ?? {},

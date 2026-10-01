@@ -5,7 +5,8 @@ import Markdown, { MarkdownIt } from 'react-native-markdown-display';
 import { markdownListLayout } from './markdownLayout';
 import { messageImageSize } from './core/messageImage';
 import * as Clipboard from 'expo-clipboard';
-import * as WebBrowser from 'expo-web-browser';
+import { ConnectorAuthFlow } from './ConnectorAuthFlow';
+import type { ConnectorAuthState } from '../../shared/connector-auth';
 import { randomUUID } from 'expo-crypto';
 import { QuestionCard } from './QuestionCard';
 import { McpApprovalScope } from './McpApprovalScope';
@@ -92,6 +93,7 @@ function Approval({ message, client, destination, onChanged, name }: { name?: st
 export const MessageBubble = React.memo(function MessageBubble({ message, client, destination, onChanged, versions = [], name, speaker, onEnter }: { onEnter?: () => boolean; name?: string; speaker?: Bot; message: Message; client: Client; destination: Destination; onChanged: () => Promise<unknown>; versions?: Message[] }) {
   const c = useTheme(); const action = useAction(); const [edit, setEdit] = useState<string>();
   const [menu, setMenu] = useState<{ x: number; y: number }>(); const [selectText,setSelectText] = useState(false); const [copied, setCopied] = useState(false);
+  const [connectorAuth, setConnectorAuth] = useState<ConnectorAuthState>();
   const peer = peerLine(message);
   const content = splitTranscriptAttachments(message.text ?? '');
   const copyText = () => action.run(async () => {
@@ -117,8 +119,8 @@ export const MessageBubble = React.memo(function MessageBubble({ message, client
   const botId = message.from?.botId ?? (destination.kind === 'bots' ? destination.id : undefined);
   const cardAction = (family: 'connector' | 'secret', verb: string) => action.run(async () => {
     if (!botId) throw new Error('Open this request in its bot conversation.');
-    const result = await client.request<{ url?: string }>(`/api/bots/${routeId(botId)}/${family}-cards/${routeId(message.id)}/${verb}`, 'POST', { threadId: destination.threadId });
-    if (result.url) { if (new URL(result.url).protocol !== 'https:') throw new Error('The sign-in link must use HTTPS.'); await WebBrowser.openBrowserAsync(result.url); }
+    const result = await client.request<ConnectorAuthState>(`/api/bots/${routeId(botId)}/${family}-cards/${routeId(message.id)}/${verb}`, 'POST', { threadId: destination.threadId });
+    if (family === 'connector' && verb === 'authorize') setConnectorAuth(result);
     await onChanged();
   });
   if (peer) return <View style={{ paddingHorizontal: 4, flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 24 }}>
@@ -129,7 +131,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, client
   if (isConversationNotice(message)) return <View style={{ paddingHorizontal: 4, flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 24 }}><View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: message.tool?.ok === false ? c.danger : c.muted }} /><Label size={13} muted style={{ flexShrink: 1 }}>{message.tool?.name ?? message.text}</Label></View>;
   if (message.tool?.name.startsWith('error:')) return <ErrorNotice error={message.tool.name.slice(6).trim()} />;
   if (message.kind === 'activity' || message.tool) return null;
-  return <><SpeechBubble onEnter={onEnter} mine={message.role === 'user'} goal={goal} fullWidth={!!message.goalRun} onLongPress={event => setMenu({ x: event.nativeEvent.pageX, y: event.nativeEvent.pageY })}>
+  return <>{connectorAuth && <ConnectorAuthFlow key={connectorAuth.id} client={client} initial={connectorAuth} onDone={() => void onChanged()} onClose={() => setConnectorAuth(undefined)} />}<SpeechBubble onEnter={onEnter} mine={message.role === 'user'} goal={goal} fullWidth={!!message.goalRun} onLongPress={event => setMenu({ x: event.nativeEvent.pageX, y: event.nativeEvent.pageY })}>
     {goal && <GoalHeading run={message.goalRun} />}
     {groupSpeaker ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><View style={{ width: 24, height: 24, flexShrink: 0 }}><Avatar bot={groupSpeaker} client={client} size={24} animated={false} /></View><Label size={13} bold style={{ flexShrink: 1 }}>{groupSpeaker.name}</Label></View> : !!message.from?.name && message.role !== 'user' && <Label size={13} bold>{message.from.name}</Label>}
     {[...content.images.map(item => ({ ...item, image: true })), ...content.files.map(item => ({ ...item, image: false }))].map((item,index) => <AttachmentView key={`${item.path}-${index}`} client={client} threadId={destination.threadId} messageId={message.id} path={item.path} name={item.name} image={item.image} mine={message.role === 'user'} />)}

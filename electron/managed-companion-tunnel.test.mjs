@@ -115,13 +115,13 @@ describe("managed companion credentials", () => {
   });
 
   it("copies a valid provision response into and out of the encrypted credential shape", () => {
-    const credentials = { composioApiKey: "keep-me" };
+    const credentials = { unrelatedCredential: "keep-me" };
     const provisioned = withManagedCompanionTunnelAccess(credentials, {
       endpoint: { url: `${ENDPOINT}/` },
       connectorToken: TOKEN,
     });
     expect(provisioned).toEqual({
-      composioApiKey: "keep-me",
+      unrelatedCredential: "keep-me",
       managedCompanionEndpointUrl: ENDPOINT,
       managedCompanionConnectorToken: TOKEN,
       [MANAGED_COMPANION_ORIGIN_VERSION_FIELD]: MANAGED_COMPANION_ORIGIN_VERSION,

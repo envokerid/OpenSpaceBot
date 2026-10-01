@@ -806,7 +806,7 @@ public struct Profile: Codable, Hashable, Sendable {
 }
 
 public struct ConfigStatus: Codable, Sendable {
-    public var composio: ConfigFlag?
+    public var connectors: ConfigFlag?
     public var box: ConfigFlag?
     public var tts: ConfigFlag?
     public var imageGen: ConfigFlag?
@@ -1145,7 +1145,7 @@ public struct ConnectorAccount: Codable, Hashable, Identifiable, Sendable {
     public var alias: String?
     public var status: String
 
-    /// Composio lifecycle values include both `ACTIVE` and `INACTIVE`; an
+    /// connector lifecycle values include both `ACTIVE` and `INACTIVE`; an
     /// exact normalized comparison avoids rendering the latter as connected.
     public var isActive: Bool {
         status.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == "ACTIVE"
@@ -1176,7 +1176,7 @@ public struct ConnectorStatuses: Codable, Sendable {
 
     /// Whether `services` is an inventory or an admission of ignorance.
     ///
-    /// `server/index.ts` answers an unreadable Composio credential store with
+    /// `server/index.ts` answers an unreadable connector credential store with
     /// an empty map *and* `credentialStore: "unavailable"`, because failing to
     /// read the store means we do not know what is connected — which is not
     /// the same as knowing nothing is. An empty map arriving that way must
@@ -1268,7 +1268,9 @@ struct RoutineResponse: Codable, Sendable { var routine: Routine }
 struct RoutineRunResponse: Codable, Sendable { var run: RoutineRun }
 
 struct ConnectorAuthorizationResponse: Codable, Sendable {
-    var url: String
+    var url: String?
+    var id: String?
+    var kind: String?
 }
 
 // MARK: - Server sessions (pairing with a server directly)

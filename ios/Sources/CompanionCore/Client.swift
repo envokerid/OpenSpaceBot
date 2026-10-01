@@ -1515,11 +1515,19 @@ public struct CompanionClient: Sendable {
         } else {
             body = nil
         }
-        let response = try await send(
+        var response = try await send(
             try makeRequest("POST", "/api/connectors/\(slug)/authorize", body: body),
             as: ConnectorAuthorizationResponse.self
         )
-        guard let url = URL(string: response.url),
+        for _ in 0..<45 {
+            guard response.kind == "pending", let id = response.id else { break }
+            try await Task.sleep(for: .seconds(1))
+            response = try await send(try makeRequest("GET", "/api/connectors/auth/\(id)"), as: ConnectorAuthorizationResponse.self)
+        }
+        guard let address = response.url else {
+            throw APIError.transport("Continue this connection in Expo or on your desktop. QR pairing needs a second screen.")
+        }
+        guard let url = URL(string: address),
               url.scheme == "https",
               url.host != nil
         else { throw APIError.badURL }

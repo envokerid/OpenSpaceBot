@@ -744,12 +744,12 @@
         }
       }
     },
-    "Configure Composio on your computer first. Provider credentials are never returned to this device.": {
+    "Enable Connected Apps on your server first. Provider credentials are never returned to this device.": {
       "localizations": {
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configure o Composio no seu computador primeiro. As credenciais do provedor nunca são devolvidas a este dispositivo."
+            "value": "Ative os aplicativos conectados no seu servidor primeiro. As credenciais do provedor nunca são devolvidas a este dispositivo."
           }
         }
       }

@@ -2,7 +2,7 @@ import CompanionCore
 import SwiftUI
 import UIKit
 
-/// Account-aware Composio inventory for a paired phone.
+/// Account-aware Connected Apps inventory for a paired phone.
 ///
 /// The companion may list accounts and start authorization, but revocation
 /// deliberately remains on the Mac. That keeps a lost phone from removing a
@@ -56,7 +56,7 @@ struct ConnectedAppsView: View {
 
             // Two notices about one fact is one too many, and only the banner
             // above is true during a failed read: `configured` comes from
-            // `composio.configured(cfg)` (server/index.ts:4993), which an
+            // `connectors.configured(cfg)` (server/index.ts:4993), which an
             // unreadable store also drives to false, so "needs setup" would be
             // advice for someone who never set this up. Same rule the panel on
             // the computer applies — `!configured && !stale`.
@@ -65,7 +65,7 @@ struct ConnectedAppsView: View {
                     ContentUnavailableView(
                         "Connected apps need setup",
                         systemImage: "link.badge.plus",
-                        description: Text("Configure Composio on your computer first. Provider credentials are never returned to this device.")
+                        description: Text("Enable Connected Apps on your server first. Provider credentials are never returned to this device.")
                     )
                 }
             }

@@ -40,12 +40,6 @@ export function ConnectionSettings({ client, config, reload }: SettingsProps) {
       field: "apiKey",
       configured: config.opencodeGo?.configured,
     },
-    {
-      id: "composio",
-      label: "Composio (self-hosted)",
-      field: "apiKey",
-      configured: config.composio?.configured,
-    },
   ];
   return (
     <>

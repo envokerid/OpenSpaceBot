@@ -11,10 +11,9 @@ npm run typecheck --prefix expo
 
 `server/approved-commands.e2e.test.ts` launches the repository's fake-engine
 server with a temporary data directory, creates one fixture bot, reads the
-administrator settings endpoint, revokes the built-in
-`composio_multi_execute_tool` approval, grants a second MCP tool, and confirms
+administrator settings endpoint, checks that `connectors_execute_tool` has no implicit approval, grants a second MCP tool, and confirms
 the resulting bot policy. A second fixture opens the real Claude permission
-broker, proves the default command is answered automatically, revokes it, and
+broker, explicitly approves connector execution and proves it is answered automatically, revokes it, and
 proves the next identical call produces a human approval card. It then answers
 that card through the real thread route. Each test closes the exact child it
 launched and removes its temporary workspace.
@@ -34,6 +33,6 @@ synchronous approval delivery remains valid across Claude, Codex, ACP engines,
 and the OpenAI-compatible MCP runtime. Expo's type check covers the native page
 and its shared wire contract.
 
-This fixture uses fake providers and does not call a live MCP server, Composio
+This fixture uses fake providers and does not call a live MCP server, a provider
 account, desktop app, or phone. Native layout still requires the disposable
 emulator workflow in `expo/verification/settings.md`.

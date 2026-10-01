@@ -111,11 +111,15 @@ The [local computer launch regression](local-computer-launch.md) starts the
 host CUA gate through real Electron in a disposable home, without opening the
 desktop app or controlling the user's computer.
 
+The [OpenClaw connector fixture](../openclaw-connectors.md#verification) checks
+the pinned runtime, OAuth callback handoff and account-grant lifecycle with
+fake providers and isolated account profiles.
+
 The [connector account fixture](connector-accounts.md) checks per-bot account
 approvals from both settings views, persistence, and gateway restrictions.
 
 The [approved commands fixture](approved-commands.md) checks bot-wide MCP tool
-approvals, the default Composio multi-execute grant, revocation, and paired-phone
+approvals, explicit connector execution approvals, revocation, and paired-phone
 settings access in disposable workspaces.
 
 The [bot settings fixture](bot-settings.md) checks profile saves, standing

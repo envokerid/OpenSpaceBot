@@ -1496,19 +1496,19 @@ describe("ClaudeDriver turns (fake CLI)", () => {
   });
 
   // the harness gates both the integration and the prompt hint on
-  // capabilities.composioMcp, so the flag and the mount must agree — a bot
+  // capabilities.connectorsMcp, so the flag and the mount must agree — a bot
   // told about tools its driver never mounted burns the turn hunting
   it("mounts the user's connected apps and claims the capability that gates them", async () => {
     await create();
     const dump = join(scratch, "dump.json");
     process.env.FAKE_CLAUDE_DUMP = dump;
 
-    expect(instance.adapter.capabilities.composioMcp).toBe(true);
+    expect(instance.adapter.capabilities.connectorsMcp).toBe(true);
     await instance.adapter.sendTurn({
-      threadId: "t-composio",
+      threadId: "t-connectors",
       text: "hi",
       integrations: {
-        composio: {
+        connectors: {
           command: process.execPath,
           args: ["/tmp/connector-proxy.js"],
           env: { OMB_CONNECTOR_UPSTREAM_URL: "https://example.test/mcp" },
@@ -1518,14 +1518,14 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await recorder.until((e) => e.type === "turn.completed");
 
     const seen = JSON.parse(readFileSync(dump, "utf8"));
-    expect(seen.mcpConfig.mcpServers.composio).toMatchObject({
+    expect(seen.mcpConfig.mcpServers.connectors).toMatchObject({
       command: process.execPath,
       args: ["/tmp/connector-proxy.js"],
       env: { OMB_CONNECTOR_UPSTREAM_URL: "https://example.test/mcp" },
     });
-    // the user's Composio key must not be readable via `ps`
+    // the user's connector token must not be readable via `ps`
     expect(JSON.stringify(seen.argv)).not.toContain("ak_test");
-    expect(seen.argv[seen.argv.indexOf("--allowedTools") + 1]).toContain("mcp__composio");
+    expect(seen.argv[seen.argv.indexOf("--allowedTools") + 1]).not.toContain("mcp__connectors");
   });
 
   // the config file holds live credentials, so it must not outlive the turn —
@@ -1543,7 +1543,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       threadId: "t-cleanup",
       text: "hi",
       integrations: {
-        composio: {
+        connectors: {
           command: process.execPath,
           args: ["/tmp/connector-proxy.js"],
           env: { OMB_CONNECTOR_UPSTREAM_URL: "https://example.test/mcp" },

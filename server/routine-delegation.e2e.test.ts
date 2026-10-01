@@ -222,7 +222,7 @@ describe("routine delegation through the isolated harness", () => {
     expect(JSON.parse(readFileSync(pendingFile, "utf8"))[run.threadId]).toHaveLength(1);
     // Clearing the fixture's empty connected-app key rebuilds only its fake
     // provider fleet; it makes no credential probe or external request.
-    await api("PUT", "/api/config", { composio: { apiKey: "" } });
+    await api("PUT", "/api/config", { connectors: { apiKey: "" } });
     await expect.poll(async () => (await runState(run.id))?.status).toBe("failed");
     const health = (await api("GET", "/api/routines")).routines.find((routine: any) => routine.id === run.routineId);
     expect(health.failureStreak).toBe(1);

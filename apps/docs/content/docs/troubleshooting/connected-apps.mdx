@@ -1,26 +1,20 @@
 ---
 title: Connected apps
-description: Fix OAuth loops, missing tools, and connections that appear to vanish.
-icon: Unplug
+description: Recover a connection or account grant
 ---
 
-## Connection completes but the app still shows disconnected
+If Connect fails, check the integration URL, provider credentials and server
+runtime installation. OAuth requires a supported MCP authorization server
+and a correctly registered callback. Hosted deployments should use the
+workspace's public HTTPS address with `/oauth/mcp/callback` forwarded to the app.
 
-1. Return to OpenMausBot after the browser confirms success.
-2. Open **Connected apps** and use **Refresh connection status**.
-3. Check the **Connected** tab for the account, including its alias.
-4. Retry from the original bot after the account appears active.
+For a localhost redirect opened on another device, copy the complete failed
+callback URL into the Connect screen. For a QR-only provider, continue the same
+pending account on another screen and scan it with the provider's phone app.
 
-## The account is connected but the agent cannot use it
+A connected account is not automatically available to a bot: grant that exact
+account under the bot's Access settings. If a provider revokes authorization,
+disconnect and connect again, then approve the new account. Never automatically
+retry a timed-out write; first check whether it completed at the provider.
 
-Start a new task after connecting the app so the engine receives a fresh tool catalog. Name the service and account explicitly in the request. If several accounts are connected, select or mention the intended alias.
-
-Some engines expose connected tools differently. Verify the chosen engine supports MCP or the connected-tool bridge used by the app.
-
-## Official build says the service is unavailable
-
-Check internet connectivity and try again later before reconnecting every account. The packaged app preserves its installation identity across transient broker outages; rotating or deleting local credentials during an outage can separate existing grants from the installation.
-
-## Self-hosted build asks for configuration
-
-Source and self-hosted builds do not automatically use the official managed service. Configure your own Composio project as described in [Self-hosted Composio](../connected-apps/self-hosted-composio.mdx).
+See [OpenClaw runtime](../connected-apps/openclaw.mdx).

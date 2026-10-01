@@ -87,7 +87,7 @@ describe("reviewed Chief team setup", () => {
     expect(h.store.bots).toEqual(before); expect(h.apply).not.toHaveBeenCalled();
     expect((await h.resolve(request.requestId))?.result.state).toBe("denied");
   });
-  it.each(["approvalMode", "autoApprove", "managedSections", "peers", "chiefOfStaff", "composio", "cwd"])("rejects injected %s with no card", (field) => {
+  it.each(["approvalMode", "autoApprove", "managedSections", "peers", "chiefOfStaff", "connectors", "cwd"])("rejects injected %s with no card", (field) => {
     const h = harness();
     expect(() => h.propose([{ action: "update", botId: h.peer.id, fields: { [field]: true } }])).toThrow();
     expect(h.messages).toHaveLength(0);

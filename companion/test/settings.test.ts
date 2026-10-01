@@ -26,6 +26,7 @@ async function listen(handler: RequestListener) {
 
 it("settings grant opens exact operations and never widens ordinary pairing", () => {
   for (const [method, path] of [
+    ["POST", "/api/connectors/providers"],
     ["GET", "/api/settings/approved-commands"],
     ["PATCH", "/api/settings/approved-commands"],
     ["PATCH", "/api/config"],

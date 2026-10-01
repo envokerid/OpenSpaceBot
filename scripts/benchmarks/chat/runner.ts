@@ -121,7 +121,7 @@ export async function runExperiment(loaded: LoadedExperiment, options: ProviderO
         let taskId = bot.activeTaskId;
         const model = options.engine === "native" ? `openai-codex:${options.model}` : options.model;
         await control("set-model", "--bot", bot.id, "--instance", "benchmark", "--model", model);
-        await api("PATCH", `/api/bots/${bot.id}`, { description: "A benchmark assistant", soul: trial.configuration.instructions ?? trial.scenario.instructions, computer: "off", browser: false, composio: false, mcpServers: ["fixture"] });
+        await api("PATCH", `/api/bots/${bot.id}`, { description: "A benchmark assistant", soul: trial.configuration.instructions ?? trial.scenario.instructions, computer: "off", browser: false, connectors: false, mcpServers: ["fixture"] });
         memoryDir = join(dataDir, "workspaces", bot.id);
         const initialMemory = trial.configuration.memory.mode === "seeded" ? trial.configuration.memory.text ?? trial.scenario.memory : "";
         await api("PUT", `/api/bots/${bot.id}/memory/file`, { path: "MEMORY.md", text: initialMemory });

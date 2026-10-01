@@ -45,7 +45,7 @@ export interface OverviewFacts {
     | "approvalMode"
     | "approvePeerComms"
     | "peers"
-    | "composio"
+    | "connectors"
     | "browser"
     | "chiefOfStaff"
     | "managedSections"
@@ -60,7 +60,7 @@ export interface OverviewFacts {
   runs: Array<{ routineId: string; status: string; finishedAt?: number; startedAt?: number; scheduledFor: number }>;
   webhooks: Array<{ name: string; enabled: boolean }>;
   skills: Array<{ name: string; description: string; enabled: boolean }>;
-  engine: { agentsMcp?: boolean; composioMcp?: boolean; browserMcp?: boolean; computerMcp?: boolean } | null;
+  engine: { agentsMcp?: boolean; connectorsMcp?: boolean; browserMcp?: boolean; computerMcp?: boolean } | null;
   browserEnabled?: boolean;
   connectedApps: { configured: boolean; authoritative: boolean; services: string[] };
   sectionPeers: number;
@@ -191,9 +191,9 @@ export async function connectedAppsFacts(
 }
 
 /** Whether this bot could use connected apps at all: apps on for the bot,
- * a connector configured, and an engine that mounts the Composio MCP. */
+ * a connector configured, and an engine that mounts the connector MCP. */
 function couldUseApps(facts: OverviewFacts): boolean {
-  return facts.bot.composio !== false && facts.connectedApps.configured && Boolean(facts.engine?.composioMcp);
+  return facts.bot.connectors !== false && facts.connectedApps.configured && Boolean(facts.engine?.connectorsMcp);
 }
 
 function computerReach(computer: BotRecord["computer"]): string | null {

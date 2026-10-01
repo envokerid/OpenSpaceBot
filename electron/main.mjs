@@ -30,12 +30,6 @@ import { collisionFreeDownloadPath, defaultSaveName, withSavableFile } from "./s
 import { desktopViewerPermissionAllowed } from "./desktop-viewer-permissions.mjs";
 import { appPermissionAllowed, externalWebUrl } from "./app-permissions.mjs";
 import {
-  ensureManagedComposioCredentials,
-  managedComposioAccess,
-  managedComposioChildEnvironment,
-  normalizeManagedComposioBrokerUrl,
-} from "./managed-composio.mjs";
-import {
   createManagedCompanionTunnel,
   managedCompanionTunnelAccess,
   resolveCloudflaredBinary,
@@ -95,7 +89,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 127.0.0.1 explicitly — vite binds IPv4; a bare "localhost" here can
 // resolve to ::1 and paint a black window
 const DEV_URL = process.env.ELECTRON_START_URL ?? "http://127.0.0.1:5199";
-const DEFAULT_COMPOSIO_BROKER_URL = "https://openmausbot-composio.milindsoni201.workers.dev";
 // Development main-process requests must follow the separately launched
 // harness, including when an installed copy is using the default port.
 let SERVER_PORT = app.isPackaged ? 8799 : Number(process.env.OMB_PORT || process.env.OGB_PORT || 8799);
@@ -296,7 +289,6 @@ const serverSupervisor = createServerSupervisor({
     slog(`server ready pid=${proc.pid} port=${SERVER_PORT}`);
     // Re-read the latest account credentials; registration may have completed
     // while the replacement child's health probe was pending.
-    syncManagedComposioCredentials();
     if (managedDesktop) void managedDesktop.refresh().catch(() => {});
     routineWake.start();
     // Existing chat windows reconnect in place, preserving unsent drafts.
@@ -401,48 +393,7 @@ async function saveSecureCredentials(credentials) {
   fs.renameSync(temporary, CREDENTIALS_FILE);
 }
 
-async function secureComposioConfig() {
-  const dataDir = desktopDataDir();
-  const configPath = path.join(dataDir, "config.json");
-  try {
-    const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-    if (!config?.composio || typeof config.composio !== "object") return;
-    let changed = false;
-    const apiKey = config?.composio?.apiKey;
-    if (typeof apiKey === "string" && apiKey.trim().startsWith("ak_")) {
-      if (!secureCredentials.composioApiKey) {
-        secureCredentials.composioApiKey = apiKey.trim();
-        await saveSecureCredentials(secureCredentials);
-      }
-      config.composio.apiKey = "";
-      changed = true;
-    } else if (typeof apiKey === "string" && apiKey.trim()) {
-      config.composio.apiKey = "";
-      changed = true;
-    }
-    // These were the old Connect credential and endpoint. They are no longer
-    // read; remove them during the upgrade so an unused secret is not left in
-    // plaintext indefinitely.
-    for (const field of ["key", "url"]) {
-      if (Object.hasOwn(config.composio, field)) {
-        delete config.composio[field];
-        changed = true;
-      }
-    }
-    if (!changed) return;
-    const temporary = `${configPath}.${process.pid}.tmp`;
-    fs.writeFileSync(temporary, JSON.stringify(config, null, 2), { mode: 0o600 });
-    fs.renameSync(temporary, configPath);
-  } catch (error) {
-    if (error?.code !== "ENOENT") slog(`credential migration failed: ${error?.message ?? error}`);
-  }
-}
-
-// The remaining workspace credentials (xai/box/voice/OpenCode keys) get
-// the same at-rest treatment as the Composio key above. New packaged-app
-// saves go straight through credential:set below; this boot-time sweep also
-// migrates plaintext left by older versions or direct development clients.
-// See workspace-credentials.mjs for the exact rules.
+// Move legacy plaintext workspace credentials into the OS credential store.
 async function secureWorkspaceConfig() {
   const dataDir = desktopDataDir();
   const configPath = path.join(dataDir, "config.json");
@@ -461,13 +412,6 @@ async function secureWorkspaceConfig() {
   } catch (error) {
     if (error?.code !== "ENOENT") slog(`credential migration failed: ${error?.message ?? error}`);
   }
-}
-
-function composioBrokerUrl() {
-  const configured = process.env.OMB_COMPOSIO_BROKER_URL?.trim();
-  return normalizeManagedComposioBrokerUrl(
-    configured || (app.isPackaged ? DEFAULT_COMPOSIO_BROKER_URL : ""),
-  );
 }
 
 // The packaged app has no terminal: everything about the server child's life
@@ -1212,7 +1156,7 @@ function receivePhoneSecretSave(proc, rawMessage) {
 async function startServerOn(port) {
   if (desktopShutdownStarted) return { proc: null, abort: true };
   const entry = path.join(process.resourcesPath, "server", "index.js");
-  const childEnv = managedComposioChildEnvironment(composioBrokerUrl(), secureCredentials, {
+  const childEnv = {
     ...process.env,
     // The desktop parent owns the durable data-directory lease. Each utility
     // server gets only a private capability that validates that same live
@@ -1230,16 +1174,13 @@ async function startServerOn(port) {
     // the server advertises this to remote clients so version skew is visible
     OMB_APP_VERSION: app.getVersion(),
     OMB_USER_DATA: app.getPath("userData"),
-    ...(secureCredentials.composioApiKey
-      ? { COMPOSIO_API_KEY: secureCredentials.composioApiKey }
-      : {}),
     // "we could not read your keys" must not reach the UI as "you have none"
     OMB_CREDENTIAL_STORE: credentialStoreUnavailable ? "unavailable" : "ok",
     // one env var per stored workspace secret (xai/box/voice/OpenCode Go);
     // the server prefers these over config.json, whose plaintext fields
     // the boot migration has deleted
     ...workspaceCredentialEnv(secureCredentials),
-  });
+  };
   delete childEnv.OMB_BROWSER_CONNECTION;
   slog(`fork ${entry} port=${port}`);
   const proc = utilityProcess.fork(entry, [], {
@@ -1337,18 +1278,6 @@ async function startServerPackaged() {
   return false;
 }
 
-function syncManagedComposioCredentials() {
-  if (!serverProc) return;
-  try {
-    serverProc.postMessage({
-      type: "openmausbot:managed-composio",
-      access: managedComposioAccess(composioBrokerUrl(), secureCredentials),
-    });
-  } catch (error) {
-    slog(`connected-apps credential sync failed: ${error?.message ?? error}`);
-  }
-}
-
 // The page is built at failure time (not import time): the message depends on
 // how the boot failed, and the log path comes from LOG_DIR so Windows and
 // Linux users see their real location instead of a macOS guess. The link
@@ -1374,8 +1303,8 @@ function buildErrorPage({ allPortsOccupied }) {
 
 // How long one packaged-server child gets to answer /api/health before the
 // parent reaps it and tries the next port. Wall-clock, deliberately generous:
-// first boots write data dirs and pre-listen network calls (managed composio,
-// workspace credentials) can stall a healthy child far past 20s on some
+// first boots initialize private state and workspace credentials, which
+// can delay a healthy child far past 20s on some
 // machines, which used to surface as the misleading "ports are busy" page.
 const SERVER_BOOT_TIMEOUT_MS = 60_000;
 
@@ -2669,7 +2598,6 @@ ipcMain.handle("desktop:capabilities", async (event) =>
 );
 
 const CREDENTIAL_PATCH = {
-  composioApiKey: (value) => ({ composio: { apiKey: value } }),
   xaiApiKey: (value) => ({ xai: { key: value } }),
   boxToken: (value) => ({ box: { token: value } }),
   opencodeGoApiKey: (value) => ({ opencodeGo: { apiKey: value } }),
@@ -2801,7 +2729,6 @@ app.whenReady().then(async () => {
     }
   }
   if (app.isPackaged) {
-    await secureComposioConfig();
     await secureWorkspaceConfig();
   }
   // Boot migrations above are deliberately sequential. From this point on,
@@ -2932,28 +2859,6 @@ app.whenReady().then(async () => {
   // local app is usable. This background network work never gates LAN pairing
   // or the first window.
   if (hostedAccount) void hostedAccount.restore().catch(() => {});
-  // Registration is optional network work. Start it only after the local
-  // server and first window are usable, then update the server child over its
-  // private parent port so Connected Apps becomes available without restart.
-  // Registering while the store is unreadable would mint a SECOND installation
-  // identity for a user who already has one — the first thing they would
-  // notice is every connected app gone, permanently.
-  if (credentialStoreUnavailable) {
-    slog("skipping connected-apps registration: the credential store was unreadable this launch");
-  }
-  if (!desktopRemoteAccess && app.isPackaged && composioBrokerUrl() && !credentialStoreUnavailable) {
-    void updateSecureCredentialDocument(async (credentials) => {
-      await ensureManagedComposioCredentials({
-        brokerUrl: composioBrokerUrl(),
-        credentials,
-        // The shared credential state performs the one atomic encrypted
-        // write after this registration has derived its complete document.
-        saveCredentials: async () => {},
-        log: slog,
-      });
-      return credentials;
-    }).finally(syncManagedComposioCredentials);
-  }
   // in-app auto-update (packaged only) — checks GitHub releases, downloads on
   // the user's click, installs on "Restart to update"
   startUpdater();

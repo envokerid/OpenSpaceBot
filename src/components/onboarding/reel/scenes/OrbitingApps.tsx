@@ -5,7 +5,7 @@
 // gains its check. Under reduced motion the rings hold still.
 //
 // Logos come from the same resolver the Connected apps page uses: the
-// official mark from the Composio catalog when the server has one, else the
+// official mark from the connector catalog when the server has one, else the
 // service's favicon, else a monogram. So the scene shows exactly what the
 // marketplace will, and still renders offline.
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";

@@ -412,6 +412,13 @@ export async function launchVerificationServer(
   // Native browser daemons use UNIX sockets; a macOS temp home can exceed
   // their path limit. This is still an owned, randomly named fixture only.
   const dataDir = mkdtempSync(join(browser && process.platform !== "win32" ? "/tmp" : tmpdir(), "openmausbot-verify-data-"));
+  if (connectorFixtureApi) {
+    const response = await fetch(`${connectorFixtureApi}/connector-inventory`, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) throw new ControlOmbError("Connector fixture inventory unavailable");
+    const inventory = await response.json();
+    mkdirSync(join(dataDir, "connectors"), { recursive: true });
+    writeFileSync(join(dataDir, "connectors", "accounts.json"), JSON.stringify(inventory), { mode: 0o600 });
+  }
   const fixtureTemp = join(dataDir, "tmp");
   const fixtureDumpPath = join(dataDir, "fake-claude-dump.json");
   mkdirSync(fixtureTemp, { recursive: true });
@@ -419,7 +426,6 @@ export async function launchVerificationServer(
   mkdirSync(evidenceDir, { recursive: true });
   const logPath = join(evidenceDir, `server-${Date.now()}-${process.pid}.log`);
   writeFileSync(join(dataDir, "config.json"), JSON.stringify({
-    ...(connectorFixtureApi ? { composio: { apiKey: "ak_connector_fixture", userId: "fixture_user", sessionId: "trs_fixture" } } : {}),
     ...(boxFixtureApi ? { box: { token: "box_verification_fixture" } } : {}),
     instances: {
       // The synthetic map omits the default computer engine. Register it
@@ -453,7 +459,6 @@ export async function launchVerificationServer(
     AGENT_BROWSER_EXECUTABLE_PATH: browser.executablePath,
   });
   if (boxFixtureApi) childEnv.OMB_BOX_API = boxFixtureApi;
-  if (connectorFixtureApi) Object.assign(childEnv, { OMB_COMPOSIO_API: `${connectorFixtureApi}/api/v3.1`, OMB_COMPOSIO_TOOLKITS_API: `${connectorFixtureApi}/api/v3` });
   const child = spawn(process.execPath, ["--experimental-strip-types", join(ROOT, "server", "index.ts")], {
     cwd: ROOT,
     env: childEnv,

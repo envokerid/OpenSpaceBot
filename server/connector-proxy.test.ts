@@ -68,7 +68,7 @@ describe("connector MCP bridge", () => {
       await call({ name: "ordinary_tool", arguments: {} });
       expect(received.at(-1)).toBe("Bearer first-turn");
       writeFileSync(path, "second-turn");
-      await call({ name: "COMPOSIO_MANAGE_CONNECTIONS", arguments: { toolkits: ["gmail"] } });
+      await call({ name: "connectors_request_connection", arguments: { toolkits: ["gmail"] } });
       expect(received.at(-1)).toBe("Bearer second-turn");
       unlinkSync(path);
       await call({ name: "ordinary_tool", arguments: {} });
@@ -100,7 +100,7 @@ describe("connector MCP bridge", () => {
       jsonrpc: "2.0",
       id: 7,
       method: "tools/call",
-      params: { name: "COMPOSIO_MANAGE_CONNECTIONS", arguments: { toolkits: ["GMAIL"] } },
+      params: { name: "connectors_request_connection", arguments: { toolkits: ["GMAIL"] } },
     })}\n`);
     const reply = await nextJson(lines);
     expect(reply.id).toBe(7);
@@ -132,7 +132,7 @@ describe("connector MCP bridge", () => {
       id: 8,
       method: "tools/call",
       params: {
-        name: "COMPOSIO_MANAGE_CONNECTIONS",
+        name: "connectors_request_connection",
         arguments: {
           toolkits: [
             { toolkit: "googledrive", alias: "work-devhouse" },
@@ -256,7 +256,7 @@ describe("connector MCP bridge", () => {
       response.end(JSON.stringify({
         jsonrpc: "2.0",
         id: 4,
-        result: { tools: [{ name: "COMPOSIO_SEARCH_TOOLS" }] },
+        result: { tools: [{ name: "connectors_list_tools" }] },
       }));
     });
     const lines = start({
@@ -268,7 +268,7 @@ describe("connector MCP bridge", () => {
     expect(reply).toEqual({
       jsonrpc: "2.0",
       id: 4,
-      result: { tools: [{ name: "COMPOSIO_SEARCH_TOOLS" }] },
+      result: { tools: [{ name: "connectors_list_tools" }] },
     });
     expect(upstreamAuthorization).toBe("Bearer upstream-secret");
     expect(JSON.stringify(reply)).not.toContain("upstream-secret");

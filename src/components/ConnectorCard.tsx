@@ -4,22 +4,13 @@ import { Check, Loader2, PlugZap, RefreshCw, X } from "lucide-react";
 import { api, type Message } from "@/state/store";
 import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
-
-async function openConnectionPage(url: string) {
-  if (window.ogb?.openExternal) {
-    await window.ogb.openExternal(url);
-    return true;
-  }
-  const opened = window.open("", "_blank");
-  if (!opened) return false;
-  opened.opener = null;
-  opened.location.replace(url);
-  return true;
-}
+import { ConnectorAuthFlow } from "./ConnectorAuthFlow";
+import type { ConnectorAuthState } from "../../shared/connector-auth";
 
 export function ConnectorCard({ botId, threadId, message }: { botId: string; threadId: string; message: Message }) {
   const connector = message.connector!;
   const [busy, setBusy] = useState(false);
+  const [authState, setAuthState] = useState<ConnectorAuthState>();
   const [localError, setLocalError] = useState<string | { key: LocaleKey } | null>(null);
   const polling = useRef(false);
 
@@ -64,9 +55,7 @@ export function ConnectorCard({ botId, threadId, message }: { botId: string; thr
         method: "POST",
         body: JSON.stringify({ threadId }),
       });
-      if (!await openConnectionPage(String(result.url))) {
-        setLocalError({ key: "connectors.card.popupBlocked" });
-      }
+      setAuthState(result);
     } catch (error) {
       setLocalError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -102,6 +91,7 @@ export function ConnectorCard({ botId, threadId, message }: { botId: string; thr
             {connector.label.slice(0, 1).toUpperCase() || <PlugZap size={19} />}
           </div>
           <div className="min-w-0 flex-1">
+        {authState && <ConnectorAuthFlow initial={authState} onDone={() => void checkStatus()} onClose={() => setAuthState(undefined)} />}
             <div className="flex items-center gap-2">
               <span className="truncate text-[14px] font-semibold text-ink">{connector.label}</span>
               {connected && (

@@ -7,7 +7,7 @@ import { ApprovedCommandsSettings } from "./ApprovedCommandsSettings";
 describe("Approved commands settings", () => {
   it("renders an accessible MCP tool picker while the bot matrix loads", () => {
     const html = renderToStaticMarkup(createElement(ApprovedCommandsSettings));
-    expect(html).toContain("Composio multi-execute is approved by default");
+    expect(html).toContain("Connector execution requires approval");
     expect(html).toContain('aria-label="Search MCP tools"');
     expect(html).toContain('aria-label="MCP tool name"');
     expect(html).toContain('placeholder="mcp__server__tool"');

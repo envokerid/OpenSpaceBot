@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { AppState, RefreshControl, ScrollView, View } from "react-native";
-import * as WebBrowser from "expo-web-browser";
+import { AddConnector } from "./AddConnector";
+import { ConnectorAuthFlow } from "./ConnectorAuthFlow";
+import type { ConnectorAuthState } from "../../shared/connector-auth";
 import { ConnectorAccountBots } from "./ConnectorAccountBots";
 import type { Session } from "./core/session";
 import { routeId } from "./core/client";
@@ -61,6 +63,7 @@ function ConnectedAppsContent({
   const [query, setQuery] = useState("");
   const [aliasTarget, setAliasTarget] = useState<Connector>();
   const [alias, setAlias] = useState("");
+  const [authState, setAuthState] = useState<ConnectorAuthState>();
   const action = useAction();
   const refresh = () =>
     action.run(async () => {
@@ -84,16 +87,11 @@ function ConnectedAppsContent({
   }, []);
   const authorize = (card: Connector, accountAlias?: string) =>
     action.run(async () => {
-      const { url } = await session.client.request<{ url: string }>(
-        `/api/connectors/${routeId(card.slug)}/authorize`,
-        "POST",
-        accountAlias ? { alias: accountAlias } : {},
+      const auth = await session.client.request<ConnectorAuthState>(
+        `/api/connectors/${routeId(card.slug)}/authorize`, "POST", accountAlias ? { alias: accountAlias } : {},
       );
-      const parsed = new URL(url);
-      if (parsed.protocol !== "https:" || parsed.username || parsed.password)
-        throw new Error("The computer returned an invalid sign-in URL.");
       setAliasTarget(undefined);
-      await WebBrowser.openBrowserAsync(url);
+      setAuthState(auth);
     });
   return (
     <View style={{ flex: 1 }}>
@@ -126,6 +124,7 @@ function ConnectedAppsContent({
           gap: 16,
         }}
       >
+        <AddConnector session={session} onAdded={() => void refresh()} />
         <Input label="Search apps" value={query} onChangeText={setQuery} />
         <ErrorNotice error={action.error} />
         {unreadable ? (
@@ -145,7 +144,7 @@ function ConnectedAppsContent({
                 Connected apps need setup
               </Label>
               <Label size={13} muted>
-                Configure Composio on your computer first. Provider credentials
+                Enable Connected Apps on your server first. Provider credentials
                 are never returned to this phone.
               </Label>
             </Card>
@@ -226,6 +225,7 @@ function ConnectedAppsContent({
                               : "Pending"}
                           </Label>
                         </Row>
+                        {account.status === "PENDING" && <Button title="Continue connecting" text onPress={() => void authorize(card, account.alias)} />}
                         <ConnectorAccountBots
                           session={session}
                           slug={card.slug}
@@ -251,6 +251,7 @@ function ConnectedAppsContent({
             );
           })}
       </ScrollView>
+      {authState && <ConnectorAuthFlow key={authState.id} client={session.client} initial={authState} onDone={() => void refresh()} onClose={() => { setAuthState(undefined); void refresh(); }} />}
       {aliasTarget && (
         <Sheet
           centered

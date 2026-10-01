@@ -7,7 +7,7 @@ describe("workspace backup data boundary", () => {
       xai: { key: "xai-secret", url: "https://source.example" },
       anthropic: { key: "claude-secret", url: "https://claude.example" },
       openaiCompat: { key: "api-secret", url: "https://api.example", model: "model", provider: "provider" },
-      composio: { apiKey: "composio-secret", userId: "source-account", sessionId: "source-session" },
+      connectors: { enabled: true },
       box: { token: "box-secret" }, opencodeGo: { apiKey: "go-secret" },
       tts: { key: "voice-secret", fishKey: "fish-secret", voice: "source-voice", provider: "fish" },
       imageGen: { key: "image-secret", customApiKey: "custom-secret", customUrl: "https://images.example/v1", provider: "custom" },
@@ -28,6 +28,7 @@ describe("workspace backup data boundary", () => {
   it.each([
     "providers/account/.credentials.json", "providers/antigravity/profile/antigravity-acp/acp_token.json",
     "workspace-credentials.json", "browser-engine-key", "caddy/data/certificates/private.key",
+    "connectors/accounts.json", "connectors/accounts/id/state/oauth.sqlite",
     "external-runtimes.json", "external-runtimes.json.123.tmp",
     "chrome-profile/Default/Cookies", ".agent-browser/auth/site.json",
     "vm-home/.browser-profiles/chrome/Cookies", "vm-homes/abc123/.browser-profiles/chromium/Local State",

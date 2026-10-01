@@ -8,7 +8,7 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
 
-export type ConfigSection = "composio" | "box" | "opencodeGo" | "anthropic" | "openaiCompat" | "xai";
+export type ConfigSection = "box" | "opencodeGo" | "anthropic" | "openaiCompat" | "xai";
 /** Sections whose key can be tried against the provider from the server. */
 export type TestableProvider = "anthropic" | "openaiCompat" | "xai";
 
@@ -16,10 +16,6 @@ const SECTIONS: Record<
   ConfigSection,
   { body: (value: string) => unknown; flag: (config: ConfigStatus) => boolean }
 > = {
-  composio: {
-    body: (v) => ({ composio: { apiKey: v } }),
-    flag: (c) => c.composio.configured,
-  },
   box: { body: (v) => ({ box: { token: v } }), flag: (c) => c.box.configured },
   opencodeGo: { body: (v) => ({ opencodeGo: { apiKey: v } }), flag: (c) => c.opencodeGo?.configured ?? false },
   anthropic: { body: (v) => ({ anthropic: { key: v } }), flag: (c) => c.anthropic?.configured ?? false },
@@ -29,8 +25,7 @@ const SECTIONS: Record<
 
 // Provider keys have no desktop-shell slot yet and go through the server's
 // own 0600 config, the same place they live on a hosted server.
-const ELECTRON_CREDENTIAL: Partial<Record<ConfigSection, "composioApiKey" | "boxToken" | "opencodeGoApiKey">> = {
-  composio: "composioApiKey",
+const ELECTRON_CREDENTIAL: Partial<Record<ConfigSection, "boxToken" | "opencodeGoApiKey">> = {
   box: "boxToken",
   opencodeGo: "opencodeGoApiKey",
 };
@@ -49,14 +44,6 @@ const CREDENTIALS: Record<
     warningKey?: LocaleKey;
   }
 > = {
-  composio: {
-    labelKey: "keys.composio.label",
-    placeholder: "ak_…",
-    descriptionKey: "keys.composio.desc",
-    href: "https://dashboard.composio.dev",
-    linkLabelKey: "keys.composio.link",
-    optional: true,
-  },
   box: {
     labelKey: "keys.box.label",
     placeholderKey: "keys.box.placeholder",

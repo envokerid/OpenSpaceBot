@@ -189,12 +189,15 @@ const ALLOWED: ReadonlyArray<{ method: string; path: RegExp }> = [
   { method: "POST", path: /^\/api\/routines\/[\w-]+\/run$/ },
   { method: "POST", path: /^\/api\/routine-runs\/[\w-]+\/(?:cancel|seen)$/ },
 
-  // Multi-account Composio management exposes opaque ids and aliases only.
+  // Multi-account connector management exposes opaque ids and aliases only.
   // Account-level removal is allowed: the handler still proves the account
   // belongs to the host's own user before revoking, and a paired client can
   // already add accounts — connectable but not disconnectable is the bug
   // being fixed here. The whole-service DELETE stays denied: it belongs to
   // the host.
+  { method: "GET", path: /^\/api\/connectors\/auth\/[a-f0-9-]+$/ },
+  { method: "POST", path: /^\/api\/connectors\/auth\/[a-f0-9-]+$/ },
+  { method: "DELETE", path: /^\/api\/connectors\/auth\/[a-f0-9-]+$/ },
   { method: "GET", path: /^\/api\/connectors\/catalog$/ },
   { method: "GET", path: /^\/api\/connectors\/connected$/ },
   { method: "GET", path: /^\/api\/connectors$/ },

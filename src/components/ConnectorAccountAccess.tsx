@@ -35,7 +35,7 @@ export function AccountBots({ slug, account }: { slug: string; account: { id: st
     <div className="flex flex-wrap items-center gap-1.5">
       <span className="text-ink-secondary">Approved bots</span>
       {approved.map((bot) => <span key={bot.id} className="inline-flex max-w-full items-center rounded-lg bg-inset pl-2 text-ink">
-        <span className="truncate">{bot.name}{bot.composio === false ? " (disabled)" : ""}</span>
+        <span className="truncate">{bot.name}{bot.connectors === false ? " (disabled)" : ""}</span>
         <button type="button" className={buttonClass} disabled={busy} aria-label={`Remove ${bot.name} from ${label}`} onClick={() => void update(bot.id, slug, account.id, false)}><X size={12} /></button>
       </span>)}
       {!approved.length && <span className="text-ink-secondary">None</span>}

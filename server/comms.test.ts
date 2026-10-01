@@ -250,7 +250,7 @@ describe("legacy routine comms e2e (fake ACP fleet)", () => {
           // a turn that remains busy until provider reload disposes it.
           helperHang: {
             driver: "grokAgent",
-            environment: { FAKE_ACP_MODE: "hang" },
+            environment: { FAKE_ACP_MODE: "hang", FAKE_ACP_DUMP: join(home, "helper-hang.json"), FAKE_ACP_DUMP_PROMPT: "1" },
             config: { cli: FAKE_CLI, fullAuto: true },
           },
           // a deterministic busy window: turns hold open until the gate
@@ -258,7 +258,7 @@ describe("legacy routine comms e2e (fake ACP fleet)", () => {
           // e2e frees the peer by writing the file).
           helperGate: {
             driver: "grokAgent",
-            environment: { FAKE_ACP_MODE: "echo-gated", FAKE_ACP_GATE_FILE: gateFile },
+            environment: { FAKE_ACP_MODE: "echo-gated", FAKE_ACP_GATE_FILE: gateFile, FAKE_ACP_DUMP: join(home, "helper-gate.json"), FAKE_ACP_DUMP_PROMPT: "1" },
             config: { cli: FAKE_CLI, fullAuto: true },
           },
         },
@@ -515,7 +515,7 @@ describe("legacy routine comms e2e (fake ACP fleet)", () => {
         title: "Product designer",
         description: "Design and review the user experience.",
         section: "Launch",
-        composio: false,
+        connectors: false,
         autoApprove: false,
         approvePeerComms: false,
         modelSelection: { instanceId: "chiefCreator", model: "fake-model" },
@@ -860,6 +860,7 @@ describe("legacy routine comms e2e (fake ACP fleet)", () => {
     "retries a busy fallback after provider reload without asking for approval twice",
     async () => {
       rmSync(gateFile, { force: true });
+      rmSync(join(home, "helper-gate.json.prompt.json"), { force: true });
       for (const existing of (await api("GET", "/api/bots")).body.bots) {
         await api("PATCH", `/api/bots/${existing.id}`, { hidden: true });
       }
@@ -910,6 +911,9 @@ describe("legacy routine comms e2e (fake ACP fleet)", () => {
         return queued && waiting && !current.busy;
       }, 25_000, "approved ask was not retained as a waiting delegation");
 
+      // Busy includes integration preparation. This test must interrupt a
+      // provider that has actually received its prompt, not a pending launch.
+      await waitUntil(async () => existsSync(join(home, "helper-gate.json.prompt.json")), 20_000, "helper prompt was not dispatched");
       // Provider reload releases B without turn.completed. A's routine is
       // waiting, not executing on a provider being replaced: its accepted
       // handoff must still run on the rebuilt fleet without another approval.
@@ -956,6 +960,7 @@ describe("legacy routine comms e2e (fake ACP fleet)", () => {
     "converts a timed-out ask into a delegation and delivers the late reply",
     async () => {
       rmSync(gateFile, { force: true });
+      rmSync(join(home, "helper-gate.json.prompt.json"), { force: true });
       for (const existing of (await api("GET", "/api/bots")).body.bots) {
         await api("PATCH", `/api/bots/${existing.id}`, { hidden: true });
       }
@@ -1064,6 +1069,7 @@ describe("legacy routine comms e2e (fake ACP fleet)", () => {
   it(
     "finalizes a delegated turn interrupted by provider reload",
     async () => {
+      rmSync(join(home, "helper-hang.json.prompt.json"), { force: true });
       const seeded = (await api("GET", "/api/bots")).body.bots[0];
       await api("PATCH", `/api/bots/${seeded.id}`, { hidden: true });
       const helper = (await api("POST", "/api/bots")).body.bot;
@@ -1096,6 +1102,7 @@ describe("legacy routine comms e2e (fake ACP fleet)", () => {
         await new Promise((r) => setTimeout(r, 250));
       }
 
+      await waitUntil(async () => existsSync(join(home, "helper-hang.json.prompt.json")), 20_000, "delegated prompt was not dispatched");
       // Any provider credential change rebuilds the fleet and settles busy
       // turns without relying on a provider turn.completed event.
       const reload = await api("PUT", "/api/config", { xai: { key: "xai_reload_test" } });

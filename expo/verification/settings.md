@@ -37,7 +37,7 @@ desktop/companion is required for this new administration surface.
 | Engine status, install/update, authentication, model refresh | Engines |
 | CLI overrides, detected programs, Claude account creation/edit/removal, tool calls, provider icons | Engines → Advanced settings |
 | Skill authoring, built-in browser, browser profiles, tool details | Experimental |
-| Per-bot standing MCP tool approvals and Composio multi-execute default | Approved commands |
+| Per-bot standing MCP tool approvals and explicit connector execution approval | Approved commands |
 | Voice providers, keys, voice catalog/preview, avatar generation providers | Voice & images |
 | Local VM lifecycle, isolation/limits, cloud and VPS inventories | Computers |
 | Token totals, cache-hit rate and reporting coverage, periods/grouping, CSV, budgets, model sell prices | [Usage](usage.md); entitlement-dependent controls follow the server |

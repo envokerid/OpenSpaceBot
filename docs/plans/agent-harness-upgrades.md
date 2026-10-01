@@ -494,7 +494,7 @@ running case.
 
 Compatibility, learned from pi: send `system` rather than the `developer` role,
 and declare no `effortLevels`. Keyless local servers need a placeholder key or
-their models stay hidden. Capability flags `computerMcp`, `composioMcp`,
+their models stay hidden. Capability flags `computerMcp`, `connectorsMcp`,
 `agentsMcp`, and `images` set honestly — usually `false`.
 
 Add model-free tool-result pruning here rather than in item 7: a filter over the

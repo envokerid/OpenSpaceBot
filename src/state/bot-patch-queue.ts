@@ -25,7 +25,7 @@ export type BotUpdatePatch = Partial<
     | "pinnedMessageId"
     | "chiefOfStaff"
     | "approvePeerComms"
-    | "composio"
+    | "connectors"
     | "browser"
     | "browserProfile"
     | "mcpServers"

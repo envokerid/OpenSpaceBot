@@ -93,7 +93,7 @@ export function ConnectorAccountBots({
         <Row key={bot.id} style={{ flexWrap: "nowrap" }}>
           <Label size={14} style={{ flex: 1 }}>
             {bot.name}
-            {bot.composio === false ? " (disabled)" : ""}
+            {bot.connectors === false ? " (disabled)" : ""}
           </Label>
           <IconButton
             icon="close"

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 
 import { launchVerificationServer, runControlOmb } from "../scripts/control-omb.ts";
-import { DEFAULT_APPROVED_MCP_TOOL } from "../shared/approved-commands.ts";
+import { CONNECTOR_EXECUTE_TOOL } from "../shared/approved-commands.ts";
 
 it("persists per-bot approved commands through the administrator settings API", async () => {
   const fixture = await launchVerificationServer();
@@ -22,21 +22,21 @@ it("persists per-bot approved commands through the administrator settings API", 
     const created = await runControlOmb(["new-bot", "--name", "Pepper", "--url", url]) as any;
     const initial = await request("GET", "/api/settings/approved-commands");
     expect(initial.status).toBe(200);
-    expect(initial.body.tools).toContain(DEFAULT_APPROVED_MCP_TOOL);
+    expect(initial.body.tools).toContain(CONNECTOR_EXECUTE_TOOL);
     expect(initial.body.bots).toContainEqual({
       id: created.bot.id,
       name: "Pepper",
-      approvals: { [DEFAULT_APPROVED_MCP_TOOL]: true },
+      approvals: {},
     });
 
     const revoked = await request("PATCH", "/api/settings/approved-commands", {
       botId: created.bot.id,
-      tool: "mcp__composio__COMPOSIO_MULTI_EXECUTE_TOOL",
+      tool: "mcp__connectors__CONNECTORS_EXECUTE_TOOL",
       approved: false,
     });
     expect(revoked.status).toBe(200);
     expect(revoked.body.bots.find((bot: any) => bot.id === created.bot.id).approvals)
-      .toEqual({ [DEFAULT_APPROVED_MCP_TOOL]: false });
+      .toEqual({ [CONNECTOR_EXECUTE_TOOL]: false });
 
     const allowed = await request("PATCH", "/api/settings/approved-commands", {
       botId: created.bot.id,
@@ -46,10 +46,10 @@ it("persists per-bot approved commands through the administrator settings API", 
     expect(allowed.status).toBe(200);
     expect(allowed.body.tools).toContain("mcp__notes__search");
     expect(allowed.body.bots.find((bot: any) => bot.id === created.bot.id).approvals)
-      .toMatchObject({ [DEFAULT_APPROVED_MCP_TOOL]: false, "mcp__notes__search": true });
+      .toMatchObject({ [CONNECTOR_EXECUTE_TOOL]: false, "mcp__notes__search": true });
     const saved = JSON.parse(readFileSync(join(fixture.info.dataDir, "bots.json"), "utf8"));
     expect(saved.find((bot: any) => bot.id === created.bot.id).mcpToolApprovals)
-      .toMatchObject({ [DEFAULT_APPROVED_MCP_TOOL]: false, "mcp__notes__search": true });
+      .toMatchObject({ [CONNECTOR_EXECUTE_TOOL]: false, "mcp__notes__search": true });
 
     const invalid = await request("PATCH", "/api/settings/approved-commands", {
       botId: created.bot.id,
@@ -106,7 +106,7 @@ it("persists per-bot approved commands through the administrator settings API", 
   }
 }, 40_000);
 
-it("auto-approves Composio multi-execute through the live broker until the bot grant is revoked", async () => {
+it("uses an explicit connector execution approval until the bot grant is revoked", async () => {
   const fixture = await launchVerificationServer({ ...process.env, FAKE_CLAUDE_MODE: "hang" });
   const { url } = fixture.info;
   const request = async (method: string, path: string, body?: unknown) => {
@@ -118,7 +118,7 @@ it("auto-approves Composio multi-execute through the live broker until the bot g
     });
     return { status: response.status, body: await response.json() as any };
   };
-  const openAsk = async (socketPath: string, id: string, tool = "mcp__composio__COMPOSIO_MULTI_EXECUTE_TOOL") => {
+  const openAsk = async (socketPath: string, id: string, tool = "mcp__connectors__CONNECTORS_EXECUTE_TOOL") => {
     const socket = connect(socketPath);
     await new Promise<void>((resolve, reject) => {
       socket.once("connect", resolve);
@@ -167,6 +167,7 @@ it("auto-approves Composio multi-execute through the live broker until the bot g
     sockets.push(inherited.socket);
     await expect(inherited.answer).resolves.toMatchObject({ behavior: "allow" });
 
+    expect((await request("PATCH", "/api/settings/approved-commands", { botId: bot.id, tool: CONNECTOR_EXECUTE_TOOL, approved: true })).status).toBe(200);
     const first = await openAsk(socketPath, "approved-default");
     sockets.push(first.socket);
     await expect(first.answer).resolves.toMatchObject({ behavior: "allow" });
@@ -178,7 +179,7 @@ it("auto-approves Composio multi-execute through the live broker until the bot g
 
     const revoked = await request("PATCH", "/api/settings/approved-commands", {
       botId: bot.id,
-      tool: DEFAULT_APPROVED_MCP_TOOL,
+      tool: CONNECTOR_EXECUTE_TOOL,
       approved: false,
     });
     expect(revoked.status).toBe(200);
@@ -198,7 +199,7 @@ it("auto-approves Composio multi-execute through the live broker until the bot g
     await expect(second.answer).resolves.toMatchObject({ behavior: "allow" });
 
     const bulkApproval = await request("PATCH", "/api/settings/approved-commands", {
-      allBots: true, tool: DEFAULT_APPROVED_MCP_TOOL, approved: true, includeNewBots: true,
+      allBots: true, tool: CONNECTOR_EXECUTE_TOOL, approved: true, includeNewBots: true,
     });
     expect(bulkApproval.status).toBe(200);
     const third = await openAsk(socketPath, "approved-for-all");

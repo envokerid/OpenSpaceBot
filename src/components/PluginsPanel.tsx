@@ -1,7 +1,4 @@
-// Connected apps marketplace, backed by Composio Sessions. Catalog comes
-// from /api/connectors/catalog — the full toolkit list with logos when a
-// Composio API key is configured, a curated set otherwise. Icons resolve
-// logo → favicon → monogram.
+// Connected accounts backed by the workspace OpenClaw runtime.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Loader2, RefreshCw, Search, TriangleAlert, X } from "lucide-react";
 import { api, useStore, type Bot, type InstanceInfo } from "@/state/store";
@@ -9,9 +6,11 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
 import { readCachedInventory, writeCachedInventory } from "@/lib/connected-apps-cache";
-import { managedConnectorUnavailableReason } from "../../shared/connector-availability";
 import { AccountBots } from "./ConnectorAccountAccess";
 import { McpServersPanel } from "./McpServersPanel";
+import { ConnectorAuthFlow } from "./ConnectorAuthFlow";
+import { AddConnector } from "./AddConnector";
+import type { ConnectorAuthState } from "../../shared/connector-auth";
 
 export interface ToolkitCard {
   slug: string;
@@ -94,10 +93,10 @@ export function disconnectAccountConfirmation(
 export function botsMissingConnectedApps(bots: Bot[], instances: InstanceInfo[]): Bot[] {
   return bots.filter((bot) =>
     !bot.hidden &&
-    bot.composio === false &&
+    bot.connectors === false &&
     Object.values(bot.connectorAccounts ?? {}).some((ids) => ids.length > 0) &&
     instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId)
-      ?.capabilities?.composioMcp === true);
+      ?.capabilities?.connectorsMcp === true);
 }
 
 export function hasUsableConnectedApps(configured: boolean, phase: ConnectorInventoryPhase, stale: boolean, status: Record<string, ConnectorStatus>): boolean {
@@ -240,10 +239,9 @@ export function PluginsPanel() {
   const dialogRef = useRef<HTMLDivElement>(null);
   const surface = state.pluginsSurface;
   const [cards, setCards] = useState<ToolkitCard[] | null>(null);
-  const [source, setSource] = useState<"api" | "curated">("curated");
   const [pagination, setPagination] = useState<CatalogPagination | null>(null);
   const [configured, setConfigured] = useState(false);
-  const [mode, setMode] = useState<"managed" | "self-hosted" | "unavailable">("unavailable");
+  const [authState, setAuthState] = useState<ConnectorAuthState>();
   // Paint what we last knew before any request goes out: the module cache if
   // this window already fetched, otherwise the inventory saved on disk. An
   // empty panel is never the first thing a connected user sees.
@@ -370,10 +368,8 @@ export function PluginsPanel() {
       .then((r) => {
         if (!alive) return;
         setCards(r.cards ?? []);
-        setSource(r.source ?? "curated");
         setPagination(r.pagination ?? null);
         setConfigured(Boolean(r.configured));
-        setMode(r.mode ?? "unavailable");
       })
       .catch((e) => {
         if (!alive) return;
@@ -426,25 +422,6 @@ export function PluginsPanel() {
     };
   }, [dispatch]);
 
-  const openConnectUrl = async (url: string) => {
-    if (window.ogb?.openExternal) {
-      await window.ogb.openExternal(url);
-      return;
-    }
-    // Browser development fallback. If a popup blocker rejects the first
-    // asynchronous open, the visible Continue button retries from a direct
-    // user gesture using the URL retained in pendingUrls.
-    const opened = window.open("", "_blank");
-    if (!opened) {
-      setError({ key: "connectors.popupBlockedContinue" });
-      return;
-    }
-    // Open a same-origin blank page first so the OAuth origin never receives
-    // an opener reference, while a real null remains a reliable blocked signal.
-    opened.opener = null;
-    opened.location.replace(url);
-  };
-
   const startPolling = (slug: string) => {
     const old = pollTimers.current.get(slug);
     if (old) clearInterval(old);
@@ -468,8 +445,9 @@ export function PluginsPanel() {
     try {
       const request: RequestInit = { method: "POST" };
       if (alias) request.body = JSON.stringify({ alias });
-      const { url } = await api(`/api/connectors/${slug}/authorize`, request);
-      setPendingUrls((current) => ({ ...current, [slug]: url }));
+      const auth: ConnectorAuthState = await api(`/api/connectors/${slug}/authorize`, request);
+      setAuthState(auth);
+      if (auth.url) setPendingUrls(current => ({ ...current, [slug]: auth.url! }));
       setStatus((current) => ({
         ...current,
         [slug]: {
@@ -482,7 +460,6 @@ export function PluginsPanel() {
       setAliasSlug(null);
       setAliasDraft("");
       startPolling(slug);
-      await openConnectUrl(url);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       if (requiresAccountAlias(message)) {
@@ -584,6 +561,8 @@ export function PluginsPanel() {
 
         {surface === "apps" ? (
           <>
+        {authState && <ConnectorAuthFlow key={authState.id} initial={authState} onDone={() => void loadConnectionInventory(true)} onClose={() => { setAuthState(undefined); void loadConnectionInventory(true); }} />}
+        <AddConnector onAdded={() => { void api("/api/connectors/catalog").then(r => setCards(r.cards)); }} />
         {stale && (
           // Say which of the two things is true. Silence here is what makes a
           // remembered list indistinguishable from a confirmed one.
@@ -658,7 +637,7 @@ export function PluginsPanel() {
                 <button
                   key={candidate.id}
                   type="button"
-                  onClick={() => dispatch({ type: "updateBot", botId: candidate.id, patch: { composio: true } })}
+                  onClick={() => dispatch({ type: "updateBot", botId: candidate.id, patch: { connectors: true } })}
                   className="rounded-full bg-control px-2.5 py-1 text-[11.5px] font-medium text-ink hover:bg-raised-hover"
                 >
                   Enable for {candidate.name}
@@ -667,21 +646,7 @@ export function PluginsPanel() {
             </div>
           </div>
         )}
-        {configured && !remoteClient && source === "curated" && mode === "self-hosted" && (
-          <div className="mx-6 mb-1 text-[12px] text-ink-secondary sm:mx-8">
-            {t("connectors.featuredBefore")}{" "}
-            <button
-              className="underline underline-offset-2 hover:text-ink"
-              onClick={() => {
-                close();
-                dispatch({ type: "toggleAppSettings", open: true });
-              }}
-            >
-              {t("connectors.updateKey")}
-            </button>{" "}
-            {t("connectors.featuredAfter")}
-          </div>
-        )}
+
         {error && <div role="alert" className="mx-6 mt-2 rounded-lg bg-danger/10 px-3 py-2 text-[12px] text-danger sm:mx-8">{typeof error === "string" ? error : t(error.key)}</div>}
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-7 pt-5 sm:px-8">
@@ -722,9 +687,6 @@ export function PluginsPanel() {
                 || (serviceStatus?.connected === true && !accounts.length && !pending && !failed);
               const addingAccount = aliasSlug === card.slug && !pending;
               const busy = busySlug === card.slug;
-              const unavailableReason = managedConnectorUnavailableReason(mode, card.slug)
-                ? t("connectors.selfHostOnlyReason")
-                : null;
               return (
                 <div
                   key={card.slug}
@@ -736,9 +698,8 @@ export function PluginsPanel() {
                       <div className="truncate text-[14px] font-medium text-ink">{card.label}</div>
                       <div
                         className="mt-0.5 truncate text-[12.5px] text-ink-secondary"
-                        title={unavailableReason ?? undefined}
                       >
-                        {unavailableReason ?? (
+                        {(
                           pending
                             ? pendingUrls[card.slug]
                               ? t("connectors.finishSetup")
@@ -751,19 +712,10 @@ export function PluginsPanel() {
                     </div>
                     <button
                       type="button"
-                      disabled={!configured || inventoryPhase !== "ready" || busy || included || Boolean(unavailableReason)}
-                      title={unavailableReason ?? undefined}
+                      disabled={!configured || inventoryPhase !== "ready" || busy || included}
                       onClick={() => {
                         if (pending) {
-                          if (pendingUrls[card.slug]) {
-                            setError(null);
-                            void openConnectUrl(pendingUrls[card.slug]).catch((e) => setError(e.message));
-                          } else {
-                            setAliasSlug(null);
-                            setError(null);
-                            void refreshStatus([card.slug]);
-                            startPolling(card.slug);
-                          }
+                          void connect(card.slug, accounts.find(account => /pending|initiated/i.test(account.status))?.alias);
                         } else {
                           setAliasSlug((current) => current === card.slug ? null : card.slug);
                           setAliasDraft("");
@@ -771,9 +723,7 @@ export function PluginsPanel() {
                       }}
                       className="flex min-w-[88px] items-center justify-center gap-1.5 rounded-full bg-raised px-3 py-2 text-[12.5px] text-ink transition-colors hover:bg-raised-hover disabled:opacity-40"
                     >
-                      {unavailableReason ? (
-                        t("connectors.selfHostOnly")
-                      ) : busy ? (
+                      {busy ? (
                         <Loader2 size={13} className="mx-auto animate-spin" />
                       ) : (
                         connectorActionLabel(inventoryPhase, {

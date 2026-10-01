@@ -15,7 +15,7 @@ function baseFacts(overrides: Partial<OverviewFacts> = {}): OverviewFacts {
       autoApprove: false,
       approvePeerComms: false,
       peers: [],
-      composio: undefined,
+      connectors: undefined,
       browser: undefined,
       chiefOfStaff: undefined,
     },
@@ -156,8 +156,8 @@ describe("buildBotOverview", () => {
 
   it("shows two connected services in reaches", () => {
     const facts = baseFacts({
-      bot: { ...baseFacts().bot, composio: true, computer: "local" },
-      engine: { composioMcp: true },
+      bot: { ...baseFacts().bot, connectors: true, computer: "local" },
+      engine: { connectorsMcp: true },
       connectedApps: { configured: true, authoritative: true, services: ["gmail", "linear"] },
     });
     const overview = buildBotOverview(facts);
@@ -167,8 +167,8 @@ describe("buildBotOverview", () => {
 
   it("reports connected apps could not be checked when unauthoritative, without also claiming none connected", () => {
     const facts = baseFacts({
-      bot: { ...baseFacts().bot, composio: true, computer: "local" },
-      engine: { composioMcp: true },
+      bot: { ...baseFacts().bot, connectors: true, computer: "local" },
+      engine: { connectorsMcp: true },
       connectedApps: { configured: true, authoritative: false, services: [] },
     });
     const overview = buildBotOverview(facts);
@@ -181,8 +181,8 @@ describe("buildBotOverview", () => {
     // Apps off is a definite negative that needs no inventory — saying
     // "could not be checked" here would imply the bot might have apps.
     const facts = baseFacts({
-      bot: { ...baseFacts().bot, composio: false, computer: "local" },
-      engine: { composioMcp: true },
+      bot: { ...baseFacts().bot, connectors: false, computer: "local" },
+      engine: { connectorsMcp: true },
       connectedApps: { configured: true, authoritative: false, services: [] },
     });
     const overview = buildBotOverview(facts);
@@ -192,8 +192,8 @@ describe("buildBotOverview", () => {
 
   it("stays silent about apps in reaches when the engine cannot mount them", () => {
     const facts = baseFacts({
-      bot: { ...baseFacts().bot, composio: true, computer: "local" },
-      engine: { composioMcp: false },
+      bot: { ...baseFacts().bot, connectors: true, computer: "local" },
+      engine: { connectorsMcp: false },
       connectedApps: { configured: true, authoritative: false, services: ["gmail"] },
     });
     const overview = buildBotOverview(facts);
@@ -203,8 +203,8 @@ describe("buildBotOverview", () => {
 
   it("uses the singular for one connected app", () => {
     const facts = baseFacts({
-      bot: { ...baseFacts().bot, composio: true, computer: "local" },
-      engine: { composioMcp: true },
+      bot: { ...baseFacts().bot, connectors: true, computer: "local" },
+      engine: { connectorsMcp: true },
       connectedApps: { configured: true, authoritative: true, services: ["gmail"] },
     });
     expect(buildBotOverview(facts).reaches).toContain("Can use 1 connected app: gmail.");
@@ -301,8 +301,8 @@ describe("setupSteps", () => {
 
   it("marks steps done from the same facts the sentences use", () => {
     const facts = baseFacts({
-      bot: { ...baseFacts().bot, name: "Kiwi", title: "Tracker", soul: "Be brief.", cwd: "/work", composio: true },
-      engine: { composioMcp: true },
+      bot: { ...baseFacts().bot, name: "Kiwi", title: "Tracker", soul: "Be brief.", cwd: "/work", connectors: true },
+      engine: { connectorsMcp: true },
       connectedApps: { configured: true, authoritative: true, services: ["gmail"] },
       routines: [{ id: "r1", name: "Digest", enabled: true, schedule: { type: "daily", time: "09:00", weekdays: [1, 2, 3, 4, 5] }, nextRunAt: null }],
     });
@@ -313,8 +313,8 @@ describe("setupSteps", () => {
 
   it("does not count an unverified app inventory or a paused routine as done", () => {
     const facts = baseFacts({
-      bot: { ...baseFacts().bot, composio: true },
-      engine: { composioMcp: true },
+      bot: { ...baseFacts().bot, connectors: true },
+      engine: { connectorsMcp: true },
       connectedApps: { configured: true, authoritative: false, services: ["gmail"] },
       routines: [{ id: "r1", name: "Digest", enabled: false, schedule: { type: "daily", time: "09:00", weekdays: [1] }, nextRunAt: null }],
     });

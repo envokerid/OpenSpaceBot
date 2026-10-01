@@ -50,11 +50,11 @@ describe("autoVerdict", () => {
   });
 
   it("honours a standing MCP command approval without widening the provider sandbox", () => {
-    expect(autoVerdict("ask", "composio_multi_execute_tool", { mcpApproved: true })).toEqual({
-      approve: "approved composio_multi_execute_tool (approved command)",
+    expect(autoVerdict("ask", "connectors_execute_tool", { mcpApproved: true })).toEqual({
+      approve: "approved connectors_execute_tool (approved command)",
       source: "approved-command",
     });
-    expect(autoVerdict("ask", "composio_multi_execute_tool", {
+    expect(autoVerdict("ask", "connectors_execute_tool", {
       mcpApproved: true,
       requiresExplicitApproval: true,
     })).toEqual({ approve: null, source: "explicit-approval-block" });

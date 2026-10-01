@@ -193,7 +193,7 @@ describe("team manifests", () => {
             alwaysAllow: ["Bash"],
             chiefOfStaff: true,
             approvePeerComms: false,
-            composio: true,
+            connectors: true,
             computer: "local",
             cloudBackend: "vps",
             cwd: "/",

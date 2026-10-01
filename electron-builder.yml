@@ -31,6 +31,8 @@ afterPack: ./scripts/after-pack.mjs
 # (Vite → ui/), and the compiled harness server (tsc → server/), both
 # shipped in Resources and run on Electron's own Node via
 # ELECTRON_RUN_AS_NODE (the agentcal-hq pattern).
+# OpenClaw is a separate runtime under extraResources, with its own real
+# Node executable and node_modules outside ASAR.
 files:
   - electron/**
   - "!electron/**/*.test.*"
@@ -108,6 +110,8 @@ mac:
       to: cua-sdk
     - from: dist-native/cloudflared/darwin-${arch}/cloudflared
       to: cloudflared/cloudflared
+    - from: dist-native/openclaw/darwin-${arch}
+      to: openclaw
     - from: dist-native/browser/darwin-${arch}
       to: browser-engine
   extendInfo:
@@ -136,6 +140,8 @@ win:
   extraResources:
     - from: dist-native/cloudflared/win32-x64/cloudflared.exe
       to: cloudflared/cloudflared.exe
+    - from: dist-native/openclaw/win32-x64
+      to: openclaw
     - from: dist-native/browser/win32-x64
       to: browser-engine
     # CUA driver and SDK for Windows — must live outside ASAR for native modules
@@ -185,6 +191,8 @@ linux:
       to: cua-linux-x64
     - from: dist-native/cloudflared/linux-x64/cloudflared
       to: cloudflared/cloudflared
+    - from: dist-native/openclaw/linux-x64
+      to: openclaw
     - from: dist-native/browser/linux-x64
       to: browser-engine
     - from: build/linux-openmausbot-browser.apparmor

@@ -1,0 +1,12 @@
+{
+  "id": "openmausbot-connectors",
+  "name": "OpenMausBot connector bridge",
+  "description": "Owner-only tool discovery and execution for an isolated connector account.",
+  "activation": { "onStartup": true },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": { "accountId": { "type": "string", "minLength": 1 } },
+    "required": ["accountId"]
+  }
+}

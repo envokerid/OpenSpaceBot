@@ -235,7 +235,7 @@ function boundedText(value: string): string {
 export async function mountChatTools(integrations: SendTurnInput["integrations"], signal: AbortSignal): Promise<ChatToolSession> {
   const servers: Array<[string, Server]> = [];
   if (integrations?.agents) servers.push(["agents", integrations.agents]);
-  if (integrations?.composio) servers.push(["composio", integrations.composio]);
+  if (integrations?.connectors) servers.push(["connectors", integrations.connectors]);
   // this client starts its servers and talks over stdio; a remote (url)
   // entry is skipped here and reaches Claude and Codex bots
   for (const [name, server] of Object.entries(integrations?.custom ?? {})) {

@@ -772,8 +772,8 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           }
         }
         if (config.nativeApps === false) appServerArgs.push("-c", "features.apps=false");
-        if (turn.integrations?.composio) {
-          mountMcpServer(appServerArgs, env, "openmausbot_connectors", turn.integrations.composio);
+        if (turn.integrations?.connectors) {
+          mountMcpServer(appServerArgs, env, "openmausbot_connectors", turn.integrations.connectors);
         }
         if (turn.integrations?.agents) {
           mountMcpServer(appServerArgs, env, "agents", turn.integrations.agents);
@@ -1796,7 +1796,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     // These bridges read credentials at request admission. A missing file
     // fails closed; a live token must never become usable during preparation.
     for (const [name, token] of [
-      ["agents", "OMB_COMMS_TOKEN"], ["composio", "OMB_CONNECTOR_TOKEN"],
+      ["agents", "OMB_COMMS_TOKEN"], ["connectors", "OMB_CONNECTOR_TOKEN"],
       ["browser", "OMB_BROWSER_TOKEN"], ["localComputer", "OMB_CONTROL_TOKEN"],
     ] as const) {
       const bridge = turn.integrations?.[name];
@@ -1892,7 +1892,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         queueing: true,
         computerMcp: true,
         localComputerMcp: true,
-        composioMcp: true,
+        connectorsMcp: true,
         agentsMcp: true,
       customMcp: true,
         phoneMcp: true,

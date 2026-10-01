@@ -752,7 +752,7 @@ data class Profile(val name: String, val email: String)
 
 @Serializable
 data class ConfigStatus(
-    val composio: ConfigFlag? = null,
+    val connectors: ConfigFlag? = null,
     val box: ConfigFlag? = null,
     val tts: ConfigFlag? = null,
     val imageGen: ConfigFlag? = null,
@@ -852,7 +852,7 @@ data class ConnectorStatuses(
     /**
      * Whether `services` is an inventory or an admission of ignorance.
      *
-     * `server/index.ts` answers an unreadable Composio credential store with
+     * `server/index.ts` answers an unreadable connector credential store with
      * an empty map *and* `credentialStore: "unavailable"`, because not being
      * able to read the store means we do not know what is connected — which
      * is not the same as knowing nothing is. An empty map that arrives this
@@ -1179,7 +1179,7 @@ internal data class RoutineResponse(val routine: Routine)
 internal data class RoutineRunResponse(val run: RoutineRun)
 
 @Serializable
-internal data class ConnectorAuthorizationResponse(val url: String)
+internal data class ConnectorAuthorizationResponse(val url: String? = null, val id: String? = null, val kind: String? = null)
 
 @Serializable
 data class BotOverviewWho(val name: String, val title: String, val blurb: String, val soulLead: String)

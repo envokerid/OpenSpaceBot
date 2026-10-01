@@ -49,7 +49,7 @@ access; the first inference request can still fail for credentials or billing.
 `native/transport.ts` adapts Responses and Messages into the existing
 `openai-chat.ts` runtime. The common runtime retains history, cancellation,
 usage and structured tools with approval before execution. Custom stdio MCP,
-agent coordination and Composio use the same harness as the compatible API
+agent coordination and OpenClaw use the same harness as the compatible API
 engine. This change does not add computer, browser, image or CLI tool runtimes.
 Truncated native streams fail; opaque Responses reasoning replay stays scoped
 to its originating provider.

@@ -18,7 +18,7 @@ export interface CachedInventory {
   services: Record<string, ConnectorStatus>;
 }
 
-export const CONNECTED_APPS_CACHE_KEY = "omb-connected-apps";
+export const CONNECTED_APPS_CACHE_KEY = "omb-connected-apps-openclaw-v1";
 
 /** Reaching for localStorage is itself a failure point: a private window or
  * blocked site data throws on access, and a cache is never worth a crash. */

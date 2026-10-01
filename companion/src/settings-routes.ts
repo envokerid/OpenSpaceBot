@@ -1,6 +1,7 @@
 // Workspace settings require a separate per-device host grant. Keep this
 // surface explicit: granting settings access never exposes arbitrary APIs.
 const routes: ReadonlyArray<{ methods: readonly string[]; path: RegExp }> = [
+  { methods: ["POST"], path: /^\/api\/connectors\/providers$/ },
   { methods: ["GET", "POST"], path: /^\/api\/vms$/ },
   { methods: ["PATCH"], path: /^\/api\/vms\/(?:limits|[\w-]+)$/ },
   { methods: ["POST"], path: /^\/api\/vms\/[\w-]+\/actions$/ },

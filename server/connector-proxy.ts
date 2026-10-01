@@ -1,7 +1,7 @@
-// Harness-owned Composio MCP bridge.
+// Harness-owned backend MCP bridge.
 //
 // Provider CLIs only see this stdio server. Ordinary MCP traffic is relayed
-// to the configured Composio Session, but connection requests are converted
+// to the configured backend Session, but connection requests are converted
 // into first-class OpenMausBot chat cards. The agent never authors an auth
 // URL and credentials never pass through its transcript.
 //
@@ -174,7 +174,7 @@ async function handle(message: Json): Promise<void> {
   const method = String(message.method ?? "");
   // OpenCode (and other MCP clients) mark a stdio server failed unless
   // initialize returns capabilities/serverInfo. Relaying that handshake to
-  // Composio can time out, return a newer protocolVersion, or throw when the
+  // backend can time out, return a newer protocolVersion, or throw when the
   // upstream URL never reached the child env — all of which previously
   // surfaced as a tools/call-shaped {content,isError} payload.
   if (method === "notifications/initialized" || method === "initialized") {
@@ -202,7 +202,7 @@ async function handle(message: Json): Promise<void> {
   if (method === "tools/call") {
     const params = (message.params ?? {}) as Json;
     const name = String(params.name ?? "");
-    const requests = /MANAGE_CONNECTIONS$/i.test(name) ? connectorAdds(params.arguments) : [];
+    const requests = name === "connectors_request_connection" ? connectorAdds(params.arguments) : [];
     if (requests.length) {
       await showConnectorCards(requests, token);
       const labels = requests.map((r) => (r.alias ? `${r.slug} (${r.alias})` : r.slug)).join(", ");
@@ -212,10 +212,7 @@ async function handle(message: Json): Promise<void> {
       ));
       return;
     }
-    if (/WAIT_FOR_CONNECTIONS$/i.test(name)) {
-      send(textResult(id, "OpenMausBot is handling connection completion and will continue the task automatically."));
-      return;
-    }
+
   }
   try {
     const response = await relay(message, RELAY_TIMEOUT_MS, token);

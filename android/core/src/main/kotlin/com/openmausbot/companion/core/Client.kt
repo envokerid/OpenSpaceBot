@@ -547,11 +547,18 @@ class CompanionClient(
     suspend fun authorizeConnector(slug: String, alias: String?): URI {
         if (!validConnectorSlug(slug)) throw APIError.BadUrl
         val body = ConnectedAppsRules.trimmedAlias(alias)?.let { jsonBody("alias" to it) }
-        val response = send<ConnectorAuthorizationResponse>(makeRequest(
+        var response = send<ConnectorAuthorizationResponse>(makeRequest(
             "POST",
             "/api/connectors/$slug/authorize",
             body = body,
         ))
+        repeat(45) {
+            if (response.kind == "pending" && response.id != null) {
+                kotlinx.coroutines.delay(1000)
+                response = send<ConnectorAuthorizationResponse>(makeRequest("GET", "/api/connectors/auth/${response.id}"))
+            }
+        }
+        if (response.url == null) throw APIError.Transport("Continue this connection in Expo or on your desktop. QR pairing needs a second screen.")
         val url = runCatching { URI(response.url) }.getOrNull()
         if (url == null || !url.scheme.equals("https", ignoreCase = true) || url.host.isNullOrEmpty()) {
             throw APIError.BadUrl

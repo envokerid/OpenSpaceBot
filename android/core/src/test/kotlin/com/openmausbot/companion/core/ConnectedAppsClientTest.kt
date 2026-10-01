@@ -67,7 +67,7 @@ class ConnectedAppsClientTest {
         )
         assertTrue(
             switchedOff.isAuthoritative,
-            "Composio being unconfigured is knowledge, and only an unreadable store is not",
+            "Connected Apps being unconfigured is knowledge, and only an unreadable store is not",
         )
 
         // Only the exact string withdraws authority. The server writes it from
@@ -140,7 +140,7 @@ class ConnectedAppsClientTest {
     @Test
     fun catalogAndCompleteInventoryUseSeparateAuthenticatedCalls() = runBlocking {
         server.enqueue(json(
-            """{"configured":true,"mode":"composio","source":"toolkits","cards":[{"slug":"slack","label":"Slack","blurb":"Team messages","logo":"https://cdn.example/slack.png","domain":"slack.com"}]}""",
+            """{"configured":true,"mode":"connectors","source":"toolkits","cards":[{"slug":"slack","label":"Slack","blurb":"Team messages","logo":"https://cdn.example/slack.png","domain":"slack.com"}]}""",
         ))
         server.enqueue(json(
             """{"configured":true,"services":{"slack":{"connected":true,"accounts":[{"id":"ca_work","alias":"Work","status":"ACTIVE"},{"id":"ca_client","alias":"Client","status":"ACTIVE"}]}}}""",
@@ -150,7 +150,7 @@ class ConnectedAppsClientTest {
         val statuses = client.allConnectorStatuses()
 
         assertEquals(listOf("slack"), catalog.cards.map(ConnectorCard::slug))
-        assertEquals("composio", catalog.mode)
+        assertEquals("connectors", catalog.mode)
         assertEquals("toolkits", catalog.source)
         assertEquals("https://cdn.example/slack.png", catalog.cards.single().logo)
         assertEquals("slack.com", catalog.cards.single().domain)

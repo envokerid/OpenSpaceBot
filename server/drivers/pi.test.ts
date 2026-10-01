@@ -82,18 +82,18 @@ describe("buildMcpServers", () => {
     expect(buildMcpServers({ threadId: "t", text: "hi" })).toBeNull();
   });
 
-  it("passes composio/agents/phone through as stdio servers", () => {
+  it("passes connectors/agents/phone through as stdio servers", () => {
     const servers = buildMcpServers({
       threadId: "t",
       text: "hi",
       integrations: {
-        composio: { command: "node", args: ["c"], env: { A: "1" } },
+        connectors: { command: "node", args: ["c"], env: { A: "1" } },
         agents: { command: "node", args: ["a"], env: { B: "2" } },
         phone: { command: "node", args: ["p"], env: {} },
       },
     });
     expect(servers).toEqual({
-      composio: { command: "node", args: ["c"], env: { A: "1" } },
+      connectors: { command: "node", args: ["c"], env: { A: "1" } },
       agents: { command: "node", args: ["a"], env: { B: "2" } },
       phone: { command: "node", args: ["p"], env: {} },
     });
@@ -454,7 +454,7 @@ describe("PiDriver turns (fake CLI)", () => {
       threadId: "t-mcp",
       text: "hi",
       integrations: {
-        composio: { command: "node", args: ["connector-proxy.js"], env: { COMPOSIO_KEY: "ck" } },
+        connectors: { command: "node", args: ["connector-proxy.js"], env: { CONNECTORS_KEY: "ck" } },
         computer: { kind: "box", boxId: "b1", token: "bt", control: { url: "http://c", token: "ct" } },
       },
     });
@@ -473,8 +473,8 @@ describe("PiDriver turns (fake CLI)", () => {
     expect(mcpRow!.argv[extIndex + 1]).toContain("pi-mcp-extension");
 
     const servers = mcpRow!.mcpConfig!.mcpServers!;
-    // composio passes through verbatim as a stdio server
-    expect(servers.composio).toMatchObject({ command: "node", args: ["connector-proxy.js"], env: { COMPOSIO_KEY: "ck" } });
+    // connectors passes through verbatim as a stdio server
+    expect(servers.connectors).toMatchObject({ command: "node", args: ["connector-proxy.js"], env: { CONNECTORS_KEY: "ck" } });
   });
 
   it("rides the toolUse auto-continue and only settles on the final end_turn", async () => {

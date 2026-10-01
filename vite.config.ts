@@ -54,6 +54,7 @@ export default defineConfig({
     // the harness server owns every provider process; the app only ever
     // talks to /api — clients hold no transports
     proxy: {
+      "/oauth/mcp/callback": { target: `http://127.0.0.1:${process.env.OMB_PORT || process.env.OGB_PORT || 8799}` },
       "/api": {
         target: `http://127.0.0.1:${process.env.OMB_PORT || process.env.OGB_PORT || 8799}`,
       },

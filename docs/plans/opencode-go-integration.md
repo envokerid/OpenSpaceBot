@@ -168,7 +168,7 @@ Use the existing ACP mapping as the baseline:
 
 The first slice should support the same agent and computer stdio MCP integrations
 as the current generic ACP core. HTTP/SSE MCP additions, including a direct
-Composio transport, should be a separate follow-up after their ACP schemas and
+OpenClaw transport, should be a separate follow-up after their ACP schemas and
 permission behavior are covered by tests.
 
 ## Expected code areas
@@ -293,7 +293,7 @@ credentialed run.
   readiness, and server lifecycle concerns without an initial advantage over ACP.
 - Automatic subscription purchase, billing management, or usage top-ups.
 - Persisting or modifying OpenCode's own auth/config files.
-- Making Composio available over ACP HTTP/SSE transports.
+- Making OpenClaw available over ACP HTTP/SSE transports.
 - Supporting the archived Go-language OpenCode CLI.
 
 ## Questions to close in PR 1

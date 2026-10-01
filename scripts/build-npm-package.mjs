@@ -36,6 +36,7 @@ if (existsSync(enterpriseBundle)) {
   }
 }
 cpSync(join(root, "LICENSE"), join(out, "LICENSE"));
+cpSync(join(root, "runtime/openclaw/adapter"), join(out, "runtime/openclaw/adapter"), { recursive: true });
 
 // The bin lives next to the bundle so serverEntry() finds index.js by path.
 writeFileSync(join(out, "cli.js"), `#!/usr/bin/env node\nimport "./dist-server/openmausbot.js";\n`);
@@ -50,8 +51,9 @@ writeFileSync(
       license: "Apache-2.0",
       type: "module",
       bin: { openmausbot: "cli.js" },
-      files: ["cli.js", "dist-server", "dist", "skills", "enterprise", "LICENSE", "README.md"],
-      engines: { node: ">=24" },
+      dependencies: JSON.parse(readFileSync(join(root, "runtime/openclaw/package.json"), "utf8")).dependencies,
+      files: ["runtime", "cli.js", "dist-server", "dist", "skills", "enterprise", "LICENSE", "README.md"],
+      engines: { node: ">=24.16.0 <25 || >=26.1.0" },
       repository: { type: "git", url: "https://github.com/milind-soni/OpenMausBot.git" },
       homepage: "https://github.com/milind-soni/OpenMausBot#readme",
       keywords: ["openmausbot", "agents", "self-hosted", "server"],

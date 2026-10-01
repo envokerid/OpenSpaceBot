@@ -24,7 +24,7 @@ import { assertRequestTarget, guardedRequestPath, requestConflict, requestNeedsI
 import { botAvatarUrlFromStoredPath } from "../shared/bot-avatar.ts";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
 import { botPermissionsPatchSchema } from "../shared/bot-permissions.ts";
-import { DEFAULT_APPROVED_MCP_TOOL, effectiveMcpToolApprovals, mcpApprovalKey, mcpToolApproved, type ApprovedCommandsResponse } from "../shared/approved-commands.ts";
+import { CONNECTOR_EXECUTE_TOOL, effectiveMcpToolApprovals, mcpApprovalKey, mcpToolApproved, type ApprovedCommandsResponse } from "../shared/approved-commands.ts";
 import { CLOUD_COMPUTER_BUSY_ERROR } from "../shared/computer-contention.ts";
 import {
   approvalModeFor,
@@ -106,7 +106,7 @@ import {
   cloudBackendChangeError,
   vpsAliasResourceChangeError,
 } from "./cloud-backend.ts";
-import * as composio from "./composio.ts";
+import * as connectors from "./connectors.ts";
 import { connectorAccountKey } from "../shared/connector-grants.ts";
 import { chiefOfStaffPromptParts, chiefOfStaffSystemPrompt } from "./chief-of-staff.ts";
 import { canAccessTeam, canReachPeer, peerAllowed, peerName, peerRosterSystemPrompt, peerStatus, peerStatusWords, reachablePeers, resolveTeammate, roomPeerRosterSystemPrompt, roomRosterLine, PEER_ACCESS_HELP } from "./peer-roster.ts";
@@ -348,7 +348,7 @@ import { checkSoulDrift, readSoulDrift, soulFile, writeSoulMirror } from "./bot-
 import {
   buildSystemPrompt,
   computerPrompt,
-  COMPOSIO_PROMPT,
+  CONNECTORS_PROMPT,
   customMcpPrompt,
   MCP_REGISTRATION_PROMPT,
   CREDENTIAL_PROMPT,
@@ -612,15 +612,15 @@ function noteTurnTrigger(threadId: string, auth: RequestAuth): void {
       : { kind: "owner" },
   );
 }
+try { connectors.recoverAbandonedConnections(); } catch { console.warn("[connectors] Account recovery needs attention; the inventory remains unchanged."); }
 const providerAuthSessions = new ProviderAuthSessions();
 await registry.load(providerConfigs(), decorateHostedProvider);
 const bundledSkills = loadBundledSkills();
 const availableSkills = () => mergeSkills(bundledSkills, loadUserSkills(join(DATA_DIR, "skills")));
 
 // Electron's utility-process parent port is private to the desktop main
-// process. It lets a slow first-time managed Composio registration arrive
-// after first paint without putting the credential in the renderer or
-// restarting the embedded server. Plain Node/dev launches have no parentPort.
+// process. It carries browser-control messages without exposing private
+// control capabilities to the renderer. Plain Node launches have no parentPort.
 type UtilityParentPort = {
   on(event: "message", listener: (event: { data?: object }) => void): void;
   postMessage(message: object): void;
@@ -725,7 +725,6 @@ utilityParentPort?.on("message", (event) => {
     if (handleDesktopTrustedApprovalMessage(message)) return;
     if (browserCleanup.receive(message)) return;
     if (phoneSecrets.receive(message)) return;
-    composio.applyManagedBrokerMessage(message);
   } catch (error) {
     console.error(`[desktop-sync] rejected private parent message: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -1495,7 +1494,7 @@ async function connectedAppsIntegration(botId: string, threadId: string, generat
     createdBots: 0,
     openedThreads: 0,
   });
-  const integration = await composio.mcpIntegration(cfg, {
+  const integration = await connectors.mcpIntegration(cfg, {
     harnessUrl: `http://127.0.0.1:${PORT}`,
     commsToken: token,
     botId,
@@ -1957,7 +1956,7 @@ function previewSystemPrompt(bot: BotRecord) {
       computer: previewPlan.computer && previewPlan.computer !== "off" && computerPromptKind ? previewPlan.computer : null,
       browser: previewPlan.computer === undefined ? false : previewPlan.browser,
     }, { note: previewPlan.note }) },
-    { id: "composio", label: "Connected apps", text: caps?.composioMcp && bot.composio !== false && composio.configured(cfg) ? COMPOSIO_PROMPT : "" },
+    { id: "connectors", label: "Connected apps", text: caps?.connectorsMcp && bot.connectors !== false && connectors.configured(cfg) ? CONNECTORS_PROMPT : "" },
     { id: "mcp", label: "MCP servers", text: caps?.customMcp ? customMcpPrompt(Object.keys(customMcpServers(cfg, bot.mcpServers, { botId: bot.id }))) : "" },
     { id: "browser", label: "Browser", text: previewPlan.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
     { id: "coordination", label: "Team", text: agentsMounted && coordination ? ` ${coordination}` : "" },
@@ -1986,9 +1985,9 @@ function previewSystemPrompt(bot: BotRecord) {
  * read this same route, so they can never disagree about what a bot does. */
 async function botOverview(bot: BotRecord): Promise<BotOverview> {
   const connectedApps = await connectedAppsFacts(
-    composio.configured(cfg),
-    composio.connectorAvailability(cfg),
-    async () => Object.fromEntries(Object.entries(await composio.connectedServices(cfg)).filter(([slug, service]) =>
+    connectors.configured(cfg),
+    connectors.connectorAvailability(cfg),
+    async () => Object.fromEntries(Object.entries(await connectors.connectedServices(cfg)).filter(([slug, service]) =>
       service.accounts.some((account) => bot.connectorAccounts?.[slug]?.includes(account.id) && /^active$/i.test(account.status)))),
   );
   const engine = registry.get(bot.modelSelection.instanceId)?.adapter.capabilities ?? null;
@@ -2012,7 +2011,7 @@ async function botOverview(bot: BotRecord): Promise<BotOverview> {
       approvalMode: approvalModeForTurn(bot),
       approvePeerComms: bot.approvePeerComms,
       peers: bot.peers,
-      composio: bot.composio,
+      connectors: bot.connectors,
       browser: bot.browser,
       chiefOfStaff: bot.chiefOfStaff,
       managedSections: bot.managedSections,
@@ -5013,7 +5012,7 @@ bus.subscribe((event: RuntimeEvent) => {
       // OpenMausBot decides nothing about the action itself. Explicit Full
       // access and per-tool MCP grants may answer. A QUESTION always reaches
       // the human — even Full access never invents an answer.
-      const asker = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
+      const asker = bot ? store.bot(bot.id) : speaker ? store.bot(speaker.botId) : undefined;
       const unattended = permission && asker && event.requestId ? isUnattended(asker.id, event.threadId) : false;
       const effectiveApprovalMode = asker ? approvalModeForTurn(asker, isInternalTurn(event.threadId)) : "ask";
       const approvalKey = permission && event.mcpTool ? mcpApprovalKey(event.tool) : null;
@@ -6818,16 +6817,15 @@ async function startTurn(
         if (!claimTurnResource(resourceOwner, "computer:phone")) throw new Error("another thread is using the phone — wait for it to finish");
         integrations.phone = phoneIntegration();
       }
-      // the user's connected apps, but only to a driver that can mount
-      // them — a key in the config says the connections exist, not that
-      // this engine can reach them — and only to a bot the user has not
-      // switched off: the key is workspace-wide, the grant is per bot.
-      if (bot.composio !== false && composio.configured(cfg) && instance.adapter.capabilities.composioMcp === true) {
+      // Mount the workspace's connector bridge only when the engine supports
+      // it and this bot has it enabled. Exact account grants are checked at
+      // dispatch, including when the bridge was mounted before a revocation.
+      if (bot.connectors !== false && connectors.configured(cfg) && instance.adapter.capabilities.connectorsMcp === true) {
         const connection = await connectedAppsIntegration(bot.id, threadId, dispatchClaimId);
-        if (connection) integrations.composio = connection;
+        if (connection) integrations.connectors = connection;
       }
       // user-configured MCP servers (config.json mcpServers): same rule as
-      // composio — only to a driver that can mount them. Their tools are
+      // connectors — only to a driver that can mount them. Their tools are
       // never pre-allowed, so every call rides the normal permission flow.
       // CLI engines work inside the bot's own workspace directory rather
       // than the user's home: a bot with file tools and acceptEdits gets a
@@ -7361,9 +7359,8 @@ async function startTurn(
         { id: "computer", label: "Computer", text: computerPrompt(computerPromptKind) },
         { id: "team-computer", label: "Team computer", text: teamComputerPrompt(teamComputer) },
         { id: "plan", label: "Surface", text: surfacePrompt({ computer: mountedComputer, browser: Boolean(integrations.browser) }, { pinned: plan.pinned, note: plan.note, canSelect: computerSelectionTurns.has(threadId) }) },
-        // gated on the integration, not the key: the hint only goes to a
-        // bot whose driver actually mounted the tools
-        { id: "composio", label: "Connected apps", text: integrations.composio ? COMPOSIO_PROMPT : "" },
+        // The hint goes only to a bot whose driver mounted the tools.
+        { id: "connectors", label: "Connected apps", text: integrations.connectors ? CONNECTORS_PROMPT : "" },
         { id: "mcp", label: "MCP servers", text: customMcpPrompt(Object.keys(integrations.custom ?? {})) },
         { id: "mcp-registration", label: "MCP registration", text: integrations.agents ? MCP_REGISTRATION_PROMPT : "" },
         { id: "browser", label: "Browser", text: integrations.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
@@ -8611,7 +8608,7 @@ async function runGroupMemberTurn(
   // settles as busy without ever dispatching.
   const preparedApprovalMode = roomTurnApprovalMode(bot, orchestration);
   const preparedSelection = { ...bot.modelSelection };
-  const preparedComposio = bot.composio;
+  const preparedConnectors = bot.connectors;
   const instance = turnInstance(bot);
   const userName = cfg.profile?.name?.trim() || "User";
   if (providerInstancesChanging.has(bot.modelSelection.instanceId)) {
@@ -8730,9 +8727,9 @@ async function runGroupMemberTurn(
     integrations.phone = phoneIntegration();
   }
   try {
-    if (bot.composio !== false && composio.configured(cfg) && instance.adapter.capabilities.composioMcp === true) {
+    if (bot.connectors !== false && connectors.configured(cfg) && instance.adapter.capabilities.connectorsMcp === true) {
       const connection = await connectedAppsIntegration(bot.id, threadId, internalGeneration);
-      if (connection) integrations.composio = connection;
+      if (connection) integrations.connectors = connection;
     }
   } catch (error) {
     const message = `connected apps are unavailable — ${error instanceof Error ? error.message : String(error)}`;
@@ -8767,7 +8764,7 @@ async function runGroupMemberTurn(
     readyBot.modelSelection.model !== preparedSelection.model ||
     readyBot.modelSelection.effort !== preparedSelection.effort ||
     readyBot.modelSelection.variant !== preparedSelection.variant ||
-    readyBot.composio !== preparedComposio;
+    readyBot.connectors !== preparedConnectors;
   if (setupChanged) {
     if (setupRetry === 0) {
       return runGroupMemberTurn(
@@ -11052,9 +11049,9 @@ function configStatus() {
     billing: { currency: cfg.billing?.currency ?? "USD", prices: cfg.billing?.prices ?? {} },
     // the base URL is a setting, not a secret; the key stays write-only
     openaiCompat: { configured: Boolean(cfg.openaiCompat?.key), url: cfg.openaiCompat?.url ?? "" },
-    composio: {
-      configured: composio.configured(cfg),
-      mode: composio.connectionMode(cfg),
+    connectors: {
+      configured: connectors.configured(cfg),
+      mode: connectors.connectionMode(cfg),
     },
     box: { configured: Boolean(cfg.box?.token) },
     vps: { configured: Boolean(vpsSshAlias(cfg)), sshAlias: vpsSshAlias(cfg) ?? "" },
@@ -11487,6 +11484,18 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
   let m: RegExpMatchArray | null = null;
   let releaseWorkspaceRequest: (() => void) | undefined;
   try {
+    if (method === "GET" && path === "/oauth/mcp/callback") {
+      res.setHeader("cache-control", "no-store");
+      res.setHeader("referrer-policy", "no-referrer");
+      res.setHeader("content-security-policy", "default-src 'none'; frame-ancestors 'none'");
+      try {
+        await connectors.oauthCallback(url);
+        res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+        return res.end("Authorization received. Return to OpenMausBot to check the connection and choose which bots may use it.");
+      } catch {
+        return json(res, 400, { error: "Authorization could not be completed. Return to OpenMausBot and start Connect again." });
+      }
+    }
     // Unlike the legacy reachability probe, this attests the running
     // server's portal-membership capability, including live entitlement.
     if (method === "GET" && path === "/api/health/hosted") {
@@ -13437,7 +13446,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           { seedMessages: false },
         );
         const safeBot = store.patchBot(created.id, {
-          composio: false,
+          connectors: false,
           autoApprove: false,
           approvePeerComms: false,
         })!;
@@ -13571,15 +13580,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         // Re-read the live bot immediately before relay so turning Connected
         // Apps off wins over a request that authenticated under the old value.
         const currentSender = store.bot(internalCapability.botId);
-        if (!currentSender || currentSender.composio === false || !composio.configured(cfg)) {
+        if (!currentSender || currentSender.connectors === false || !connectors.configured(cfg)) {
           return json(res, 403, { error: "connected apps are not enabled for this bot" });
         }
         const accounts = currentSender.connectorAccounts ?? {};
-        if (connectorAccountKey(accounts) === "[]") {
-          return json(res, 403, { error: "No connector accounts approved for this bot. Add an account in the bot's Access sidebar." });
-        }
         const approvalKey = connectorAccountKey(accounts);
-        const upstream = await composio.relayMcp(
+        const upstream = await connectors.relayMcp(
           cfg,
           body,
           Array.isArray(req.headers["mcp-session-id"])
@@ -13587,7 +13593,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             : req.headers["mcp-session-id"],
           { botId: currentSender.id, accounts, stillAllowed: () => {
             const live = store.bot(currentSender.id);
-            return Boolean(live && live.composio !== false && internalCapabilityIsActive(internalCapability) && connectorAccountKey(live.connectorAccounts) === approvalKey);
+            return Boolean(connectors.configured(cfg) && live && live.connectors !== false && internalCapabilityIsActive(internalCapability) && connectorAccountKey(live.connectorAccounts) === approvalKey);
           } },
         );
         const headers: Record<string, string> = {
@@ -13709,7 +13715,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           const row = raw as { slug?: unknown; toolkit?: unknown; alias?: unknown; account?: unknown };
           const slug = typeof row.slug === "string" ? row.slug : typeof row.toolkit === "string" ? row.toolkit : undefined;
           if (!slug || !CONNECTOR_SLUG.test(slug.toLowerCase())) continue;
-          const alias = composio.normalizeAccountAlias((row.alias ?? row.account) as string | undefined);
+          const alias = connectors.normalizeAccountAlias((row.alias ?? row.account) as string | undefined);
           items.push({ slug: slug.toLowerCase(), ...(alias ? { alias } : {}) });
         }
         const slugs = [...new Set(items.map((item) => item.slug))];
@@ -13717,10 +13723,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!owner) return json(res, 403, { error: "conversation does not belong to this bot" });
         if (!/^[\w-]{8,100}$/.test(resumeKey)) return json(res, 400, { error: "invalid resume key" });
         if (!items.length || items.length > 12) return json(res, 400, { error: "one to twelve valid connection requests are required" });
-        if (!composio.configured(cfg) || owner.bot.composio === false) {
+        if (!connectors.configured(cfg) || owner.bot.connectors === false) {
           return json(res, 409, { error: "connected apps are not enabled for this bot" });
         }
-        const connectionState = await composio.connectionStatus(cfg, slugs).catch((): Awaited<ReturnType<typeof composio.connectionStatus>> => ({}));
+        const connectionState = await connectors.connectionStatus(cfg, slugs).catch((): Awaited<ReturnType<typeof connectors.connectionStatus>> => ({}));
         requireActiveInternalCapability();
         const messageIds: string[] = [];
         for (const item of items) {
@@ -13732,7 +13738,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             messageIds.push(existing.id);
             continue;
           }
-          const toolkit = await composio.toolkitCard(cfg, item.slug);
+          const toolkit = await connectors.toolkitCard(cfg, item.slug);
           requireActiveInternalCapability();
           const connected = connectionState[item.slug]?.accounts?.some((account) => store.bot(botId)?.connectorAccounts?.[item.slug]?.includes(account.id) && /^active$/i.test(account.status)) === true;
           const status = item.alias ? "required" : connected ? "connected" : "required";
@@ -14643,7 +14649,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           // importedMemberProfile is the authority boundary: persona fields
           // only, colliding names numbered. seedMessages: false — an
           // imported bot must not open by greeting the user as though it
-          // were new. composio: false — a shared persona never starts with
+          // were new. connectors: false — a shared persona never starts with
           // reach into the user's connected apps (absence would mean
           // allowed); the user can switch it on per bot after reading who
           // they got.
@@ -14661,7 +14667,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             return playbook ? [{ ...playbook }] : [];
           });
           store.patchBot(created.id, {
-            composio: false,
+            connectors: false,
             ...(installedPlaybooks.length ? { playbooks: installedPlaybooks } : {}),
             ...(pkg
               ? {
@@ -15623,10 +15629,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (section !== undefined) patch.section = section ?? undefined;
       if (body.chiefOfStaff === false) patch.chiefOfStaff = false;
-      // per-bot gate on the workspace's connected apps (Composio)
-      if (body.composio !== undefined) {
-        if (typeof body.composio !== "boolean") return json(res, 400, { error: "composio must be true or false" });
-        patch.composio = body.composio;
+      // per-bot gate on the workspace's connected apps (OpenClaw)
+      if (body.connectors !== undefined) {
+        if (typeof body.connectors !== "boolean") return json(res, 400, { error: "connectors must be true or false" });
+        patch.connectors = body.connectors;
       }
       // Queue this bot's direct messages behind outstanding delegated work
       // instead of steering the conversation immediately (#1194).
@@ -17943,7 +17949,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           cfg.mcpToolDefaults = defaults;
         }
       }
-      const tools = new Set<string>([DEFAULT_APPROVED_MCP_TOOL, ...Object.keys(cfg.mcpToolDefaults ?? {})]);
+      const tools = new Set<string>([CONNECTOR_EXECUTE_TOOL, ...Object.keys(cfg.mcpToolDefaults ?? {})]);
       for (const bot of store.bots) {
         for (const key of Object.keys(bot.mcpToolApprovals ?? {})) tools.add(key);
       }
@@ -18274,22 +18280,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           }
         }
 
-      // A project key is useful only if it can create/reuse the Session that
-      // powers both the connections UI and the agent MCP. Validate it before
-      // persisting, and save the non-secret ids needed to reuse that Session.
-      const requestedComposioKey = patch.composio?.apiKey;
-      if (requestedComposioKey !== undefined) {
-        if (requestedComposioKey.trim()) {
-          try {
-            const prepared = await composio.prepareProjectSession(requestedComposioKey, cfg.composio);
-            patch.composio = { ...patch.composio, ...prepared };
-          } catch (error) {
-            return json(res, 400, { error: error instanceof Error ? error.message : String(error) });
-          }
-        } else {
-          patch.composio = { ...patch.composio, apiKey: "", sessionId: "" };
-        }
-      }
       // check a box token against the provider before storing it: a
       // rejected token used to save happily and only surface as a 401 in
       // another panel later, with nothing the user could act on
@@ -18432,7 +18422,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           // never survive the merge in config.json.
           const persisted = structuredClone(patch);
           if (persisted.xai?.key !== undefined) persisted.xai.key = "";
-          if (persisted.composio?.apiKey !== undefined) persisted.composio.apiKey = "";
           if (persisted.box?.token !== undefined) persisted.box.token = "";
           if (persisted.opencodeGo?.apiKey !== undefined) persisted.opencodeGo.apiKey = "";
           if (persisted.tts?.key !== undefined) persisted.tts.key = "";
@@ -18606,7 +18595,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const [, botId, slug, accountId] = m;
       if (!store.bot(botId)) return json(res, 404, { error: "no such bot" });
       if (method === "POST") {
-        const service = (await composio.connectionStatus(cfg, [slug]))[slug];
+        const service = (await connectors.connectionStatus(cfg, [slug]))[slug];
         if (!service?.accounts?.some((account) => account.id === accountId && /^active$/i.test(account.status))) {
           return json(res, 400, { error: "Choose an active account connected to this service" });
         }
@@ -18618,23 +18607,34 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const ids = accounts[slug] ?? [];
       accounts[slug] = method === "POST" ? [...new Set([...ids, accountId])] : ids.filter((id) => id !== accountId);
       if (!accounts[slug].length) delete accounts[slug];
-      const updated = store.patchBot(botId, { connectorAccounts: accounts, ...(method === "POST" ? { composio: true } : {}) });
+      const updated = store.patchBot(botId, { connectorAccounts: accounts, ...(method === "POST" ? { connectors: true } : {}) });
       return json(res, 200, { bot: wireBot(updated!) });
     }
 
-    // ── connectors (Composio) ──
+    // ── Connected Apps: OpenClaw plugins and server-owned MCP ──
+    if (path.startsWith("/api/connectors/")) res.setHeader("cache-control", "no-store");
+    if (method === "POST" && path === "/api/connectors/providers") {
+      return json(res, 201, connectors.addProvider(await readBody(req)));
+    }
+    m = path.match(/^\/api\/connectors\/auth\/([a-f0-9-]+)$/);
+    if (m && method === "GET") return json(res, 200, await connectors.authStatus(m[1]));
+    if (m && method === "POST") return json(res, 200, await connectors.submitAuth(m[1], await readBody(req)));
+    if (m && method === "DELETE") {
+      await connectors.cancelAuth(m[1]);
+      return json(res, 200, { cancelled: true });
+    }
     if (method === "GET" && path === "/api/connectors/catalog") {
-      const { cards, source, pagination } = await composio.listToolkits(cfg);
+      const { cards, source, pagination } = await connectors.listToolkits(cfg);
       return json(res, 200, {
-        configured: composio.configured(cfg),
-        mode: composio.connectionMode(cfg),
+        configured: connectors.configured(cfg),
+        mode: connectors.connectionMode(cfg),
         source,
         cards,
         ...(pagination ? { pagination } : {}),
       });
     }
     if (method === "GET" && path === "/api/connectors/connected") {
-      const availability = composio.connectorAvailability(cfg);
+      const availability = connectors.connectorAvailability(cfg);
       if (availability !== "configured") {
         // `credentialStore` is what stops the panel treating this empty list
         // as authoritative: an unreadable store means we do not KNOW what is
@@ -18645,11 +18645,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           services: {},
         });
       }
-      return json(res, 200, { configured: true, credentialStore: "ok", services: await composio.connectedServices(cfg) });
+      return json(res, 200, { configured: true, credentialStore: "ok", services: await connectors.connectedServices(cfg) });
     }
     if (method === "GET" && path === "/api/connectors") {
       const services = (url.searchParams.get("services") ?? "").split(",").filter(Boolean);
-      const availability = composio.connectorAvailability(cfg);
+      const availability = connectors.connectorAvailability(cfg);
       if (availability !== "configured") {
         return json(res, 200, {
           configured: false,
@@ -18657,17 +18657,17 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           services: {},
         });
       }
-      const status = await composio.connectionStatus(cfg, services.length ? services : composio.CURATED_SLUGS);
+      const status = await connectors.connectionStatus(cfg, services.length ? services : connectors.CURATED_SLUGS);
       return json(res, 200, { configured: true, services: status });
     }
     m = path.match(/^\/api\/connectors\/([\w-]+)\/authorize$/);
     if (m && method === "POST") {
       const body = await readBody(req);
-      return json(res, 200, await composio.authorizeService(cfg, m[1], body.alias));
+      return json(res, 200, await connectors.authorizeService(cfg, m[1], body.alias, publicUrl() ?? `http://127.0.0.1:${PORT}`));
     }
     m = path.match(/^\/api\/connectors\/([\w-]+)\/accounts\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/);
     if (m && method === "DELETE") {
-      const result = await composio.removeAccount(cfg, m[1], m[2]);
+      const result = await connectors.removeAccount(cfg, m[1], m[2]);
       for (const bot of store.bots) {
         if (!bot.connectorAccounts?.[m[1]]?.includes(m[2])) continue;
         const accounts = { ...bot.connectorAccounts, [m[1]]: bot.connectorAccounts[m[1]].filter((id) => id !== m![2]) };
@@ -18678,7 +18678,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     m = path.match(/^\/api\/connectors\/([\w-]+)$/);
     if (m && method === "DELETE") {
-      const result = await composio.removeService(cfg, m[1]);
+      const result = await connectors.removeService(cfg, m[1]);
       for (const bot of store.bots) {
         if (!bot.connectorAccounts?.[m[1]]) continue;
         const accounts = { ...bot.connectorAccounts };
@@ -18782,7 +18782,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           connector: { ...connector, status: "authorizing", error: undefined, dismissed: false },
         });
         try {
-          return json(res, 200, await composio.authorizeService(cfg, connector.slug, connector.alias));
+          return json(res, 200, await connectors.authorizeService(cfg, connector.slug, connector.alias, publicUrl() ?? `http://127.0.0.1:${PORT}`));
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
           store.patchMessage(threadId, message.id, {
@@ -18792,7 +18792,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
       }
       if (m[3] === "status" && method === "GET") {
-        const service = (await composio.connectionStatus(cfg, [connector.slug]))[connector.slug];
+        const service = (await connectors.connectionStatus(cfg, [connector.slug]))[connector.slug];
         // A different active account must never complete a second-account card.
         // Missing alias metadata stays pending rather than guessing from the
         // toolkit-wide status (including scoped keys without account reads).
@@ -19209,6 +19209,7 @@ const gracefulShutdown = createGracefulShutdown({
       await Promise.all([...temporaryBrowserSessions.keys()].map((botId) => forgetTemporaryBrowser(botId)));
       await browserRuntime.closeAll();
     },
+    () => connectors.stopConnectors(),
     () => flushAllProfileHistory(),
     () => flushAllMemoryJournals(),
     () => flushUsageLedger(DATA_DIR),

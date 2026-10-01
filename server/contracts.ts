@@ -159,10 +159,10 @@ export interface SendTurnInput {
   refreshSystemPrompt?: boolean;
   /** Per-bot integrations the driver may hand to the agent as tools. */
   integrations?: {
-    /** A local stdio bridge owns the remote Composio transport. Keeping the
+    /** A local stdio bridge owns the OpenClaw Gateway transport. Keeping the
      * bridge harness-controlled lets it turn connection requests into trusted
      * chat cards consistently across provider CLIs. */
-    composio?: { command: string; args: string[]; env: Record<string, string> };
+    connectors?: { command: string; args: string[]; env: Record<string, string> };
     /** Box's native agent runner input. Only the Box driver consumes this;
      * CLI engines cannot use it as an MCP server. Other computers use the
      * stdio descriptor below. */
@@ -261,10 +261,10 @@ export interface ProviderAdapter {
      * told it has a computer whose tools its driver cannot mount — it
      * burns turns hunting for tools that aren't there. */
     computerMcp?: boolean;
-    /** True when the driver mounts turn.integrations.composio (the user's
+    /** True when the driver mounts turn.integrations.connectors (the user's
      * connected apps). Same rule again: a key in the config says the user
      * HAS those connections, not that this driver can reach them. */
-    composioMcp?: boolean;
+    connectorsMcp?: boolean;
     /** True when the driver can mount the first-party physical-phone MCP. */
     phoneMcp?: boolean;
     /** True when the driver can mount the built-in browser MCP. Same rule:
@@ -295,7 +295,7 @@ export interface ProviderAdapter {
      * Full-auto/bypass provider instances must leave this false. */
     localComputerMcp?: boolean;
     /** True when the driver mounts turn.integrations.custom (the user's own
-     * MCP servers from config). Same rule as composioMcp: an entry in the
+     * MCP servers from config). Same rule as connectorsMcp: an entry in the
      * config says the servers exist, not that this engine can reach them. */
     customMcp?: boolean;
     /** True when a turn given a resumeCursor runs in that exact native

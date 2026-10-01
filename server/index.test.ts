@@ -156,8 +156,14 @@ let fakeDockerFixture: string;
 let fakeVpsFixture: string;
 let fakeDockerLog: string;
 let stderr = "";
-let connectorAccounts: Array<{ id: string; alias: string; status: string; toolkit: { slug: string } }> = [];
-const connectorLinkRequests: Array<{ toolkit: string; alias?: string }> = [];
+const fixtureAccountIds = { work: "00000000-0000-4000-8000-000000000001", personal: "00000000-0000-4000-8000-000000000002", pending: "00000000-0000-4000-8000-000000000003" };
+function setConnectorInventory(accounts: Array<{ id: string; alias: string; status: string }>) {
+  const folder = join(home, ".openmausbot", "connectors");
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(join(folder, "accounts.json"), JSON.stringify({ version: 1, providers: [
+    { slug: "gmail", label: "Fixture mail", blurb: "Isolated fixture", logo: null, domain: "fixture.invalid", remote: { url: "https://fixture.invalid/mcp", auth: "token" } },
+  ], accounts: accounts.map(account => ({ ...account, slug: "gmail" })) }));
+}
 const browserCapabilityCalls: Array<{ operation: string; authorization?: string; body: any }> = [];
 let browserRevokeFailuresRemaining = 0;
 let browserRegisterDelayMs = 0;
@@ -749,34 +755,6 @@ beforeAll(async () => {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify(operation === "register" ? { ok: true, expiresAt: body.expiresAt } : { ok: true }));
     }
-    if (req.url?.startsWith("/api/v3.1/connected_accounts") || req.url?.startsWith("/api/v3/toolkits")) {
-      res.writeHead(200, { "content-type": "application/json" });
-      return res.end(JSON.stringify({ items: req.url.startsWith("/api/v3.1/connected_accounts") ? connectorAccounts : [] }));
-    }
-    if (req.url?.startsWith("/api/v3.1/tool_router/session")) {
-      if (req.headers["x-api-key"] !== "ak_good") {
-        res.writeHead(401, { "content-type": "application/json" });
-        return res.end(JSON.stringify({ error: { message: "invalid project key" } }));
-      }
-      let raw = "";
-      for await (const chunk of req) raw += chunk;
-      const body = raw ? JSON.parse(raw) : {};
-      if (req.url.includes("/toolkits")) {
-        res.writeHead(200, { "content-type": "application/json" });
-        return res.end(JSON.stringify({ items: [{ slug: "gmail", connected_account: { id: "ca_personal", status: "ACTIVE" } }] }));
-      }
-      if (req.url.endsWith("/link")) {
-        connectorLinkRequests.push(body);
-        res.writeHead(200, { "content-type": "application/json" });
-        return res.end(JSON.stringify({ redirect_url: "https://connect.composio.dev/fixture-only" }));
-      }
-      res.writeHead(201, { "content-type": "application/json" });
-      return res.end(JSON.stringify({
-        session_id: "trs_config_test",
-        mcp: { type: "http", url: "https://app.composio.dev/tool_router/v3/trs_config_test/mcp" },
-        config: { user_id: body.user_id },
-      }));
-    }
     if (
       req.headers.authorization === "Bearer box_slow"
       && new URL(req.url ?? "/", "http://box.invalid").pathname === "/boxes"
@@ -996,8 +974,6 @@ beforeAll(async () => {
       OMB_WEBHOOK_PORT: String(WEBHOOK_PORT),
       OMB_EXTRA_PATH: fakeDockerDir,
       OMB_BOX_API: `http://127.0.0.1:${boxStubPort}`,
-      OMB_COMPOSIO_API: `http://127.0.0.1:${boxStubPort}/api/v3.1`,
-      OMB_COMPOSIO_TOOLKITS_API: `http://127.0.0.1:${boxStubPort}/api/v3`,
       OMB_STATIC_DIR: staticDir,
       // The bots' browser engine: a stand-in binary the fake engine CLIs never
       // run; the turn only has to mount it.
@@ -2408,9 +2384,9 @@ describe("harness HTTP API", () => {
     expect((await api("PATCH", `/api/bots/${bot.id}`, { description: "D".repeat(4001) })).status).toBe(400);
     expect((await api("PATCH", `/api/bots/${bot.id}`, { description: 7 })).status).toBe(400);
 
-    // the per-bot composio gate is a boolean, and it round-trips
-    expect((await api("PATCH", `/api/bots/${bot.id}`, { composio: "yes" })).status).toBe(400);
-    const gated = await api("PATCH", `/api/bots/${bot.id}`, { composio: false });
+    // the per-bot connectors gate is a boolean, and it round-trips
+    expect((await api("PATCH", `/api/bots/${bot.id}`, { connectors: "yes" })).status).toBe(400);
+    const gated = await api("PATCH", `/api/bots/${bot.id}`, { connectors: false });
     expect(gated.status).toBe(200);
 
     // sidebar sections: assign, round-trip, trim, clear — and the field
@@ -2454,8 +2430,8 @@ describe("harness HTTP API", () => {
     expect(roomSectionEmpty.status).toBe(200);
     expect(roomSectionEmpty.body.group).not.toHaveProperty("section");
     expect((await api("DELETE", `/api/groups/${sectionRoom.id}`)).status).toBe(200);
-    expect(gated.body.bot.composio).toBe(false);
-    expect((await api("PATCH", `/api/bots/${bot.id}`, { composio: true })).body.bot.composio).toBe(true);
+    expect(gated.body.bot.connectors).toBe(false);
+    expect((await api("PATCH", `/api/bots/${bot.id}`, { connectors: true })).body.bot.connectors).toBe(true);
 
     const deleted = await api("DELETE", `/api/bots/${bot.id}`);
     expect(deleted.status).toBe(200);
@@ -3280,7 +3256,7 @@ describe("harness HTTP API", () => {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         name: "Target",
         modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
-        composio: false,
+        connectors: false,
         browser: false,
       })).status).toBe(200);
       const guardBot = (await api("POST", "/api/bots")).body.bot;
@@ -4359,7 +4335,7 @@ describe("harness HTTP API", () => {
       // in their name, and no access to the workspace's connected apps
       // until the user grants it per bot
       expect(imported.body.bots.every((bot: { messages: unknown[] }) => bot.messages.length === 0)).toBe(true);
-      expect(imported.body.bots.every((bot: { composio?: boolean }) => bot.composio === false)).toBe(true);
+      expect(imported.body.bots.every((bot: { connectors?: boolean }) => bot.connectors === false)).toBe(true);
       expect(imported.body).not.toHaveProperty("group");
 
       const lastImported = imported.body.bots.at(-1)!;
@@ -4563,7 +4539,7 @@ describe("harness HTTP API", () => {
     const editor = installed.body.bots.find((bot: { name: string }) => bot.name.startsWith("Package Editor"));
     expect(scout).toMatchObject({
       chiefOfStaff: true,
-      composio: false,
+      connectors: false,
       playbooks: [{ key: "signal-check", instructions: "Keep the source URL and confidence." }],
       installedPackage: {
         id: "signal-desk",
@@ -4666,7 +4642,7 @@ describe("harness HTTP API", () => {
       alwaysAllow: ["Bash:git"],
       approvePeerComms: true,
       chiefOfStaff: true,
-      composio: true,
+      connectors: true,
       computer: "off",
     });
     const groupsBefore = (await api("GET", "/api/bots")).body.groups.length;
@@ -4692,7 +4668,7 @@ describe("harness HTTP API", () => {
                   alwaysAllow: ["Bash"],
             chiefOfStaff: true,
             approvePeerComms: false,
-            composio: true,
+            connectors: true,
             computer: "local",
             cloudBackend: "vps",
             cwd: "/",
@@ -4715,7 +4691,7 @@ describe("harness HTTP API", () => {
     expect(impostor.alwaysAllow).toBeUndefined();
     expect(impostor.chiefOfStaff).toBeUndefined();
     expect(impostor.approvePeerComms).toBeUndefined();
-    expect(impostor.composio).toBe(false);
+    expect(impostor.connectors).toBe(false);
     expect(impostor.computer).toBeUndefined();
     expect(impostor.cloudBackend).toBeUndefined();
     expect(impostor.cwd).toBeUndefined();
@@ -4732,7 +4708,7 @@ describe("harness HTTP API", () => {
       alwaysAllow: ["Bash:git"],
       approvePeerComms: true,
       chiefOfStaff: true,
-      composio: true,
+      connectors: true,
       computer: "off",
     });
     // the single-Chief invariant survives the manifest's chiefOfStaff claim
@@ -4764,17 +4740,17 @@ describe("harness HTTP API", () => {
 
     // re-import after the user edited their copy: the edit survives, the
     // second import creates another fresh record and never reaches back
-    await api("PATCH", `/api/bots/${impostor.id}`, { description: "edited after import", composio: true });
+    await api("PATCH", `/api/bots/${impostor.id}`, { description: "edited after import", connectors: true });
     const second = await api("POST", "/api/teams/import", smuggled);
     expect(second.status).toBe(201);
     const secondBot = second.body.bots[0];
     expect(secondBot.id).not.toBe(impostor.id);
     expect(secondBot.name).toBe("Mira 4");
-    expect(secondBot.composio).toBe(false);
+    expect(secondBot.connectors).toBe(false);
     expect((await api("GET", "/api/bots")).body.bots.find((bot: { id: string }) => bot.id === impostor.id)).toMatchObject({
       name: "Mira 2",
       description: "edited after import",
-      composio: true,
+      connectors: true,
     });
 
     await api("DELETE", `/api/groups/${room.id}`);
@@ -8755,60 +8731,20 @@ describe("harness HTTP API", () => {
     expect((await api("PATCH", "/api/config", { vps: { sshAlias: "" } })).status).toBe(200);
   });
 
-  it("validates a Composio project key, creates a Session, and keeps externally stored secrets off disk", async () => {
-    const oldKey = await api("PUT", "/api/config", { composio: { apiKey: "old_key" } });
-    expect(oldKey.status).toBe(400);
-    expect(oldKey.body.error).toMatch(/start with ak_/i);
-
-    const rejected = await api("PUT", "/api/config", { composio: { apiKey: "ak_wrong" } });
-    expect(rejected.status).toBe(400);
-    expect(rejected.body.error).toMatch(/invalid project key/i);
-
-    const saved = await api("PUT", "/api/config?secretStorage=external", {
-      composio: { apiKey: "ak_good" },
-      opencodeGo: { apiKey: "opencode-external" },
-      profile: { name: "External Store" },
-    });
+  it("rejects provider project keys and keeps external model credentials off disk", async () => {
+    expect((await api("PUT", "/api/config", { connectors: { apiKey: "retired-key" } })).status).toBe(400);
+    const saved = await api("PUT", "/api/config?secretStorage=external", { opencodeGo: { apiKey: "opencode-external" } });
     expect(saved.status).toBe(200);
-    expect(saved.body.composio).toEqual({ configured: true, mode: "self-hosted" });
-    expect(saved.body.opencodeGo).toEqual({ configured: true });
-    expect(saved.body.profile).toEqual({ name: "External Store", email: "" });
-    expect(JSON.stringify(saved.body)).not.toContain("ak_good");
-
+    expect(saved.body.connectors).toEqual({ configured: true, mode: "local" });
     const disk = JSON.parse(readFileSync(join(home, ".openmausbot", "config.json"), "utf8"));
-    expect(disk.composio).toMatchObject({ apiKey: "", sessionId: "trs_config_test" });
-    expect(disk.opencodeGo).toEqual({ apiKey: "" });
-    expect(disk.profile).toEqual({ name: "External Store" });
-    expect(JSON.stringify(disk)).not.toContain("ak_good");
     expect(JSON.stringify(disk)).not.toContain("opencode-external");
-
-    // A later ordinary setting save reloads config; the in-process secure-env
-    // override must keep Composio configured until the next app launch.
-    expect((await api("PUT", "/api/config", { profile: { name: "Grace" } })).status).toBe(200);
-    expect((await api("GET", "/api/config")).body.composio).toEqual({ configured: true, mode: "self-hosted" });
-
-    // With the connector configured, the overview route now reads the
-    // connected-apps inventory against the stub. It must answer 200 and
-    // never invent a connected app (the failing-read fallback itself is
-    // unit-tested in bot-overview.test.ts, since the stub answers every
-    // session path with a fake session rather than an error).
-    const kiwi = (await api("POST", "/api/bots", { name: "Kiwi" })).body.bot;
-    try {
-      const overview = await api("GET", `/api/bots/${kiwi.id}/overview`);
-      expect(overview.status).toBe(200);
-      // Whatever the stub reports, the page never contradicts itself.
-      const claimsApps = overview.body.reaches.some((line: string) => line.startsWith("Can use"));
-      const deniesApps = overview.body.wont.includes("Has no connected apps.");
-      expect(claimsApps && deniesApps).toBe(false);
-    } finally {
-      await api("DELETE", `/api/bots/${kiwi.id}`);
-    }
   });
 
   it("keeps second-account cards separate and waits for the requested alias, not an existing account", async () => {
-    expect((await api("PUT", "/api/config", { composio: { apiKey: "ak_good" } })).status).toBe(200);
+    expect((await api("PUT", "/api/config", { connectors: { enabled: true } })).status).toBe(200);
     const bot = (await api("POST", "/api/bots")).body.bot;
-    connectorAccounts = [{ id: "ca_personal", alias: "personal", status: "ACTIVE", toolkit: { slug: "gmail" } }];
+    const personal = { id: fixtureAccountIds.personal, alias: "personal", status: "ACTIVE" };
+    setConnectorInventory([personal]);
     try {
       const token = await mintTestCapability(BASE, bot.id, bot.threadId, { kind: "connectors" });
       const create = async (items: unknown[], resumeKey = "alias-fixture-123") => {
@@ -8829,72 +8765,73 @@ describe("harness HTTP API", () => {
       expect(other).not.toBe(work);
       expect((await create([{ slug: "gmail", alias: "work" }])).body.messageIds).toEqual([work]);
       const card = (id: string, action: string) => `/api/bots/${bot.id}/connector-cards/${id}/${action}`;
-      expect((await api("POST", card(work, "authorize"), { threadId: bot.threadId })).body.url).toBe("https://connect.composio.dev/fixture-only");
-      expect(connectorLinkRequests.at(-1)).toEqual({ toolkit: "gmail", alias: "work" });
+      const auth = (await api("POST", card(work, "authorize"), { threadId: bot.threadId })).body;
+      expect(auth).toMatchObject({ kind: "form", slug: "gmail", alias: "work" });
       const poll = () => api("GET", `${card(work, "status")}?threadId=${bot.threadId}`);
       expect((await poll()).body.connected).toBe(false);
       expect((await api("POST", card(work, "resume"), { threadId: bot.threadId })).status).toBe(409);
-      const pending = { id: "ca_work", alias: "Work", status: "INITIATED", toolkit: { slug: "gmail" } };
-      connectorAccounts.push(pending);
+      const pending = { id: auth.accountId, alias: "Work", status: "PENDING" };
+      setConnectorInventory([personal, pending]);
       expect((await poll()).body).toMatchObject({ connected: false, pending: true });
-      pending.status = "FAILED";
+      pending.status = "FAILED"; setConnectorInventory([personal, pending]);
       expect((await poll()).body).toMatchObject({ connected: false, status: "FAILED" });
-      pending.status = "ACTIVE";
+      pending.status = "ACTIVE"; setConnectorInventory([personal, pending]);
       expect((await poll()).body.connected).toBe(false);
-      expect((await api("POST", `/api/bots/${bot.id}/connector-accounts/gmail/ca_work`)).status).toBe(200);
+      expect((await api("POST", `/api/bots/${bot.id}/connector-accounts/gmail/${auth.accountId}`)).status).toBe(200);
       expect((await poll()).body.connected).toBe(true);
       // The other requested alias is still missing, so no continuation yet.
       expect((await api("POST", card(work, "resume"), { threadId: bot.threadId })).status).toBe(409);
       expect((await api("GET", `${card(other, "status")}?threadId=${bot.threadId}`)).body.connected).toBe(false);
     } finally {
-      connectorAccounts = [];
+      setConnectorInventory([]);
       await api("DELETE", `/api/bots/${bot.id}`);
     }
   });
 
   it("assigns individual connector accounts, rejects missing accounts, and revokes in-flight access", async () => {
-    expect((await api("PUT", "/api/config", { composio: { apiKey: "ak_good" } })).status).toBe(200);
+    expect((await api("PUT", "/api/config", { connectors: { enabled: true } })).status).toBe(200);
     const bot = (await api("POST", "/api/bots")).body.bot;
     const other = (await api("POST", "/api/bots")).body.bot;
-    connectorAccounts = [
-      { id: "ca_work", alias: "work", status: "ACTIVE", toolkit: { slug: "gmail" } },
-      { id: "ca_personal", alias: "personal", status: "ACTIVE", toolkit: { slug: "gmail" } },
-      { id: "ca_pending", alias: "pending", status: "INITIATED", toolkit: { slug: "gmail" } },
-    ];
+    setConnectorInventory([
+      { id: fixtureAccountIds.work, alias: "work", status: "ACTIVE" },
+      { id: fixtureAccountIds.personal, alias: "personal", status: "ACTIVE" },
+      { id: fixtureAccountIds.pending, alias: "pending", status: "PENDING" },
+    ]);
     let held: Awaited<ReturnType<typeof delayedJsonBody>> | undefined;
     try {
       const route = (id: string) => `/api/bots/${bot.id}/connector-accounts/gmail/${id}`;
       expect((await api("POST", route("ca_missing"))).status).toBe(400);
-      expect((await api("POST", route("ca_pending"))).status).toBe(400);
-      expect((await api("POST", `/api/bots/${bot.id}/connector-accounts/github/ca_work`)).status).toBe(400);
-      await api("PATCH", `/api/bots/${bot.id}`, { composio: false });
-      expect((await api("POST", route("ca_work"))).body.bot).toMatchObject({ composio: true, connectorAccounts: { gmail: ["ca_work"] } });
-      expect((await api("POST", route("ca_work"))).body.bot.connectorAccounts.gmail).toEqual(["ca_work"]);
-      await Promise.all([api("POST", route("ca_personal")), api("POST", route("ca_work"))]);
-      expect((await api("GET", "/api/bots")).body.bots.find((item: any) => item.id === bot.id).connectorAccounts.gmail.sort()).toEqual(["ca_personal", "ca_work"]);
+      expect((await api("POST", route("00000000-0000-4000-8000-000000000003"))).status).toBe(400);
+      expect((await api("POST", `/api/bots/${bot.id}/connector-accounts/github/00000000-0000-4000-8000-000000000001`)).status).toBe(400);
+      await api("PATCH", `/api/bots/${bot.id}`, { connectors: false });
+      expect((await api("POST", route("00000000-0000-4000-8000-000000000001"))).body.bot).toMatchObject({ connectors: true, connectorAccounts: { gmail: ["00000000-0000-4000-8000-000000000001"] } });
+      expect((await api("POST", route("00000000-0000-4000-8000-000000000001"))).body.bot.connectorAccounts.gmail).toEqual(["00000000-0000-4000-8000-000000000001"]);
+      await Promise.all([api("POST", route("00000000-0000-4000-8000-000000000002")), api("POST", route("00000000-0000-4000-8000-000000000001"))]);
+      expect((await api("GET", "/api/bots")).body.bots.find((item: any) => item.id === bot.id).connectorAccounts.gmail.sort()).toEqual(["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"]);
       expect((await api("GET", "/api/bots")).body.bots.find((item: any) => item.id === other.id).connectorAccounts).toBeUndefined();
-      await api("DELETE", route("ca_personal"));
+      await api("DELETE", route("00000000-0000-4000-8000-000000000002"));
       const token = await mintTestCapability(BASE, bot.id, bot.threadId, { kind: "connectors" });
-      const selfGrant = await fetch(`${BASE}${route("ca_personal")}`, { method: "POST", headers: { authorization: `Bearer ${token}` } });
+      const selfGrant = await fetch(`${BASE}${route("00000000-0000-4000-8000-000000000002")}`, { method: "POST", headers: { authorization: `Bearer ${token}` } });
       expect(selfGrant.status).toBe(403);
       held = await delayedJsonBody("POST", "/api/internal/connectors/mcp",
-        { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "COMPOSIO_MULTI_EXECUTE_TOOL" } },
+        { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "connectors_execute_tool", arguments: { service: "gmail", accountId: fixtureAccountIds.work, tool: "echo", arguments: {} } } },
         { authorization: `Bearer ${token}` });
-      expect((await api("DELETE", route("ca_work"))).body.bot.connectorAccounts).toEqual({});
+      expect((await api("DELETE", route("00000000-0000-4000-8000-000000000001"))).body.bot.connectorAccounts).toEqual({});
       const refused = await held.finish();
-      expect(refused.status).toBe(403);
-      expect(refused.body.error).toMatch(/No connector accounts approved/);
+      expect(refused.status).toBe(200);
+      expect(refused.body.result.isError).toBe(true);
+      expect(refused.body.result.content[0].text).toMatch(/not approved|revoked/);
       held = undefined;
-      await api("POST", route("ca_work"));
-      await api("POST", route("ca_personal"));
-      await api("POST", `/api/bots/${other.id}/connector-accounts/gmail/ca_work`);
-      expect((await api("DELETE", "/api/connectors/gmail/accounts/ca_work")).status).toBe(200);
+      await api("POST", route("00000000-0000-4000-8000-000000000001"));
+      await api("POST", route("00000000-0000-4000-8000-000000000002"));
+      await api("POST", `/api/bots/${other.id}/connector-accounts/gmail/00000000-0000-4000-8000-000000000001`);
+      expect((await api("DELETE", "/api/connectors/gmail/accounts/00000000-0000-4000-8000-000000000001")).status).toBe(200);
       const saved = (await api("GET", "/api/bots")).body.bots;
-      expect(saved.find((item: any) => item.id === bot.id).connectorAccounts).toEqual({ gmail: ["ca_personal"] });
+      expect(saved.find((item: any) => item.id === bot.id).connectorAccounts).toEqual({ gmail: ["00000000-0000-4000-8000-000000000002"] });
       expect(saved.find((item: any) => item.id === other.id).connectorAccounts).toEqual({});
     } finally {
       held?.close();
-      connectorAccounts = [];
+      setConnectorInventory([]);
       await api("DELETE", `/api/bots/${bot.id}`);
       await api("DELETE", `/api/bots/${other.id}`);
     }
@@ -8904,7 +8841,7 @@ describe("harness HTTP API", () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
     let held: Awaited<ReturnType<typeof delayedJsonBody>> | undefined;
     try {
-      expect((await api("PATCH", `/api/bots/${bot.id}`, { composio: true })).status).toBe(200);
+      expect((await api("PATCH", `/api/bots/${bot.id}`, { connectors: true })).status).toBe(200);
       const token = await mintTestCapability(BASE, bot.id, bot.threadId, { kind: "connectors" });
       held = await delayedJsonBody(
         "POST",
@@ -8913,7 +8850,7 @@ describe("harness HTTP API", () => {
         { authorization: `Bearer ${token}` },
       );
 
-      expect((await api("PATCH", `/api/bots/${bot.id}`, { composio: false })).status).toBe(200);
+      expect((await api("PATCH", `/api/bots/${bot.id}`, { connectors: false })).status).toBe(200);
       const rejected = await held.finish();
       expect(rejected.status).toBe(403);
       expect(rejected.body.error).toMatch(/connected apps are not enabled/i);
@@ -9835,9 +9772,9 @@ describe("bot memory API", () => {
       // Force the two settings-dependent won't sentences that a bare
       // freshly-created record would not otherwise guarantee (no other
       // bot need exist in this section, and computer defaults to "auto").
-      // composio: false makes "Has no connected apps." definite whatever the
+      // connectors: false makes "Has no connected apps." definite whatever the
       // harness connector reports (an earlier test configures it).
-      await api("PATCH", `/api/bots/${bot.id}`, { computer: "off", peers: [], composio: false });
+      await api("PATCH", `/api/bots/${bot.id}`, { computer: "off", peers: [], connectors: false });
 
       const fresh = await api("GET", `/api/bots/${bot.id}/overview`);
       expect(fresh.status).toBe(200);

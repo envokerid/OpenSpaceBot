@@ -175,7 +175,7 @@ fun ConnectedAppsScreen(onBack: () -> Unit) {
                         ) {
                             Text("Connected apps need setup", fontWeight = FontWeight.SemiBold)
                             Text(
-                                "Configure Composio on your computer first. Provider credentials are never returned to this phone.",
+                                "Enable Connected Apps on your server first. Provider credentials are never returned to this phone.",
                                 color = secondaryTint,
                                 fontSize = 13.sp,
                             )

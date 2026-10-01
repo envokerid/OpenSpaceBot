@@ -5,7 +5,7 @@
 // continues across turns via --resume <sessionId> (the resumeCursor).
 //
 // Integrations become MCP servers on the CLI:
-//   - Composio Sessions (connected apps → tools) over streamable HTTP
+//   - OpenClaw connected accounts through the app bridge
 //   - the bot's cloud computer (box.ascii.dev) via server/computer-proxy.ts
 //     — screenshot/exec/open_url, the CUA-on-the-box bridge
 import { createHash, randomBytes } from "node:crypto";
@@ -1196,9 +1196,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       // acceptEdits run silently denies anything unlisted)
       const mcpServers: Record<string, unknown> = {};
       const allowed: string[] = [];
-      if (turn.integrations?.composio) {
-        mcpServers.composio = { ...turn.integrations.composio };
-        allowed.push("mcp__composio");
+      if (turn.integrations?.connectors) {
+        mcpServers.connectors = { ...turn.integrations.connectors };
+        // Connector execution uses the normal permission broker; an
+        // account grant alone never pre-approves every provider action.
       }
       if (turn.integrations?.localComputer) {
         const local = turn.integrations.localComputer;
@@ -1290,7 +1291,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       }
       mcpServers.ogb = { command: process.execPath, args: [PERM_PROXY_PATH, socketPath], env: { ...NODE_ENV_FLAG }, alwaysLoad: true };
       allowed.push("mcp__ogb");
-      // The MCP config carries credentials — a Composio consumer key in a
+      // The MCP config carries credentials — a connector capability token in a
       // header, the box token in the computer proxy's env, the comms token in
       // the agents proxy's env. On argv every one of those is world-readable
       // through `ps` for the life of the turn, to any local process. The CLI
@@ -2056,7 +2057,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           agentsMcp: true,
         customMcp: true,
           computerMcp: true,
-          composioMcp: true,
+          connectorsMcp: true,
           phoneMcp: true,
           browserMcp: true,
           images: true,

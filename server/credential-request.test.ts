@@ -23,7 +23,7 @@ const MAPPINGS: Array<[CredentialTargetId, CredentialConfig]> = [
 describe("credential request allowlist", () => {
   it("accepts only declared own ids", () => {
     expect(isCredentialTargetId("xaiApiKey")).toBe(true);
-    expect(isCredentialTargetId("composioApiKey")).toBe(false);
+    expect(isCredentialTargetId("connectorsApiKey")).toBe(false);
     expect(isCredentialTargetId("__proto__")).toBe(false);
     expect(isCredentialTargetId({ toString: () => "xaiApiKey" })).toBe(false);
   });

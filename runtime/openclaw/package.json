@@ -1,0 +1,10 @@
+{
+  "name": "@openmausbot/openclaw-runtime",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "npm": "11.13.0",
+    "openclaw": "2026.9.6"
+  }
+}

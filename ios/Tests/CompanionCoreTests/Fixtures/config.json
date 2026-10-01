@@ -2,7 +2,7 @@
   "xai": {
     "configured": false
   },
-  "composio": {
+  "connectors": {
     "configured": false,
     "mode": "unavailable"
   },

@@ -510,6 +510,24 @@ export class Store {
     const chiefSectionsSeen = new Set<string>();
     let groupsMigrated = false;
     for (const b of this.bots) {
+      // Retire old provider grants. New OpenClaw identities are UUIDs, and
+      // connecting a replacement account still requires an explicit grant.
+      const legacy = b as typeof b & { composio?: boolean };
+      if (Object.hasOwn(legacy, "composio")) {
+        if (b.connectors === undefined) b.connectors = legacy.composio !== false;
+        delete legacy.composio;
+        botsMigrated = true;
+      }
+      if (b.connectorAccounts) {
+        for (const [slug, ids] of Object.entries(b.connectorAccounts)) {
+          const kept = ids.filter(id => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
+          if (kept.length !== ids.length) {
+            if (kept.length) b.connectorAccounts[slug] = kept;
+            else delete b.connectorAccounts[slug];
+            botsMigrated = true;
+          }
+        }
+      }
       // transient state never survives a restart — and if a previous
       // process died mid-turn, bots.json still says busy/working; persist
       // the reset so the next load does not read it again
@@ -1449,7 +1467,7 @@ export class Store {
         next = { id: operation.botId, threadId: operation.threadId, name: operation.fields.name,
           title: "", description: "", soul: "", notifications: true, color: "white", unread: false,
           modelSelection: operation.fields.modelSelection, resumeCursors: {}, createdAt, ...operation.fields,
-          approvalMode: "ask", autoApprove: false, composio: false, approvePeerComms: false,
+          approvalMode: "ask", autoApprove: false, connectors: false, approvePeerComms: false,
           tasks: [{ threadId: operation.threadId, title: UNTITLED_THREAD, createdAt, resumeCursors: {},
             modelSelection: structuredClone(operation.fields.modelSelection), approvalMode: "ask", autoApprove: false,
             unread: false, activity: "idle", busy: false }],

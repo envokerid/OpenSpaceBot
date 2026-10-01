@@ -28,7 +28,7 @@ export interface WorkspaceConfig {
   xai?: { configured: boolean };
   box?: { configured: boolean };
   opencodeGo?: { configured: boolean };
-  composio?: { configured: boolean; mode?: string };
+  connectors?: { configured: boolean; mode?: string };
   vps?: { configured: boolean; sshAlias?: string };
   tts?: {
     configured: boolean;

@@ -525,7 +525,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
       : { state: "unavailable", reason: options.unavailableReason },
     adapter: {
       provider: options.driverKind,
-      capabilities: { sessionModelSwitch: "in-session", structuredHistory: true, customMcp: options.tools !== false, agentsMcp: options.tools !== false, composioMcp: options.tools !== false },
+      capabilities: { sessionModelSwitch: "in-session", structuredHistory: true, customMcp: options.tools !== false, agentsMcp: options.tools !== false, connectorsMcp: options.tools !== false },
       sendTurn,
       interruptTurn: async (threadId, turnId) => {
         const turn = active.get(threadId);

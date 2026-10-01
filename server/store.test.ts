@@ -27,6 +27,20 @@ describe("Store", () => {
     rmSync(DATA_DIR, { recursive: true, force: true });
   });
 
+  it("preserves a legacy disabled connector switch and discards retired account IDs", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const file = join(DATA_DIR, "bots.json");
+    const records = JSON.parse(readFileSync(file, "utf8"));
+    records[0].composio = false;
+    records[0].connectorAccounts = { gmail: ["ca_retired"] };
+    writeFileSync(file, JSON.stringify(records));
+    const migrated = new Store(selection).bot(bot.id);
+    expect(migrated?.connectors).toBe(false);
+    expect(migrated?.connectorAccounts).toEqual({});
+    expect(readFileSync(file, "utf8")).not.toContain('"composio"');
+  });
+
   it("persists bot and group main threads independently of selection", () => {
     const store = new Store(selection);
     const bot = store.createBot();
@@ -479,13 +493,13 @@ describe("Store", () => {
     expect(store.activePath(bot.threadId).at(-1)?.id).toBe(orphan.id);
   });
 
-  it("persists the per-bot composio gate", () => {
+  it("persists the per-bot connectors gate", () => {
     const store = new Store(selection);
     const bot = store.createBot();
-    store.patchBot(bot.id, { composio: false, connectorAccounts: { gmail: ["ca_work", "ca_personal"] } });
+    store.patchBot(bot.id, { connectors: false, connectorAccounts: { gmail: ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"] } });
     const reloaded = new Store(selection);
-    expect(reloaded.bot(bot.id)?.composio).toBe(false);
-    expect(reloaded.bot(bot.id)?.connectorAccounts).toEqual({ gmail: ["ca_work", "ca_personal"] });
+    expect(reloaded.bot(bot.id)?.connectors).toBe(false);
+    expect(reloaded.bot(bot.id)?.connectorAccounts).toEqual({ gmail: ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"] });
   });
 
   it("defaults every new bot to white while preserving chosen colors on reload", () => {
@@ -1101,12 +1115,12 @@ describe("Store", () => {
     expect(store.messagesFor(bot.threadId)).toHaveLength(0);
   });
 
-  it("persists the per-bot composio gate", () => {
+  it("persists the per-bot connectors gate", () => {
     const store = new Store(selection);
     const bot = store.createBot();
-    store.patchBot(bot.id, { composio: false });
+    store.patchBot(bot.id, { connectors: false });
     const reloaded = new Store(selection);
-    expect(reloaded.bot(bot.id)?.composio).toBe(false);
+    expect(reloaded.bot(bot.id)?.connectors).toBe(false);
   });
 
   it("deleteBot removes the bot and its durable transcript", () => {

@@ -15,3 +15,6 @@ electron/resources/cloudflared*
 .env
 **/.env
 **/.env.*
+
+dist-native
+local-agents

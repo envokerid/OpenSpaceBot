@@ -21,7 +21,7 @@ const parameters = z.record(z.string(), z.unknown()).superRefine((schema, ctx) =
   } catch (error) { ctx.addIssue({ code: "custom", message: `Invalid tool schema: ${String(error)}` }); }
 });
 const responses = z.array(z.object({ text, isError: z.boolean().default(false) }).strict()).min(1).max(20);
-const sectionIds = new Set(["persona", "soul", "setup", "files", "computer", "team-computer", "plan", "composio", "mcp", "browser", "coordination-rules", "coordination", "assignment", "outstanding", "credential", "recall", "routine", "routine-execution", "profile", "learn", "section-context", "recent", "memory", "skills", "skill-instructions", "playbooks", "webhook", "mentions"]);
+const sectionIds = new Set(["persona", "soul", "setup", "files", "computer", "team-computer", "plan", "connectors", "mcp", "browser", "coordination-rules", "coordination", "assignment", "outstanding", "credential", "recall", "routine", "routine-execution", "profile", "learn", "section-context", "recent", "memory", "skills", "skill-instructions", "playbooks", "webhook", "mentions"]);
 const memory = z.object({
   mode: z.enum(["seeded", "empty", "off"]).default("seeded"),
   text: text.optional(), topics: z.record(topicName, text).default({}),

@@ -102,7 +102,7 @@ it("runs structured MCP calls through real harness approval and continuation, pr
         await api("PATCH", "/api/instances/claude", { tools: false }, 400);
         const changed = await api("PATCH", "/api/instances/openaiCompat", { tools: false });
         const instance = changed.instances.find((item: any) => item.instanceId === "openaiCompat");
-        expect(instance.capabilities).toMatchObject({ agentsMcp: false, composioMcp: false });
+        expect(instance.capabilities).toMatchObject({ agentsMcp: false, connectorsMcp: false });
       }
       await api("PATCH", `/api/mcp/servers/${mode}`, { enabled: true });
       const { bot } = await control(["new-bot", "--name", `API tool ${mode}`]);

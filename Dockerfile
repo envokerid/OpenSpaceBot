@@ -12,7 +12,7 @@
 # HOME is the /data volume, so engine CLI logins (~/.claude, ~/.codex, ...) and
 # OpenMausBot's own state (~/.openmausbot) persist across container restarts.
 
-FROM node:24-bookworm-slim AS build
+FROM node:24.16.0-bookworm-slim AS build
 WORKDIR /src
 # pinned to package.json#packageManager; corepack is being removed from Node
 RUN npm install -g pnpm@10.33.0
@@ -22,6 +22,8 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 # every workspace member's manifest must exist before install resolves the lockfile
 COPY apps/docs/package.json ./apps/docs/package.json
 COPY cloudflare/control-plane/package.json ./cloudflare/control-plane/package.json
+COPY website/package.json ./website/package.json
+COPY runtime/openclaw/package.json ./runtime/openclaw/package.json
 # package.json's `prepare` runs during install. The script itself is written to
 # no-op without a .git (it exits 0 here), but node still has to be able to LOAD
 # it, and .dockerignore keeps .git out — so copy it in before install or the
@@ -29,9 +31,9 @@ COPY cloudflare/control-plane/package.json ./cloudflare/control-plane/package.js
 COPY scripts/install-git-hooks.mjs ./scripts/install-git-hooks.mjs
 RUN pnpm install --frozen-lockfile
 COPY . .
-RUN pnpm build:server && pnpm exec vite build
+RUN pnpm build:server && pnpm exec vite build && pnpm --filter @openmausbot/openclaw-runtime deploy --prod --legacy /openclaw
 
-FROM node:24-bookworm-slim
+FROM node:24.16.0-bookworm-slim
 # Install Chrome's Bookworm libraries directly: agent-browser --with-deps
 # invokes sudo even as root, and this image deliberately does not ship sudo.
 # git + curl: agent CLIs shell out to git; curl backs the healthcheck
@@ -49,6 +51,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=build --chown=maus:maus /src/dist-server ./dist-server
 COPY --from=build --chown=maus:maus /src/dist ./dist
+COPY --from=build --chown=maus:maus /openclaw ./runtime/openclaw
 # Optional engine CLIs baked into the image (space-separated npm packages).
 ARG ENGINES=""
 RUN if [ -n "$ENGINES" ]; then npm install -g $ENGINES; fi
@@ -66,6 +69,7 @@ ENV HOME=/data \
     AGENT_BROWSER_EXECUTABLE_PATH=/opt/openmausbot-browser/chrome \
     OMB_DATA_DIR=/data/.openmausbot \
     OMB_STATIC_DIR=/app/dist \
+    OMB_OPENCLAW_RUNTIME=/app/runtime/openclaw \
     OMB_PORT=8799 \
     OMB_WEBHOOK_PORT=8800 \
     NODE_ENV=production
